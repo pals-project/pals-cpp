@@ -3,6 +3,58 @@
 #include <cstring>
 #include <fstream>
 
+// ======= LATTICE EXPANSION UTILS
+// === DEEP COPY ===
+
+YAML::Node deep_copy_internal(const YAML::Node& node) {
+    if (node.IsScalar()) {
+        return YAML::Node(node.as<std::string>());
+    } else if (node.IsSequence()) {
+        YAML::Node seq(YAML::NodeType::Sequence);
+        for (auto x : node) {
+            seq.push_back(deep_copy_internal(x));
+        }
+        return seq;
+    } else if (node.IsMap()) {
+        YAML::Node map(YAML::NodeType::Map);
+        for (auto x : node) {
+            map[x.first.as<std::string>()] = deep_copy_internal(x.second);
+        }
+        return map;
+    } else {
+        return YAML::Node();
+    }
+}
+// === REPLACE ===
+YAML::Node replace_internal(YAML::Node name, std::map<std::string, YAML::Node>* seen) {
+    std::string str = name.as<std::string>();
+    if (seen->count(str)) {
+        return deep_copy_internal(seen->at(str));
+    } else {
+        return name;
+    }
+}
+
+// === EXPAND ===
+YAML::Node expand_internal(YAML::Node node, std::map<std::string, YAML::Node>* seen) {
+    if (node.IsSequence()) {
+        for (int i = 0; i < node.size(); i++) {
+            node[i] = expand_internal(node[i], seen);
+        }
+        return node;
+    } else if (node.IsScalar()) {
+        return replace_internal(node, seen);
+    } else if (node.IsMap()) {
+        for (auto ele : node) {
+            seen->insert({ele.first.as<std::string>(), ele.second});
+            node[ele.first.as<std::string>()] = expand_internal(ele.second, seen);
+        }
+        return node;
+    } else {
+        return node;
+    }
+}
+
 extern "C" {
     typedef void* YAMLNodeHandle;
     
@@ -367,59 +419,6 @@ extern "C" {
     
     YAMLNodeHandle yaml_clone(YAMLNodeHandle handle) {
         return new YAML::Node(YAML::Clone(*static_cast<YAML::Node*>(handle)));
-    }
-
-
-    // ======= LATTICE EXPANSION UTILS
-    // === DEEP COPY ===
-    
-    YAML::Node deep_copy_internal(const YAML::Node& node) {
-        if (node.IsScalar()) {
-            return YAML::Node(node.as<std::string>());
-        } else if (node.IsSequence()) {
-            YAML::Node seq(YAML::NodeType::Sequence);
-            for (auto x : node) {
-                seq.push_back(deep_copy_internal(x));
-            }
-            return seq;
-        } else if (node.IsMap()) {
-            YAML::Node map(YAML::NodeType::Map);
-            for (auto x : node) {
-                map[x.first.as<std::string>()] = deep_copy_internal(x.second);
-            }
-            return map;
-        } else {
-            return YAML::Node();
-        }
-    }
-    // === REPLACE ===
-    YAML::Node replace_internal(YAML::Node name, std::map<std::string, YAML::Node>* seen) {
-        std::string str = name.as<std::string>();
-        if (seen->count(str)) {
-            return deep_copy_internal(seen->at(str));
-        } else {
-            return name;
-        }
-    }
-    
-    // === EXPAND ===
-    YAML::Node expand_internal(YAML::Node node, std::map<std::string, YAML::Node>* seen) {
-        if (node.IsSequence()) {
-            for (int i = 0; i < node.size(); i++) {
-                node[i] = expand_internal(node[i], seen);
-            }
-            return node;
-        } else if (node.IsScalar()) {
-            return replace_internal(node, seen);
-        } else if (node.IsMap()) {
-            for (auto ele : node) {
-                seen->insert({ele.first.as<std::string>(), ele.second});
-                node[ele.first.as<std::string>()] = expand_internal(ele.second, seen);
-            }
-            return node;
-        } else {
-            return node;
-        }
     }
     
     // C interface for expand - handles the map internally

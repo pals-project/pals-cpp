@@ -1,10 +1,12 @@
 ## Introduction
-yaml_reader.cpp is for manipulaing lattices direcly in C++. yaml_c_wrapper.cpp wraps YAML::Node into C objects so they can be part of a shared object library to interface with other languages
+yaml_c_wrapper.cpp wraps YAML::Node into C objects so they can be part of a shared object library to interface with other languages
 
 First install yaml-cpp by running 
 
 macOS:  
-brew install yaml-cpp
+brew install yaml-cpp  
+or  
+port install yaml-cpp
 
 Linux:  
 sudo apt-get install libyaml-cpp-dev
@@ -25,3 +27,9 @@ Next, in pals-cpp, run
 mkdir build && cd build  
 cmake .. -DYAML_BUILD_SHARED_LIBS=ON  
 make
+
+## Example
+See yaml_reader.cpp for an example of how to use the library to read a lattice file, 
+perform a basic manipulation, and write to another lattice file. 
+Navigate to the build directly and run  
+./yaml_reader
