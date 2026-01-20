@@ -4,32 +4,11 @@
 #include <fstream>
 
 // ======= LATTICE EXPANSION UTILS
-// === DEEP COPY ===
-
-YAML::Node deep_copy_internal(const YAML::Node& node) {
-    if (node.IsScalar()) {
-        return YAML::Node(node.as<std::string>());
-    } else if (node.IsSequence()) {
-        YAML::Node seq(YAML::NodeType::Sequence);
-        for (auto x : node) {
-            seq.push_back(deep_copy_internal(x));
-        }
-        return seq;
-    } else if (node.IsMap()) {
-        YAML::Node map(YAML::NodeType::Map);
-        for (auto x : node) {
-            map[x.first.as<std::string>()] = deep_copy_internal(x.second);
-        }
-        return map;
-    } else {
-        return YAML::Node();
-    }
-}
 // === REPLACE ===
 YAML::Node replace_internal(YAML::Node name, std::map<std::string, YAML::Node>* seen) {
     std::string str = name.as<std::string>();
     if (seen->count(str)) {
-        return deep_copy_internal(seen->at(str));
+        return YAML::Clone(seen->at(str));
     } else {
         return name;
     }

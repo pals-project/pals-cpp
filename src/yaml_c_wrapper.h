@@ -56,7 +56,6 @@ void yaml_push_node(YAMLNodeHandle handle, YAMLNodeHandle value);
 char* yaml_to_string(YAMLNodeHandle handle);
 char* yaml_emit(YAMLNodeHandle handle, int indent);
 YAMLNodeHandle yaml_clone(YAMLNodeHandle handle);
-YAMLNodeHandle yaml_deep_copy(YAMLNodeHandle handle);
 YAMLNodeHandle yaml_expand(YAMLNodeHandle handle);
 
 bool yaml_write_file(YAMLNodeHandle handle, const char* filename);
