@@ -1,0 +1,18 @@
+- thingB:
+    kind: Sextupole
+
+- inj_line:
+    kind: BeamLine
+    multipass: true
+    length: 37.8
+    zero_point: thingC
+    line:                # This item refers to the name of an element or BeamLine defined elsewhere.
+      - thingZ:               # thingZ inherits parameters from thingB
+          inherit: thingB
+      - Q1a:                  # Define an element in place called Q1a
+          kind: Quadrupole
+          length: 1.03
+          direction: -1
+      - a_subline:            # Item a_subline is repeated three times
+          repeat: 3
+          hi: 2
