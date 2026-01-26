@@ -13,6 +13,7 @@ typedef void* YAMLNodeHandle;
 YAMLNodeHandle yaml_create_node(void);
 YAMLNodeHandle yaml_create_map(void);
 YAMLNodeHandle yaml_create_sequence(void);
+YAMLNodeHandle yaml_create_scalar();
 void yaml_delete_node(YAMLNodeHandle handle);
 
 // === PARSING ===
@@ -24,7 +25,6 @@ bool yaml_is_scalar(YAMLNodeHandle handle);
 bool yaml_is_sequence(YAMLNodeHandle handle);
 bool yaml_is_map(YAMLNodeHandle handle);
 bool yaml_is_null(YAMLNodeHandle handle);
-bool yaml_is_defined(YAMLNodeHandle handle);
 
 // === ACCESS ===
 YAMLNodeHandle yaml_get_key(YAMLNodeHandle handle, const char* key);
@@ -46,6 +46,12 @@ void yaml_set_float(YAMLNodeHandle handle, const char* key, double value);
 void yaml_set_bool(YAMLNodeHandle handle, const char* key, bool value);
 void yaml_set_node(YAMLNodeHandle handle, const char* key, YAMLNodeHandle value);
 
+void yaml_set_scalar_string(YAMLNodeHandle handle, const char* value);
+void yaml_set_scalar_int(YAMLNodeHandle handle, int value);
+void yaml_set_scalar_float(YAMLNodeHandle handle, double value);
+void yaml_set_scalar_bool(YAMLNodeHandle handle, bool value);
+
+void yaml_set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value) ;
 void yaml_push_string(YAMLNodeHandle handle, const char* value);
 void yaml_push_int(YAMLNodeHandle handle, int value);
 void yaml_push_float(YAMLNodeHandle handle, double value);

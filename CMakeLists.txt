@@ -1,9 +1,21 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 project(YAMLWrapper)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+enable_testing()
+include(FetchContent)
+
+FetchContent_Declare(
+  Catch2
+  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+  GIT_TAG v3.5.2
+)
+
+FetchContent_MakeAvailable(Catch2)
+add_subdirectory(tests)
 
 if(APPLE)
     # Check for package managers
@@ -68,5 +80,5 @@ find_package(yaml-cpp REQUIRED)
 add_library(yaml_c_wrapper SHARED src/yaml_c_wrapper.cpp)
 target_link_libraries(yaml_c_wrapper yaml-cpp)
 
-add_executable(yaml_reader src/yaml_reader.cpp)
+add_executable(yaml_reader examples/yaml_reader.cpp)
 target_link_libraries(yaml_reader yaml_c_wrapper)

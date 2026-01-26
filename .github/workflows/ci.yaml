@@ -1,0 +1,24 @@
+name: C++ CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: C++ - ${{ github.event_name }}
+    runs-on: ubuntu-latest
+    permissions: 
+      actions: write
+      contents: read
+    steps:
+      # 1. Check out your code
+      - uses: actions/checkout@v4
+      # # 2. Install dependencies (if using vcpkg, Conan, etc.)
+      # - name: Install dependencies
+      #   run: sudo apt update && sudo apt install -y cmake g++ make
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure --verbose --no-compress-output

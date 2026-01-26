@@ -22,14 +22,27 @@ cmake ..
 cmake --build .  
 cmake --install .  
 
-Next, in pals-cpp, run  
+## Usage
+In pals-cpp, run  
 
-mkdir build && cd build  
-cmake .. -DYAML_BUILD_SHARED_LIBS=ON  
-make
+mkdir build 
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build
 
-## Example
-See yaml_reader.cpp for an example of how to use the library to read a lattice file, 
-perform a basic manipulation, and write to another lattice file. 
-Navigate to the build directly and run  
+This builds libyaml_c_wrapper.dylib, a shared object library that can be used
+by other languages. 
+
+It also builds an executable using yaml_reader.cpp containing examples for how 
+to use the library to read lattice files, perform basic manipulations, and write
+to other lattice files. To see the output, navigate to the build directory and run  
 ./yaml_reader
+
+It will also build the tests.
+
+## Testing
+In the root pals-cpp directory, run  
+ctest --test-dir build --output-on-failure  
+
+To run a specific test, run 
+ctest --test-dir build -R "Test Name"

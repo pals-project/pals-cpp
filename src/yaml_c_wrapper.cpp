@@ -125,9 +125,6 @@ extern "C" {
         return static_cast<YAML::Node*>(handle)->size();
     }
 
-    // === ITERATION HELPERS ===
-    
-    // For iterating over maps - get all keys
     char** yaml_get_keys(YAMLNodeHandle handle, int* out_count) {
         auto node = static_cast<YAML::Node*>(handle);
         if (!node->IsMap()) {
@@ -147,20 +144,6 @@ extern "C" {
             strcpy(result[i], keys[i].c_str());
         }
         return result;
-    }
-    
-    void yaml_free_keys(char** keys, int count) {
-        for (int i = 0; i < count; i++) {
-            delete[] keys[i];
-        }
-        delete[] keys;
-    }
-    
-    // Set node at index for sequences
-    void yaml_set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value) {
-        auto node = static_cast<YAML::Node*>(handle);
-        auto val_node = static_cast<YAML::Node*>(value);
-        (*node)[index] = *val_node;
     }
     
     // === CONVERT TO C TYPES (caller must free returned strings) ===
@@ -224,6 +207,37 @@ extern "C" {
         auto node = static_cast<YAML::Node*>(handle);
         auto val_node = static_cast<YAML::Node*>(value);
         (*node)[key] = *val_node;
+    }
+
+    void yaml_set_scalar_string(YAMLNodeHandle handle, const char* value) {
+        if (handle == nullptr || value == nullptr) return;
+        auto node = static_cast<YAML::Node*>(handle);
+        *node = value;
+    }
+    
+    void yaml_set_scalar_int(YAMLNodeHandle handle, int value) {
+        if (handle == nullptr) return;
+        auto node = static_cast<YAML::Node*>(handle);
+        *node = value;
+    }
+    
+    void yaml_set_scalar_float(YAMLNodeHandle handle, double value) {
+        if (handle == nullptr) return;
+        auto node = static_cast<YAML::Node*>(handle);
+        *node = value;
+    }
+    
+    void yaml_set_scalar_bool(YAMLNodeHandle handle, bool value) {
+        if (handle == nullptr) return;
+        auto node = static_cast<YAML::Node*>(handle);
+        *node = value;
+    }
+    
+    // Set node at index for sequences
+    void yaml_set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value) {
+        auto node = static_cast<YAML::Node*>(handle);
+        auto val_node = static_cast<YAML::Node*>(value);
+        (*node)[index] = *val_node;
     }
     
     void yaml_push_string(YAMLNodeHandle handle, const char* value) {
@@ -395,6 +409,14 @@ extern "C" {
     void yaml_free_string(char* str) {
         delete[] str;
     }
+
+    void yaml_free_keys(char** keys, int count) {
+        for (int i = 0; i < count; i++) {
+            delete[] keys[i];
+        }
+        delete[] keys;
+    }
+    
     
     YAMLNodeHandle yaml_clone(YAMLNodeHandle handle) {
         return new YAML::Node(YAML::Clone(*static_cast<YAML::Node*>(handle)));
