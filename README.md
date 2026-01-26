@@ -26,7 +26,7 @@ cmake --install .
 In pals-cpp, run  
 
 mkdir build 
-cmake -S . -B build
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -S . -B build 
 cmake --build build
 ctest --test-dir build
 
@@ -46,3 +46,7 @@ ctest --test-dir build --output-on-failure
 
 To run a specific test, run 
 ctest --test-dir build -R "Test Name"
+
+## Issue
+yaml-cpp's cmake only requires cmake version 3.4, which is deprecated. Warnings must
+be suppressed to run properly

@@ -9,11 +9,17 @@ enable_testing()
 include(FetchContent)
 
 FetchContent_Declare(
+  yaml-cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0
+)
+FetchContent_Declare(
   Catch2
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
   GIT_TAG v3.5.2
 )
 
+FetchContent_MakeAvailable(yaml-cpp)
 FetchContent_MakeAvailable(Catch2)
 add_subdirectory(tests)
 
@@ -74,8 +80,6 @@ if(APPLE)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
     message(STATUS "RPATH set to: ${CMAKE_INSTALL_RPATH}")
 endif()
-
-find_package(yaml-cpp REQUIRED)
 
 add_library(yaml_c_wrapper SHARED src/yaml_c_wrapper.cpp)
 target_link_libraries(yaml_c_wrapper yaml-cpp)
