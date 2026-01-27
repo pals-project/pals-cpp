@@ -1,6 +1,6 @@
 ## Introduction
 yaml_c_wrapper.cpp wraps YAML::Node into C objects so they can be part of a shared object library to interface with other languages
-
+<!-- 
 First install yaml-cpp by running 
 
 macOS:  
@@ -20,15 +20,13 @@ cd yaml-cpp/src
 mkdir build && cd build  
 cmake ..  
 cmake --build .  
-cmake --install .  
+cmake --install .   -->
 
 ## Usage
 In pals-cpp, run  
 
-mkdir build 
 cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -S . -B build 
 cmake --build build
-ctest --test-dir build
 
 This builds libyaml_c_wrapper.dylib, a shared object library that can be used
 by other languages. 

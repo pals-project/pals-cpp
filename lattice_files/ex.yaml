@@ -15,4 +15,3 @@
           direction: -1
       - a_subline:            # Item a_subline is repeated three times
           repeat: 3
-          hi: 2

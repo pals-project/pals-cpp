@@ -5,10 +5,10 @@ add_executable(tests
 
 target_link_libraries(tests
   PRIVATE
-    Catch2::Catch2WithMain
+  yaml_c_wrapper
+  Catch2::Catch2WithMain
 )
 
 include(Catch)
 Catch_discover_tests(tests)
 target_compile_features(tests PRIVATE cxx_std_17)
-
