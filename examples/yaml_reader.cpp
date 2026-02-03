@@ -1,7 +1,7 @@
 #include "../src/yaml_c_wrapper.h"
 #include <iostream>
 
-// See ex.yaml for the example lattice file and expand.yaml for the output of this file.
+// See ex.pals.yaml for the example lattice file and expand.pals.yaml for the output of this file.
 
 int main() {
     // reading a lattice from a yaml file
