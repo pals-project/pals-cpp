@@ -98,7 +98,7 @@ TEST_CASE("YAML can be parsed from strings", "[parsing]") {
 
 TEST_CASE("YAML can be parsed from files", "[parsing][file]") {
     SECTION("Parse valid file") {
-        YAMLNodeHandle node = yaml_parse_file("../lattice_files/ex.yaml");
+        YAMLNodeHandle node = yaml_parse_file("../lattice_files/ex.pals.yaml");
         
         REQUIRE(node != nullptr);
         REQUIRE(yaml_is_sequence(node));
@@ -108,7 +108,7 @@ TEST_CASE("YAML can be parsed from files", "[parsing][file]") {
     }
     
     SECTION("Parse non-existent file returns nullptr") {
-        YAMLNodeHandle node = yaml_parse_file("nonexistent.yaml");
+        YAMLNodeHandle node = yaml_parse_file("nonexistent.pals.yaml");
         REQUIRE(node == nullptr);
     }
 }
@@ -483,7 +483,7 @@ TEST_CASE("Scalar values can be edited directly", "[modification][scalar]") {
 // ===========================================
 
 TEST_CASE("YAML can be written to files", "[io][file]") {
-    const char* test_file = "test_output.yaml";
+    const char* test_file = "test_output.pals.yaml";
     
     SECTION("Write simple map") {
         YAMLNodeHandle map = yaml_create_map();
@@ -600,11 +600,11 @@ TEST_CASE("YAML nodes can be cloned", "[clone]") {
 }
 
 // ===========================================
-// TEST SUITE: ex.yaml Structure Tests
+// TEST SUITE: ex.pals.yaml Structure Tests
 // ===========================================
 
-TEST_CASE("ex.yaml has expected structure", "[ex.yaml][structure]") {
-    YAMLNodeHandle root = yaml_parse_file("../lattice_files/ex.yaml");
+TEST_CASE("ex.pals.yaml has expected structure", "[ex.pals.yaml][structure]") {
+    YAMLNodeHandle root = yaml_parse_file("../lattice_files/ex.pals.yaml");
     REQUIRE(root != nullptr);
     
     SECTION("Root is a sequence") {
