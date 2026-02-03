@@ -3,7 +3,7 @@
 
 int main() {
     // reading a lattice from a yaml file
-    YAMLNodeHandle handle = yaml_parse_file("../lattice_files/ex.yaml");
+    YAMLNodeHandle handle = yaml_parse_file("../lattice_files/ex.pals.yaml");
     // printing to terminal
     std::cout << yaml_to_string(handle) << std::endl << std::endl;
 
@@ -33,6 +33,6 @@ int main() {
     yaml_push_node(handle, map);
     yaml_push_node(handle, sequence);
 
-    // writing modified lattice file to expand.yaml
-    yaml_write_file(handle, "../lattice_files/expand.yaml");
+    // writing modified lattice file to expand.pals.yaml
+    yaml_write_file(handle, "../lattice_files/expand.pals.yaml");
 }
