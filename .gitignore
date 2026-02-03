@@ -42,4 +42,4 @@ build/
 # debug information files
 *.dwo
 
-lattice_files/expand.yaml
+lattice_files/expand.pals.yaml

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(YAMLWrapper)
 
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -85,7 +88,7 @@ file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
 # endif()
 
 add_library(yaml_c_wrapper SHARED src/yaml_c_wrapper.cpp)
-target_link_libraries(yaml_c_wrapper yaml-cpp)
+target_link_libraries(yaml_c_wrapper PUBLIC yaml-cpp)
 
 add_executable(yaml_reader examples/yaml_reader.cpp)
 target_link_libraries(yaml_reader yaml_c_wrapper)
