@@ -48,7 +48,7 @@ YAML::Node expand_internal(YAML::Node node, std::map<std::string, YAML::Node>* s
 }
 
 extern "C" {
-    typedef void* YAMLNodeHandle;
+    YAML_API typedef void* YAMLNodeHandle;
     
     // === CREATION/DELETION ===
     YAML_API YAMLNodeHandle yaml_create_node() {
