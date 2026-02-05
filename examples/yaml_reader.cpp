@@ -5,7 +5,9 @@
 
 int main() {
     // reading a lattice from a yaml file
+    // allow files to be read in through command line, print back out
     YAMLNodeHandle handle = yaml_parse_file("../lattice_files/ex.pals.yaml");
+    // print out file name that was read in
     // printing to terminal
     std::cout << yaml_to_string(handle) << std::endl << std::endl;
 

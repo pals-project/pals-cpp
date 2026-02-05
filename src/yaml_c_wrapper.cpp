@@ -78,7 +78,7 @@ extern "C" {
     }
     
     // === PARSING ===
-    YAML_API YAML_API YAMLNodeHandle yaml_parse(const char* yaml_str) {
+    YAML_API YAMLNodeHandle yaml_parse(const char* yaml_str) {
         try {
             return new YAML::Node(YAML::Load(yaml_str));
         } catch (...) {
