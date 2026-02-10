@@ -1,6 +1,5 @@
 - thingB:
     kind: Sextupole
-
 - inj_line:
     kind: BeamLine
     multipass: true
@@ -16,3 +15,9 @@
       - a_subline:            # Item a_subline is repeated three times
           repeat: 3
 - include: "include.pals.yaml"
+- a_subline:
+    kind: BeamLine
+    line:
+        - a
+        - b
+        - c
