@@ -10,70 +10,72 @@ extern "C" {
 typedef void* YAMLNodeHandle;
 
 // === CREATION ===
-YAMLNodeHandle yaml_create_node(void);
-YAMLNodeHandle yaml_create_map(void);
-YAMLNodeHandle yaml_create_sequence(void);
-YAMLNodeHandle yaml_create_scalar();
-void yaml_delete_node(YAMLNodeHandle handle);
+YAMLNodeHandle create_node(void);
+YAMLNodeHandle create_map(void);
+YAMLNodeHandle create_sequence(void);
+YAMLNodeHandle create_scalar();
+void delete_node(YAMLNodeHandle handle);
 
 // === PARSING ===
-YAMLNodeHandle yaml_parse(const char* yaml_str);
-YAMLNodeHandle yaml_parse_file(const char* filename);
+YAMLNodeHandle parse_string(const char* yaml_str);
+YAMLNodeHandle parse_file(const char* filename);
 
 // === TYPE CHECKING ===
-bool yaml_is_scalar(YAMLNodeHandle handle);
-bool yaml_is_sequence(YAMLNodeHandle handle);
-bool yaml_is_map(YAMLNodeHandle handle);
-bool yaml_is_null(YAMLNodeHandle handle);
+bool is_scalar(YAMLNodeHandle handle);
+bool is_sequence(YAMLNodeHandle handle);
+bool is_map(YAMLNodeHandle handle);
+bool is_null(YAMLNodeHandle handle);
 
 // === ACCESS ===
-YAMLNodeHandle yaml_get_key(YAMLNodeHandle handle, const char* key);
-YAMLNodeHandle yaml_get_index(YAMLNodeHandle handle, int index);
-bool yaml_has_key(YAMLNodeHandle handle, const char* key);
-int yaml_size(YAMLNodeHandle handle);
+YAMLNodeHandle get_key(YAMLNodeHandle handle, const char* key);
+YAMLNodeHandle get_index(YAMLNodeHandle handle, int index);
+bool has_key(YAMLNodeHandle handle, const char* key);
+int size(YAMLNodeHandle handle);
+char** get_keys(YAMLNodeHandle handle, int* out_count);
+void yaml_free_keys(char** keys, int count);
 
 // === CONVERSION ===
-char* yaml_as_string(YAMLNodeHandle handle);
-int yaml_as_int(YAMLNodeHandle handle);
-double yaml_as_float(YAMLNodeHandle handle);
-bool yaml_as_bool(YAMLNodeHandle handle);
+char* as_string(YAMLNodeHandle handle);
+int as_int(YAMLNodeHandle handle);
+double as_float(YAMLNodeHandle handle);
+bool as_bool(YAMLNodeHandle handle);
 void yaml_free_string(char* str);
 
 // === MODIFICATION ===
-void yaml_set_string(YAMLNodeHandle handle, const char* key, const char* value);
-void yaml_set_int(YAMLNodeHandle handle, const char* key, int value);
-void yaml_set_float(YAMLNodeHandle handle, const char* key, double value);
-void yaml_set_bool(YAMLNodeHandle handle, const char* key, bool value);
-void yaml_set_node(YAMLNodeHandle handle, const char* key, YAMLNodeHandle value);
+void set_value_string(YAMLNodeHandle handle, const char* key,
+                      const char* value);
+void set_value_int(YAMLNodeHandle handle, const char* key, int value);
+void set_value_float(YAMLNodeHandle handle, const char* key, double value);
+void set_value_bool(YAMLNodeHandle handle, const char* key, bool value);
+void set_value_node(YAMLNodeHandle handle, const char* key,
+                    YAMLNodeHandle value);
 
-void yaml_set_scalar_string(YAMLNodeHandle handle, const char* value);
-void yaml_set_scalar_int(YAMLNodeHandle handle, int value);
-void yaml_set_scalar_float(YAMLNodeHandle handle, double value);
-void yaml_set_scalar_bool(YAMLNodeHandle handle, bool value);
+void set_scalar_string(YAMLNodeHandle handle, const char* value);
+void set_scalar_int(YAMLNodeHandle handle, int value);
+void set_scalar_float(YAMLNodeHandle handle, double value);
+void set_scalar_bool(YAMLNodeHandle handle, bool value);
 
-void yaml_set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value) ;
-void yaml_push_string(YAMLNodeHandle handle, const char* value);
-void yaml_push_int(YAMLNodeHandle handle, int value);
-void yaml_push_float(YAMLNodeHandle handle, double value);
+void set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value);
+void push_string(YAMLNodeHandle handle, const char* value);
+void push_int(YAMLNodeHandle handle, int value);
+void push_float(YAMLNodeHandle handle, double value);
 void yaml_push_bool(YAMLNodeHandle handle, bool value);
-void yaml_push_node(YAMLNodeHandle handle, YAMLNodeHandle value);
+void push_node(YAMLNodeHandle handle, YAMLNodeHandle value);
 
 // === UTILITY ===
 char* yaml_to_string(YAMLNodeHandle handle);
 char* yaml_emit(YAMLNodeHandle handle, int indent);
 YAMLNodeHandle yaml_clone(YAMLNodeHandle handle);
-YAMLNodeHandle yaml_expand(YAMLNodeHandle handle);
+YAMLNodeHandle lattice_expand(YAMLNodeHandle handle);
 
-bool yaml_write_file(YAMLNodeHandle handle, const char* filename);
-bool yaml_write_file_formatted(YAMLNodeHandle handle, const char* filename,
-                                int indent, bool flow_maps, bool flow_seqs);
-
-// === KEY UTILITIES ===
-char** yaml_get_keys(YAMLNodeHandle handle, int* out_count);
-void yaml_free_keys(char** keys, int count);
+bool write_file(YAMLNodeHandle handle, const char* filename);
+bool write_file_formatted(YAMLNodeHandle handle, const char* filename,
+                          int indent, bool flow_maps, bool flow_seqs);
+bool write_file_advanced(YAMLNodeHandle handle, const char* filename, int indent, bool flow_maps,
+    bool flow_seqs, int bool_format, int null_format, int string_format);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // YAML_C_WRAPPER_H
+#endif  // YAML_C_WRAPPER_H

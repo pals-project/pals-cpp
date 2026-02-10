@@ -1,37 +1,10 @@
 ## Introduction
 `yaml_c_wrapper.cpp` wraps `YAML::Node` into C objects so they can be part of a shared object library to interface with other languages
-<!-- 
-First install `yaml-cpp` by running 
 
-macOS:
-```console
-brew install yaml-cpp  
-```
-or
-```console
-port install yaml-cpp
-```
-
-Linux:  
-```console
-sudo apt-get install libyaml-cpp-dev
-```
-
-Windows:  
-```console
-choco install yaml-cpp
-```
-
-Manual Install:  
-```console
-git clone https://github.com/jbeder/yaml-cpp.git  
-cd yaml-cpp/src  
-mkdir build && cd build  
-cmake ..  
-cmake --build .  
-cmake --install .
-```
--->
+Implemented components of lattice expansion:  
+include  
+inherits  
+repeat  
 
 ## Usage
 In pals-cpp, run  
@@ -66,6 +39,5 @@ To run a specific test, run
 ctest --test-dir build -R "Test Name"
 ```
 
-## Issue
-`yaml-cpp`'s cmake only requires cmake version 3.4, which is deprecated. Warnings must
-be suppressed to run properly
+## To Do
+add test cases for lattice expansion
