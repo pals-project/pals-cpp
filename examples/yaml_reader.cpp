@@ -6,6 +6,9 @@
 // Otherwise, it will use the example file ex.pals.yaml
 
 int main(int argc, char* argv[]) {
+    struct lattices lat = get_lattices("ex.pals.yaml");
+    std::cout << yaml_to_string(lat.original);
+    return 0;
     if (argc != 1) {
         char* filename = argv[1];
         std::string path = "../lattice_files/";

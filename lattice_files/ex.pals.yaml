@@ -1,5 +1,9 @@
 - thingB:
     kind: Sextupole
+- lat1:
+    kind: Lattice
+    branches:
+        - inj_line
 - inj_line:
     kind: BeamLine
     multipass: true

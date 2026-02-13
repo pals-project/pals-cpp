@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #define YAML_API extern "C" __declspec(dllexport)
@@ -10,6 +11,61 @@
 #define YAML_API extern "C" __attribute__((visibility("default")))
 #endif
 
+struct lattices_int {
+    YAML::Node original;
+    YAML::Node included;
+    YAML::Node expanded;
+};
+
+void add_to_original(YAML::Node *root, std::string filename) {
+    YAML::Node node = YAML::Node(YAML::NodeType::Map);
+    node["path"] = "";
+    node["info"] = YAML::LoadFile("../lattice_files/" + filename);
+    root->push_back(node);
+}
+
+void get_includes(YAML::Node node, std::vector<std::string>* include_list) {
+    if (node.IsSequence()) {
+        for (int i = 0; i < node.size(); i++) {
+            get_includes(node[i], include_list); 
+        }
+    } else if (node.IsMap()) {
+        for (auto ele : node) {
+            if (ele.first.as<std::string>() == "include") {
+                std::string filename = ele.second.as<std::string>();
+                if (std::find(include_list->begin(), include_list->end(), filename) == include_list->end()) {
+
+                include_list->push_back(filename);
+                YAML::Node child = YAML::LoadFile("../lattice_files/" + filename);
+                get_includes(child, include_list);
+                }
+            }
+            get_includes(ele.second, include_list);
+        }
+    }
+}
+
+YAML::Node original_lattices(std::string filename) {
+    YAML::Node root = YAML::Node(YAML::NodeType::Sequence);
+    std::vector<std::string> include_list;
+    add_to_original(&root, filename);
+    get_includes(YAML::LoadFile("../lattice_files/" + filename), &include_list);
+    for (std::string file : include_list) {
+        add_to_original(&root, file);
+    }
+    return root;
+}
+
+struct lattices_int get_lattices_int(std::string filename) {
+    struct lattices_int lat;
+    lat.original = original_lattices(filename);
+    return lat;
+}
+
+// if file only has one lattice, expand that lattice. if multiple lattices, use (expand) the last one only
+// if there's a use statement, expand the lattice specified in the use statement 
+// need way to specify which lattice to use on command line with -lattice, for example
+// only expand stuff in the specified lattice
 // ======= LATTICE EXPANSION UTILS
 /*
 Inserts the elements in `line` into `seq` at `index` a `repeat` number of times.
@@ -93,6 +149,12 @@ YAML::Node expand_internal(YAML::Node node,
     } else if (node.IsMap()) {
         for (auto ele : node) {
             // will probably need to add better method of finding files
+            // seperate out include and expansion
+            // one struct for og lattice and include files, one for expanded, one for included
+            // called original, included, expanded
+            // default print out info from og, print which file was printed
+            // if people say original and filename, only print out that file
+            // need support for recursive include
             if (ele.first.as<std::string>() == "include") {
                 std::string filename = ele.second.as<std::string>();
                 YAML::Node seq = YAML::Node(YAML::NodeType::Sequence);
@@ -123,6 +185,20 @@ YAML::Node expand_internal(YAML::Node node,
 
 extern "C" {
 typedef void* YAMLNodeHandle;
+
+struct lattices {
+        YAMLNodeHandle original;
+        YAMLNodeHandle included;
+        YAMLNodeHandle expanded;
+    };
+
+YAML_API struct lattices get_lattices(const char* filename) {
+        struct lattices lat;
+        lat.original = static_cast<void*>(new YAML::Node(original_lattices(std::string(filename))));
+        lat.included = static_cast<void*>(new YAML::Node());
+        lat.expanded = static_cast<void*>(new YAML::Node());
+        return lat;
+    }
 
 // === CREATION/DELETION ===
 YAML_API YAMLNodeHandle create_node() { return new YAML::Node(); }

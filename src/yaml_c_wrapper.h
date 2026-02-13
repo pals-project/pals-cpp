@@ -8,6 +8,13 @@ extern "C" {
 #endif
 
 typedef void* YAMLNodeHandle;
+struct lattices {
+        YAMLNodeHandle original;
+        YAMLNodeHandle included;
+        YAMLNodeHandle expanded;
+    };
+    
+struct lattices get_lattices(const char* filename);
 
 // === CREATION ===
 YAMLNodeHandle create_node(void);
