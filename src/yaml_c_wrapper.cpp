@@ -8,9 +8,7 @@
 
 #if defined(_WIN32)
 #define YAML_API extern "C" __declspec(dllexport)
-#define YAML_API extern "C" __declspec(dllexport)
 #else
-#define YAML_API extern "C" __attribute__((visibility("default")))
 #define YAML_API extern "C" __attribute__((visibility("default")))
 #endif
 
