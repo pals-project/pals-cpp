@@ -391,23 +391,6 @@ YAML_API void delete_node(YAMLNodeHandle handle) {
     delete static_cast<YAML::Node*>(handle);
 }
 
-// === PARSING ===
-YAML_API YAMLNodeHandle parse_string(const char* yaml_str) {
-    try {
-        return new YAML::Node(YAML::Load(yaml_str));
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-YAML_API YAMLNodeHandle parse_file(const char* filename) {
-    try {
-        return new YAML::Node(YAML::LoadFile(filename));
-    } catch (...) {
-        return nullptr;
-    }
-}
-
 // === TYPE CHECKS ===
 YAML_API bool is_scalar(YAMLNodeHandle handle) {
     return static_cast<YAML::Node*>(handle)->IsScalar();
@@ -452,9 +435,6 @@ YAML_API bool has_key(YAMLNodeHandle handle, const char* key) {
 YAML_API int size(YAMLNodeHandle handle) {
     return static_cast<YAML::Node*>(handle)->size();
 }
-YAML_API void delete_node(YAMLNodeHandle handle) {
-    delete static_cast<YAML::Node*>(handle);
-}
 
 // === PARSING ===
 YAML_API YAMLNodeHandle parse_string(const char* yaml_str) {
@@ -471,51 +451,6 @@ YAML_API YAMLNodeHandle parse_file(const char* filename) {
     } catch (...) {
         return nullptr;
     }
-}
-
-// === TYPE CHECKS ===
-YAML_API bool is_scalar(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsScalar();
-}
-
-YAML_API bool is_sequence(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsSequence();
-}
-
-YAML_API bool is_map(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsMap();
-}
-
-YAML_API bool is_null(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsNull();
-}
-
-// === ACCESS ===
-// equivalent to map[key]
-YAML_API YAMLNodeHandle get_key(YAMLNodeHandle handle, const char* key) {
-    auto node = static_cast<YAML::Node*>(handle);
-    auto child = (*node)[key];
-    if (!child.IsDefined()) {
-        return nullptr;
-    }
-    return new YAML::Node(child);
-}
-
-YAML_API YAMLNodeHandle get_index(YAMLNodeHandle handle, int index) {
-    auto node = static_cast<YAML::Node*>(handle);
-    if (index < 0 || index >= node->size()) {
-        return nullptr;
-    }
-    return new YAML::Node((*node)[index]);
-}
-
-YAML_API bool has_key(YAMLNodeHandle handle, const char* key) {
-    auto node = static_cast<YAML::Node*>(handle);
-    return (*node)[key].IsDefined();
-}
-
-YAML_API int size(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->size();
 }
 
 YAML_API char** get_keys(YAMLNodeHandle handle, int* out_count) {
