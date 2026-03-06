@@ -113,7 +113,7 @@ void add_to_original(YAML::Node original, std::string filename) {
     if (!original[filename]) {
         YAML::Node node = YAML::Node(YAML::NodeType::Map);
         node["path"] = "";
-        node["info"] = YAML::LoadFile("../lattice_files/" + filename);
+        node["info"] = YAML::LoadFile(filename);
         original[filename] = node;
     }
 }
@@ -158,7 +158,7 @@ YAML::Node original_lattice(std::string filename) {
 Constructs the included lattice.
 */
 YAML::Node included_lattice(std::string filename) {
-    YAML::Node included = YAML::LoadFile("../lattice_files/" + filename);
+    YAML::Node included = YAML::LoadFile(filename);
     std::vector<YAML::Node> include_files =
         search(included,
                [](YAML::Node node) { return node.IsMap() && node["include"]; });
@@ -328,7 +328,7 @@ statement will be expanded.
 that occurs latest in the file will be expanded.
 */
 YAML::Node expanded_lattice(std::string filename, std::string lattice_name) {
-    YAML::Node root = YAML::LoadFile("../lattice_files/" + filename);
+    YAML::Node root = YAML::LoadFile(filename);
     root = included_lattice(filename);
     std::map<std::string, YAML::Node>* elements_map = get_dict(root);
 
