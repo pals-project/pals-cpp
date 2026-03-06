@@ -1,5 +1,6 @@
 #include <iostream>
 #include "../src/yaml_c_wrapper.h"
+#include <cstring>
 
 int main(int argc, char* argv[]) {
     std::string file_name = "ex.pals.yaml";
