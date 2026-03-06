@@ -8,6 +8,13 @@ extern "C" {
 #endif
 
 typedef void* YAMLNodeHandle;
+struct lattices {
+        YAMLNodeHandle original;
+        YAMLNodeHandle included;
+        YAMLNodeHandle expanded;
+    };
+    
+struct lattices get_lattices(const char* filename, const char* lattice_name);
 
 // === CREATION ===
 YAMLNodeHandle create_node(void);
@@ -66,7 +73,6 @@ void push_node(YAMLNodeHandle handle, YAMLNodeHandle value);
 char* yaml_to_string(YAMLNodeHandle handle);
 char* yaml_emit(YAMLNodeHandle handle, int indent);
 YAMLNodeHandle yaml_clone(YAMLNodeHandle handle);
-YAMLNodeHandle lattice_expand(YAMLNodeHandle handle);
 
 bool write_file(YAMLNodeHandle handle, const char* filename);
 bool write_file_formatted(YAMLNodeHandle handle, const char* filename,

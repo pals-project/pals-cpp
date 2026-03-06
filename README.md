@@ -6,6 +6,9 @@ include
 inherits  
 repeat  
 
+YAML::Nodes are values that act like pointers, so editing a node will cause the tree the node is
+contained in to reflect the changes.
+
 ## Usage
 In pals-cpp, run  
 
