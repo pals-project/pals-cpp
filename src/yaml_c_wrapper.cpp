@@ -11,176 +11,321 @@
 #define YAML_API extern "C" __attribute__((visibility("default")))
 #endif
 
+//TODO: add absolute file paths
+// for every element, add a field that points to the parent
+/*
+`original` is a map containing the base lattice as well as any lattices included
+in the base lattice. They can be accessed using original[filename].
+`included` is the base lattice but with all included files substituted in.
+`expanded` is the base lattice after lattice expansion has been performed. 
+*/
 struct lattices_int {
     YAML::Node original;
     YAML::Node included;
     YAML::Node expanded;
 };
 
-void add_to_original(YAML::Node *root, std::string filename) {
-    YAML::Node node = YAML::Node(YAML::NodeType::Map);
-    node["path"] = "";
-    node["info"] = YAML::LoadFile("../lattice_files/" + filename);
-    root->push_back(node);
+template <typename Condition>
+std::vector<YAML::Node> search(YAML::Node root_node, Condition condition) {
+    std::vector<YAML::Node> matches;
+
+    if (condition(root_node)) matches.push_back(root_node);
+
+    std::vector<YAML::Node> child_matches;
+    if (root_node.IsMap()) {
+        for (auto ele : root_node) {
+            child_matches = search(ele.second, condition);
+            matches.insert(matches.end(), child_matches.begin(), child_matches.end());
+
+        }
+    } else if (root_node.IsSequence()) {
+        for (int i = 0; i < root_node.size(); i++) {
+            child_matches = search(root_node[i], condition);
+            matches.insert(matches.end(), child_matches.begin(), child_matches.end());
+        }
+    }
+    return matches;
 }
 
-void get_includes(YAML::Node node, std::vector<std::string>* include_list) {
-    if (node.IsSequence()) {
-        for (int i = 0; i < node.size(); i++) {
-            get_includes(node[i], include_list); 
-        }
-    } else if (node.IsMap()) {
-        for (auto ele : node) {
-            if (ele.first.as<std::string>() == "include") {
-                std::string filename = ele.second.as<std::string>();
-                if (std::find(include_list->begin(), include_list->end(), filename) == include_list->end()) {
-
-                include_list->push_back(filename);
-                YAML::Node child = YAML::LoadFile("../lattice_files/" + filename);
-                get_includes(child, include_list);
+auto is_kind = [](YAML::Node node, std::string kind_type_string) {
+        if (node.IsMap()) {
+            for (auto ele : node) {
+                if (ele.second.IsMap() && ele.second["kind"].as<std::string>("") == kind_type_string){
+                    return true;
                 }
             }
-            get_includes(ele.second, include_list);
+        }
+        return false;
+    };
+
+std::vector<YAML::Node> search_kind(YAML::Node root, std::string kind_type_string) {
+    auto condition_wrapper = [kind_type_string](const YAML::Node& node) {
+        return is_kind(node, kind_type_string); 
+    };
+    return search(root, condition_wrapper);
+}
+
+/*
+Recursively loops through the node to record all the lattices and beamlines and 
+their corresponding parameters. 
+*/
+void get_dict_helper(YAML::Node node,
+    std::map<std::string, YAML::Node>* element_map) {
+    if (node.IsSequence()) {
+        for (size_t i = 0; i < node.size(); i++) {
+            YAML::Node child = node[i];
+            get_dict_helper(child, element_map);
+        }
+    }
+    else if (node.IsMap()) {
+        for (auto ele : node) {
+            if (ele.second.IsMap() && ele.second["kind"]) {
+                element_map->insert({ele.first.as<std::string>(), ele.second});
+            } else {
+                get_dict_helper(ele.second, element_map);
+            }
         }
     }
 }
 
-YAML::Node original_lattices(std::string filename) {
-    YAML::Node root = YAML::Node(YAML::NodeType::Sequence);
-    std::vector<std::string> include_list;
-    add_to_original(&root, filename);
-    get_includes(YAML::LoadFile("../lattice_files/" + filename), &include_list);
-    for (std::string file : include_list) {
-        add_to_original(&root, file);
-    }
-    return root;
-}
-
-struct lattices_int get_lattices_int(std::string filename) {
-    struct lattices_int lat;
-    lat.original = original_lattices(filename);
-    return lat;
-}
-
-// if file only has one lattice, expand that lattice. if multiple lattices, use (expand) the last one only
-// if there's a use statement, expand the lattice specified in the use statement 
-// need way to specify which lattice to use on command line with -lattice, for example
-// only expand stuff in the specified lattice
-// ======= LATTICE EXPANSION UTILS
 /*
-Inserts the elements in `line` into `seq` at `index` a `repeat` number of times.
-The value at index will be rewritten by the first inserted element. For example,
-if seq = [1,2,3,4,5], line = [a,b], index = 2, repeat = 3, calling the function
-will output [1,2,a,b,a,b,a,b,4,5].
+Constructs the map from names to lattice elements. The values in the map
+are references to lattice elements with a given name, and modifying them
+will directly modifty the lattice. Elements in values are stored in the order
+that they appear in the lattice file. Use YAML::Clone if only the information
+is required. 
 */
-YAML::Node repeat(YAML::Node line, YAML::Node seq, int index, int repeat) {
+std::map<std::string, YAML::Node>* get_dict(YAML::Node root) {
+    std::map<std::string, YAML::Node>* element_map = new std::map<std::string, YAML::Node>();
+    get_dict_helper(root, element_map);
+    return element_map;
+}
+
+/*
+Adds the file contained in `filename` to `original`, which should be lat.original. 
+The key is the filename and the value is the contents of the file. 
+*/
+void add_to_original(YAML::Node original, std::string filename) {
+    if(!original[filename]) {
+        YAML::Node node = YAML::Node(YAML::NodeType::Map);
+        node["path"] = "";
+        node["info"] = YAML::LoadFile("../lattice_files/" + filename);
+        original[filename] = node;
+    }
+}
+
+/*
+Constructs the original lattice.
+*/
+YAML::Node original_lattice(std::string filename) {
+    YAML::Node original = YAML::Node(YAML::NodeType::Map);
+    
+    std::vector<std::string> files_to_process;
+    files_to_process.push_back(filename);
+
+    auto find_includes = [](const YAML::Node& node) {
+        return node.IsMap() && node["include"];
+    };
+
+    while (!files_to_process.empty()) {
+        std::string current_file = files_to_process.back();
+        files_to_process.pop_back();
+
+        if (original[current_file]) {
+            continue;
+        }
+
+        add_to_original(original, current_file);
+        YAML::Node loaded_content = original[current_file]["info"];
+        std::vector<YAML::Node> includes_found = search(loaded_content, find_includes);
+        for (const auto& inc_node : includes_found) {
+            std::string inc_fn = inc_node["include"].as<std::string>();
+            if (inc_fn.size() >= 5 && inc_fn.substr(inc_fn.size() - 5) == ".yaml") {
+                files_to_process.push_back(inc_fn);
+            }
+        }
+    }
+    return original;
+}
+
+/*
+Constructs the included lattice.
+*/
+YAML::Node included_lattice(std::string filename) {
+    YAML::Node included = YAML::LoadFile("../lattice_files/" + filename);
+    std::vector<YAML::Node> include_files = search(included, [](YAML::Node node) {
+        return node.IsMap() && node["include"];
+    });
+    for (int i = 0; i < include_files.size(); i++) {
+        std::string inc_fn = include_files[i]["include"].as<std::string>();
+        if (inc_fn.size() >= 5 && inc_fn.substr(inc_fn.size() - 5) == ".yaml") {
+            YAML::Node node(YAML::NodeType::Sequence);
+            YAML::Node content = included_lattice(inc_fn);
+            YAML::Node file(YAML::NodeType::Map);
+            file["file"] = inc_fn;
+
+            node.push_back(file);
+            node.push_back(content[0]);
+            
+            include_files[i].remove("include");
+            include_files[i]["included"] = node;
+        }  
+    } 
+    return included;
+}
+
+/*
+Returns a new node with the elements in `line` inserted into `seq` at `index` 
+a `repeat` number of times. The value at index will be rewritten by the first 
+inserted element. For example, if seq = [1,2,3,4,5], line = [a,b], index = 2, repeat = 3, 
+calling the function will output [1,2,a,b,a,b,a,b,4,5].
+*/
+YAML::Node repeat(YAML::Node target_element, YAML::Node seq, int index, int repeat_count) {
     YAML::Node exp = YAML::Node(YAML::NodeType::Sequence);
     for (int i = 0; i < index; i++) {
         exp.push_back(YAML::Clone(seq[i]));
     }
-    for (int i = 0; i < repeat; i++) {
-        for (int j = 0; j < line.size(); j++) {
-            exp.push_back(YAML::Clone(line[j]));
+    
+    YAML::Node inner_content = target_element;
+    if (inner_content.IsMap() && inner_content["line"]) {
+        inner_content = inner_content["line"];
+    }
+    
+    for (int i = 0; i < repeat_count; i++) {
+        if (inner_content.IsSequence()) {
+            for (std::size_t j = 0; j < inner_content.size(); j++) {
+                exp.push_back(YAML::Clone(inner_content[j]));
+            }
+        } else {
+            exp.push_back(YAML::Clone(inner_content));
         }
     }
-    for (int i = index + 1; i < seq.size(); i++) {
+    
+    for (std::size_t i = index + 1; i < seq.size(); i++) {
         exp.push_back(YAML::Clone(seq[i]));
     }
     return exp;
 }
 
-// recursively loops through the node to record all the elements and their
-// corresponding parameters
-void get_dict_helper(YAML::Node node, std::map<std::string, YAML::Node>* seen) {
-    if (node.IsSequence()) {
-        for (int i = 0; i < node.size(); i++) {
-            get_dict_helper(node[i], seen);
-        }
-    } else if (node.IsMap()) {
-        for (auto ele : node) {
-            // exclude key words from being stored
-            if (ele.first.as<std::string>() == "include" ||
-                ele.first.as<std::string>() == "inherit" ||
-                (ele.second.IsMap() && ele.second["repeat"])) {
-                continue;
-            }
-            seen->insert(
-                {ele.first.as<std::string>(), YAML::Clone(ele.second)});
-            get_dict_helper(ele.second, seen);
-        }
-    }
-}
-
-std::map<std::string, YAML::Node>* get_dict(YAML::Node root) {
-    std::map<std::string, YAML::Node>* seen =
-        new std::map<std::string, YAML::Node>();
-    ;
-    get_dict_helper(root, seen);
-    return seen;
-}
-
-// === EXPAND ===
-YAML::Node expand_internal(YAML::Node node,
-                           std::map<std::string, YAML::Node>* seen) {
-    if (node.IsSequence()) {
-        bool modified = true;
-        while (modified) {
-            modified = false;
-            for (int i = 0; i < node.size(); i++) {
-                if (node[i].IsMap()) {
-                    for (auto ele : node[i]) {
-                        if (ele.second.IsMap() && ele.second["repeat"]) {
-                            YAML::Node line =
-                                (*seen)[ele.first.as<std::string>()]["line"];
-                            node = repeat(line, node, i,
-                                          ele.second["repeat"].as<int>());
-                            modified = true;
-                            break;
+/*
+Performs lattice expansion on the provided `node`. 
+*/
+YAML::Node expand_internal(YAML::Node node, std::map<std::string, YAML::Node>* elements_map) {
+    if (node.IsScalar() && elements_map->count(node.as<std::string>())) {
+        std::string element_name = node.as<std::string>();
+        YAML::Node wrapped_node = YAML::Node(YAML::NodeType::Map);
+        
+        wrapped_node[element_name] = expand_internal(YAML::Clone(elements_map->at(element_name)), elements_map);
+        return wrapped_node;
+    } 
+    else if (node.IsSequence()) {
+        for (std::size_t i = 0; i < node.size(); i++) {
+            if (node[i].IsMap()) {
+                for (auto ele : node[i]) {
+                    if (ele.second.IsMap() && ele.second["repeat"]) {
+                        std::string target_name = ele.first.as<std::string>();
+                        if (elements_map->count(target_name)) {
+                            YAML::Node target_node = YAML::Clone(elements_map->at(target_name));
+                            YAML::Node repeated_seq = repeat(target_node, node, i, ele.second["repeat"].as<int>());
+                            return expand_internal(repeated_seq, elements_map);
                         }
                     }
-                    if (modified) break;
                 }
             }
         }
-        for (int i = 0; i < node.size(); i++) {
-            node[i] = expand_internal(node[i], seen);
+        YAML::Node new_seq = YAML::Node(YAML::NodeType::Sequence);
+        for (std::size_t i = 0; i < node.size(); i++) {
+            new_seq.push_back(expand_internal(node[i], elements_map));
         }
-        return node;
-    } else if (node.IsMap()) {
-        for (auto ele : node) {
-            // will probably need to add better method of finding files
-            // seperate out include and expansion
-            // one struct for og lattice and include files, one for expanded, one for included
-            // called original, included, expanded
-            // default print out info from og, print which file was printed
-            // if people say original and filename, only print out that file
-            // need support for recursive include
-            if (ele.first.as<std::string>() == "include") {
-                std::string filename = ele.second.as<std::string>();
-                YAML::Node seq = YAML::Node(YAML::NodeType::Sequence);
-                YAML::Node file = YAML::Node(YAML::NodeType::Map);
-                file["file"] = filename;
-                seq.push_back(file);
-                seq.push_back(
-                    YAML::LoadFile("../lattice_files/" + filename)[0]);
+        return new_seq;
+    } 
+    else if (node.IsMap()) {
+        YAML::Node new_map = YAML::Clone(node);
+        
+        if (new_map["inherit"]) {
+            std::string parent_name = new_map["inherit"].as<std::string>();
+            new_map.remove("inherit");
+            new_map["inherited"] = parent_name;
+            
+            if (elements_map->count(parent_name)) {
+                YAML::Node parent = elements_map->at(parent_name);
+                for (auto elep : parent) {
+                    std::string key = elep.first.as<std::string>();
+                    if (!new_map[key]) {
+                        new_map[key] = YAML::Clone(elep.second);
+                    }
+                }
+            }
+        }
+        
+        YAML::Node final_map = YAML::Node(YAML::NodeType::Map);
+        for (auto ele : new_map) {
+            final_map[ele.first.as<std::string>()] = expand_internal(ele.second, elements_map);
+        }
+        return final_map;
+    } 
+    
+    return YAML::Clone(node);
+}
 
-                ele.first = "included";
-                ele.second = seq;
-                break;
-            } else if (ele.first.as<std::string>() == "inherit") {
-                YAML::Node parent = (*seen)[ele.second.as<std::string>()];
-                for (auto ele : parent) {
-                    node[ele.first.as<std::string>()] = ele.second;
-                }
-                ele.first = "inherited";
+/*
+Performs lattice expansion with the following rules: 
+1. If name is specified, the lattice in `root` with the given name will be expanded.
+2. If no name is specified, the lattice that appears latest in `root` will be expanded.
+*/
+void find_and_replace(std::string name, YAML::Node root, std::map<std::string, YAML::Node>* elements_map) {
+    if (name != "") {
+        for (std::size_t i = 0; i < root.size(); i++) {
+            if (root[i].IsMap() && root[i][name]) {
+                root[i][name] = expand_internal(root[i][name], elements_map);
+                return;
             }
-            node[ele.first.as<std::string>()] =
-                expand_internal(ele.second, seen);
         }
-        return node;
     } else {
-        return node;
+        for (int i = root.size() - 1; i >= 0; i--) {
+            if (root[i].IsMap() && root[i]["use"]) {
+                std::string target = root[i]["use"].as<std::string>();
+                
+                for (std::size_t j = 0; j < root.size(); j++) {
+                    if (root[j].IsMap() && root[j][target]) {
+                        root[j][target] = expand_internal(root[j][target], elements_map);
+                        return;
+                    }
+                }
+            }
+        }
+        for (int i = root.size() - 1; i >= 0; i--) {
+            if (is_kind(root[i], "Lattice")) {
+                root[i] = expand_internal(root[i], elements_map);
+                return;
+            }
+        }
     }
+}
+
+/*
+Constructs the expanded lattice. Expanding has the following priority:
+1. If a lattice name is supplied through lattice_name, that lattice will be expanded.
+2. If no lattice_name is supplied, the lattice specified by the last use statement
+will be expanded.
+3. If no lattice_name is supplied and no use statements are present, the lattice
+that occurs latest in the file will be expanded.
+*/
+YAML::Node expanded_lattice(std::string filename, std::string lattice_name) {
+    YAML::Node root = YAML::LoadFile("../lattice_files/" + filename);
+    root = included_lattice(filename);
+    std::map<std::string, YAML::Node>* elements_map = get_dict(root);
+
+    find_and_replace(lattice_name, root, elements_map);
+    return root;
+}
+
+struct lattices_int get_lattices_int(const std::string& filename, const std::string& lattice_name = "") {
+    struct lattices_int lat;
+    lat.original = original_lattice(filename);
+    lat.included = included_lattice(filename);
+    lat.expanded = expanded_lattice(filename, lattice_name);
+    return lat;
 }
 
 extern "C" {
@@ -192,11 +337,11 @@ struct lattices {
         YAMLNodeHandle expanded;
     };
 
-YAML_API struct lattices get_lattices(const char* filename) {
+YAML_API struct lattices get_lattices(const char* filename, const char* lattice_name) {
         struct lattices lat;
-        lat.original = static_cast<void*>(new YAML::Node(original_lattices(std::string(filename))));
-        lat.included = static_cast<void*>(new YAML::Node());
-        lat.expanded = static_cast<void*>(new YAML::Node());
+        lat.original = static_cast<void*>(new YAML::Node(original_lattice(std::string(filename))));
+        lat.included = static_cast<void*>(new YAML::Node(included_lattice(std::string(filename))));
+        lat.expanded = static_cast<void*>(new YAML::Node(expanded_lattice(std::string(filename), std::string(lattice_name))));
         return lat;
     }
 
@@ -608,13 +753,5 @@ YAML_API void yaml_free_keys(char** keys, int count) {
 
 YAML_API YAMLNodeHandle yaml_clone(YAMLNodeHandle handle) {
     return new YAML::Node(YAML::Clone(*static_cast<YAML::Node*>(handle)));
-}
-
-// C interface for expand - handles the map internally
-YAML_API YAMLNodeHandle lattice_expand(YAMLNodeHandle handle) {
-    auto node = static_cast<YAML::Node*>(handle);
-    std::map<std::string, YAML::Node>* seen = get_dict(*node);
-    YAML::Node result = expand_internal(*node, seen);
-    return new YAML::Node(result);
 }
 }

@@ -32,5 +32,8 @@ file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
 add_library(yaml_c_wrapper SHARED src/yaml_c_wrapper.cpp)
 target_link_libraries(yaml_c_wrapper PUBLIC yaml-cpp)
 
-add_executable(yaml_reader examples/yaml_reader.cpp)
-target_link_libraries(yaml_reader yaml_c_wrapper yaml-cpp)
+add_executable(example_read_write examples/example_read_write.cpp)
+target_link_libraries(example_read_write yaml_c_wrapper yaml-cpp)
+
+add_executable(get_lattices src/get_lattices.cpp)
+target_link_libraries(get_lattices yaml_c_wrapper yaml-cpp)

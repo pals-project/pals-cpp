@@ -4,6 +4,10 @@
     kind: Lattice
     branches:
         - inj_line
+- lat2:
+    kind: Lattice
+    branches:
+        - inj_line
 - inj_line:
     kind: BeamLine
     multipass: true
@@ -25,3 +29,5 @@
         - a
         - b
         - c
+- use: "lat2"
+- use: "lat1"

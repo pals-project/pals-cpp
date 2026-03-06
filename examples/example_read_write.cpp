@@ -1,29 +1,11 @@
 #include <iostream>
 #include "../src/yaml_c_wrapper.h"
-
-// If file name is provided as a command line argument, this will print out the
-// expanded contents of the file to the terminal, as well as to expand.pals.yaml. 
-// Otherwise, it will use the example file ex.pals.yaml
+#include <yaml-cpp/yaml.h>
 
 int main(int argc, char* argv[]) {
-    struct lattices lat = get_lattices("ex.pals.yaml");
-    std::cout << yaml_to_string(lat.original);
-    return 0;
-    if (argc != 1) {
-        char* filename = argv[1];
-        std::string path = "../lattice_files/";
-        path += filename;
-        YAMLNodeHandle handle = parse_file(path.c_str());
-
-        lattice_expand(handle);
-        std::cout << "Printing out contents of file: " << filename << std::endl;
-        std::cout << yaml_to_string(handle) << std::endl;
-        write_file(handle, "../lattice_files/expand.pals.yaml");
-        return 0;
-    }
     // reading a lattice from a yaml file
     YAMLNodeHandle handle = parse_file("../lattice_files/ex.pals.yaml");
-    std::cout << "Printing out contents of file: " << "ex.pals.yaml" << std::endl;
+    std::cout << "Output of example_read_write.cpp" << std::endl;
     // printing to terminal
     std::cout << yaml_to_string(handle) << std::endl << std::endl;
 
@@ -65,8 +47,9 @@ int main(int argc, char* argv[]) {
     push_node(handle, map);
     push_node(handle, magnets);
 
-    // performing lattice expansion
-    lattice_expand(handle);
+    // getting expanded lattice
+    struct lattices lat = get_lattices("ex.pals.yaml", "lat1");
+    YAMLNodeHandle expanded = lat.expanded;
 
     // writing modified lattice file to expand.pals.yaml
     write_file(handle, "../lattice_files/expand.pals.yaml");
