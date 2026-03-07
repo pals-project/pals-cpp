@@ -22,7 +22,7 @@ by other languages.
 
 It also builds an executable using yaml_reader.cpp containing examples for how 
 to use the library to read lattice files, perform basic manipulations, and write
-to other lattice files. To see the output, navigate to the build directory and run  
+to other lattice files. To see the output, navigate to the directory `build` and run  
 
 ```console
 ./yaml_reader
