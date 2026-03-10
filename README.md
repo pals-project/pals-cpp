@@ -24,11 +24,7 @@ by other languages.
 
 It also builds an executable at build/example_rw containing examples for how 
 to use the library to read lattice files, perform basic manipulations, and write
-to the lattice back to a file. To see the output, navigate to the build directory and run  
-
-```console
-./example_rw
-```
+to other lattice files. To see the output, navigate to the directory `build` and run  
 
 The program `get_lattices` will create a struct containing three lattices:
 - `original` is a map containing the base lattice as well as any lattices included
