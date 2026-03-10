@@ -69,6 +69,12 @@ std::vector<YAML::Node> search_kind(YAML::Node root,
     return search(root, condition_wrapper);
 }
 
+// /* `node` should be a Lattice or Beamline. For each element in the line,
+// add the map {parent, `node`.}*/
+// void add_parents(YAML::Node node) {
+
+// }
+
 /*
 Recursively loops through the node to record all the lattices and beamlines and
 their corresponding parameters.
