@@ -274,12 +274,10 @@ YAML::Node expand_internal(YAML::Node node,
             }
         }
 
-        YAML::Node final_map = YAML::Node(YAML::NodeType::Map);
         for (auto ele : new_map) {
-            final_map[ele.first.as<std::string>()] =
-                expand_internal(ele.second, elements_map);
+            ele.second = expand_internal(ele.second, elements_map);
         }
-        return final_map;
+        return new_map;
     }
 
     return YAML::Clone(node);
