@@ -235,15 +235,15 @@ YAML::Node expand_internal(YAML::Node node,
     } else if (node.IsSequence()) {
         for (std::size_t i = 0; i < node.size(); i++) {
             if (node[i].IsMap()) {
-                for (auto ele : node[i]) {
-                    if (ele.second.IsMap() && ele.second["repeat"]) {
-                        std::string target_name = ele.first.as<std::string>();
+                for (auto it = node[i].begin(); it != node[i].end(); ++it) {
+                    if (it->second.IsMap() && it->second["repeat"]) {
+                        std::string target_name = it->first.as<std::string>();
                         if (elements_map->count(target_name)) {
                             YAML::Node target_node =
                                 YAML::Clone(elements_map->at(target_name));
                             YAML::Node repeated_seq =
                                 repeat(target_node, node, i,
-                                       ele.second["repeat"].as<int>());
+                                       it->second["repeat"].as<int>());
                             return expand_internal(repeated_seq, elements_map);
                         }
                     }
@@ -265,20 +265,29 @@ YAML::Node expand_internal(YAML::Node node,
 
             if (elements_map->count(parent_name)) {
                 YAML::Node parent = elements_map->at(parent_name);
-                for (auto elep : parent) {
-                    std::string key = elep.first.as<std::string>();
+                for (auto it = parent.begin(); it != parent.end(); ++it) {
+                    std::string key = it->first.as<std::string>();
                     if (!new_map[key]) {
-                        new_map[key] = YAML::Clone(elep.second);
+                        new_map[key] = YAML::Clone(it->second);
                     }
                 }
             }
         }
 
-        YAML::Node final_map = YAML::Node(YAML::NodeType::Map);
-        for (auto ele : new_map) {
-            final_map[ele.first.as<std::string>()] =
-                expand_internal(ele.second, elements_map);
+        // Expand all values in place using iterators
+        std::vector<std::pair<std::string, YAML::Node>> expanded_entries;
+        for (auto it = new_map.begin(); it != new_map.end(); ++it) {
+            std::string key = it->first.as<std::string>();
+            YAML::Node expanded_value = expand_internal(it->second, elements_map);
+            expanded_entries.push_back({key, expanded_value});
         }
+        
+        // Rebuild the map with expanded values
+        YAML::Node final_map = YAML::Node(YAML::NodeType::Map);
+        for (const auto& entry : expanded_entries) {
+            final_map[entry.first] = entry.second;
+        }
+        
         return final_map;
     }
 

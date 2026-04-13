@@ -24,9 +24,24 @@ by other languages.
 
 It also builds an executable at build/example_rw containing examples for how 
 to use the library to read lattice files, perform basic manipulations, and write
+<<<<<<< HEAD
 to the lattice back to a file. To see the output, navigate to the build directory and run  
+=======
+to other lattice files. To see the output, navigate to the directory `build` and run  
+>>>>>>> main
 
+The program `get_lattices` will create a struct containing three lattices:
+- `original` is a map containing the base lattice as well as any lattices included
+in the base lattice.
+- `included` is the base lattice but with all included files substituted in.
+- `expanded` is the base lattice after lattice expansion has been performed.
+Specify the lattice file with the first argument to the function. On default,
+the lattice specified by the last `use` statement will be used, and if no `use`
+statement exists, the lattice lattice in the file will be used. An optional flag
+`-lat lattice_name` can be used to specify the lattice to expand, which has greatest
+priority. For example, in the build directory, run
 ```console
+<<<<<<< HEAD
 ./example_rw
 ```
 
@@ -41,6 +56,8 @@ statement exists, the lattice lattice in the file will be used. An optional flag
 `-lat lattice_name` can be used to specify the lattice to expand, which has greatest
 priority. For example, in the build directory, run
 ```console
+=======
+>>>>>>> main
 ./get_lattices ex.pals.yaml -lat lat2
 ```
 
