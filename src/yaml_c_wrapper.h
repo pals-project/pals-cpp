@@ -1,87 +1,92 @@
 #ifndef YAML_C_WRAPPER_H
 #define YAML_C_WRAPPER_H
 
+#include <stddef.h>
 #include <stdbool.h>
 
+#ifdef _WIN32
+  #define YAML_API __declspec(dllexport)
+#else
+  #define YAML_API __attribute__((visibility("default")))
+#endif
+
+// --- CORE TYPES ---
+typedef void* YAMLTreeHandle;
+typedef size_t YAMLNodeId;
+
+// ryml uses (size_t)-1 to represent "not found" or "invalid"
+#define YAML_NULL_ID ((size_t)-1)
+
+// Pass as the index argument to add_* functions to append instead of inserting
+#define END  ((size_t)-1)
+
+// struct lattices uses std::map so it must be C++ only
 #ifdef __cplusplus
+#include <map>
+struct lattices {
+    YAMLTreeHandle original;
+    YAMLTreeHandle included;
+    YAMLTreeHandle expanded;
+};
 extern "C" {
 #endif
 
-typedef void* YAMLNodeHandle;
-struct lattices {
-        YAMLNodeHandle original;
-        YAMLNodeHandle included;
-        YAMLNodeHandle expanded;
-    };
-    
-struct lattices get_lattices(const char* filename, const char* lattice_name);
+YAML_API struct lattices get_lattices(const char* filename, const char* lattice_name);
 
-// === CREATION ===
-YAMLNodeHandle create_node(void);
-YAMLNodeHandle create_map(void);
-YAMLNodeHandle create_sequence(void);
-YAMLNodeHandle create_scalar();
-void delete_node(YAMLNodeHandle handle);
+// --- PARSING & MEMORY ---
+YAML_API YAMLTreeHandle parse_file(const char* filename);
+YAML_API YAMLTreeHandle parse_string(const char* yaml_str);
+YAML_API YAMLTreeHandle create_empty_tree();
+YAML_API void delete_tree(YAMLTreeHandle tree);
+YAML_API void remove_node(YAMLTreeHandle tree, YAMLNodeId parent, YAMLNodeId child);
 
-// === PARSING ===
-YAMLNodeHandle parse_string(const char* yaml_str);
-YAMLNodeHandle parse_file(const char* filename);
+// --- TRAVERSAL ---
+YAML_API YAMLNodeId get_root(YAMLTreeHandle tree);
+YAML_API YAMLNodeId get_parent(YAMLTreeHandle tree, YAMLNodeId node);
+YAML_API YAMLNodeId get_child_by_key(YAMLTreeHandle tree, YAMLNodeId parent, const char* key);
+YAML_API YAMLNodeId get_child_by_index(YAMLTreeHandle tree, YAMLNodeId parent, size_t index);
+YAML_API size_t get_size(YAMLTreeHandle tree, YAMLNodeId node);
+YAML_API char* get_node_key(YAMLTreeHandle tree, YAMLNodeId node);
 
-// === TYPE CHECKING ===
-bool is_scalar(YAMLNodeHandle handle);
-bool is_sequence(YAMLNodeHandle handle);
-bool is_map(YAMLNodeHandle handle);
-bool is_null(YAMLNodeHandle handle);
+// --- TYPE CHECKS ---
+YAML_API bool is_map(YAMLTreeHandle tree, YAMLNodeId node);
+YAML_API bool is_sequence(YAMLTreeHandle tree, YAMLNodeId node);
+YAML_API bool is_scalar(YAMLTreeHandle tree, YAMLNodeId node);
 
-// === ACCESS ===
-YAMLNodeHandle get_key(YAMLNodeHandle handle, const char* key);
-YAMLNodeHandle get_index(YAMLNodeHandle handle, int index);
-bool has_key(YAMLNodeHandle handle, const char* key);
-int size(YAMLNodeHandle handle);
-char** get_keys(YAMLNodeHandle handle, int* out_count);
-void yaml_free_keys(char** keys, int count);
+// --- READING VALUES (Caller must free returned strings with yaml_free_string) ---
+YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node);
 
-// === CONVERSION ===
-char* as_string(YAMLNodeHandle handle);
-int as_int(YAMLNodeHandle handle);
-double as_float(YAMLNodeHandle handle);
-bool as_bool(YAMLNodeHandle handle);
-void yaml_free_string(char* str);
+// --- MODIFICATION ---
+// For all three add_* functions:
+//   key=NULL    -> no key set (use for sequence elements)
+//   index=SIZE_MAX -> append at end; any other value inserts at that position
 
-// === MODIFICATION ===
-void set_value_string(YAMLNodeHandle handle, const char* key,
-                      const char* value);
-void set_value_int(YAMLNodeHandle handle, const char* key, int value);
-void set_value_float(YAMLNodeHandle handle, const char* key, double value);
-void set_value_bool(YAMLNodeHandle handle, const char* key, bool value);
-void set_value_node(YAMLNodeHandle handle, const char* key,
-                    YAMLNodeHandle value);
+// Adds a new scalar child. If parent is a map, key is used; if a sequence, key is ignored.
+YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent, const char* key, const char* value, size_t index);
 
-void set_scalar_string(YAMLNodeHandle handle, const char* value);
-void set_scalar_int(YAMLNodeHandle handle, int value);
-void set_scalar_float(YAMLNodeHandle handle, double value);
-void set_scalar_bool(YAMLNodeHandle handle, bool value);
+// Adds a new empty map child. If parent is a map, key is used; if a sequence, key is ignored.
+YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent, const char* key, size_t index);
 
-void set_at_index(YAMLNodeHandle handle, int index, YAMLNodeHandle value);
-void push_string(YAMLNodeHandle handle, const char* value);
-void push_int(YAMLNodeHandle handle, int value);
-void push_float(YAMLNodeHandle handle, double value);
-void yaml_push_bool(YAMLNodeHandle handle, bool value);
-void push_node(YAMLNodeHandle handle, YAMLNodeHandle value);
+// Adds a new empty sequence child. If parent is a map, key is used; if a sequence, key is ignored.
+YAML_API YAMLNodeId add_sequence(YAMLTreeHandle tree, YAMLNodeId parent, const char* key, size_t index);
 
-// === UTILITY ===
-char* yaml_to_string(YAMLNodeHandle handle);
-char* yaml_emit(YAMLNodeHandle handle, int indent);
-YAMLNodeHandle yaml_clone(YAMLNodeHandle handle);
+// Changes the scalar value of an existing node.
+YAML_API void set_scalar(YAMLTreeHandle tree, YAMLNodeId node, const char* value);
 
-bool write_file(YAMLNodeHandle handle, const char* filename);
-bool write_file_formatted(YAMLNodeHandle handle, const char* filename,
-                          int indent, bool flow_maps, bool flow_seqs);
-bool write_file_advanced(YAMLNodeHandle handle, const char* filename, int indent, bool flow_maps,
-    bool flow_seqs, int bool_format, int null_format, int string_format);
+// Changes or sets the key of an existing node.
+YAML_API void set_node_key(YAMLTreeHandle tree, YAMLNodeId node, const char* key);
+
+// Deep-copies the type, value, and all children of src into the existing dst node.
+YAML_API void deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node);
+// Copies all children of src_node into dst_node. Use END to append, or an index to insert at that position.
+YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node, size_t index);
+// --- EMITTING & UTILS ---
+YAML_API char* yaml_to_string(YAMLTreeHandle tree, YAMLNodeId node);
+YAML_API bool write_file(YAMLTreeHandle tree, const char* filename);
+YAML_API void yaml_free_string(char* str);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // YAML_C_WRAPPER_H
+#endif // YAML_C_WRAPPER_H

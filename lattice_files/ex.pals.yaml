@@ -1,5 +1,6 @@
 - thingB:
     kind: Sextupole
+    length: 2
 - lat1:
     kind: Lattice
     branches:
@@ -31,3 +32,25 @@
         - c
 - use: "lat2"
 - use: "lat1"
+
+# - lat:
+#     kind: Lattice  
+#     branches:
+#         - inj_line
+
+# - inj_line:
+#     kind: BeamLine
+#     line:
+#         - to_dump:
+#             kind: Fork
+#             ForkP:
+#                 to_line: generic_dump
+#                 to_element: b_subline
+#                 branch_name: this_dump
+#                 propagate_reference: true
+
+# - generic_dump:
+#     kind: BeamLine
+#     line:
+#         - a_subline
+#         - b_subline

@@ -1,793 +1,469 @@
-#include <yaml-cpp/yaml.h>
-
-#include <cstring>
+#include "yaml_c_wrapper.h"
+#include <ryml.hpp>
+#include <ryml_std.hpp>
 #include <fstream>
-#include <iostream>
-#include <string>
+#include <sstream>
+#include <cstring>
+#include <stdexcept>
+#include <map>
 #include <vector>
+#include <iostream>
 
-#if defined(_WIN32)
-#define YAML_API extern "C" __declspec(dllexport)
-#else
-#define YAML_API extern "C" __attribute__((visibility("default")))
-#endif
+// ============================================================
+// INTERNALS
+// ============================================================
 
-// TODO: add absolute file paths
-//  for every element, add a field that points to the parent
-/*
-`original` is a map containing the base lattice as well as any lattices included
-in the base lattice. They can be accessed using original[filename].
-`included` is the base lattice but with all included files substituted in.
-`expanded` is the base lattice after lattice expansion has been performed.
-*/
-struct lattices_int {
-    YAML::Node original;
-    YAML::Node included;
-    YAML::Node expanded;
+struct ParsedData {
+    ryml::Tree tree;
+    std::string buffer;
 };
 
-template <typename Condition>
-std::vector<YAML::Node> search(YAML::Node root_node, Condition condition) {
-    std::vector<YAML::Node> matches;
+#define GET_TREE(handle) (static_cast<ParsedData*>(handle)->tree)
 
-    if (condition(root_node)) matches.push_back(root_node);
+// Shared helper: append or insert a blank child depending on index.
+// Grows the node pool if needed since ryml does not auto-resize.
+// index=END means append.
+static size_t add_child_at(ryml::Tree& t, size_t parent, size_t index) {
+    if (t.size() + 1 >= t.capacity())
+        t.reserve(t.capacity() + 64);
 
-    std::vector<YAML::Node> child_matches;
-    if (root_node.IsMap()) {
-        for (auto ele : root_node) {
-            child_matches = search(ele.second, condition);
-            matches.insert(matches.end(), child_matches.begin(),
-                           child_matches.end());
-        }
-    } else if (root_node.IsSequence()) {
-        for (int i = 0; i < root_node.size(); i++) {
-            child_matches = search(root_node[i], condition);
-            matches.insert(matches.end(), child_matches.begin(),
-                           child_matches.end());
-        }
+    if (index == END) {
+        return t.append_child(parent);
     }
-    return matches;
+    size_t num = t.num_children(parent);
+    if (index > num) index = num;
+    size_t after_id = (index > 0) ? t.child(parent, index - 1) : ryml::NONE;
+    return t.insert_child(parent, after_id);
 }
 
-auto is_kind = [](YAML::Node node, std::string kind_type_string) {
-    if (node.IsMap()) {
-        for (auto ele : node) {
-            if (ele.second.IsMap() &&
-                ele.second["kind"].as<std::string>("") == kind_type_string) {
-                return true;
-            }
-        }
-    }
-    return false;
-};
-
-std::vector<YAML::Node> search_kind(YAML::Node root,
-                                    std::string kind_type_string) {
-    auto condition_wrapper = [kind_type_string](const YAML::Node& node) {
-        return is_kind(node, kind_type_string);
-    };
-    return search(root, condition_wrapper);
-}
-
-// /* `node` should be a Lattice or Beamline. For each element in the line,
-// add the map {parent, `node`.}*/
-// void add_parents(YAML::Node node) {
-
-// }
-
-/*
-Recursively loops through the node to record all the lattices and beamlines and
-their corresponding parameters.
-*/
-void get_dict_helper(YAML::Node node,
-                     std::map<std::string, YAML::Node>* element_map) {
-    if (node.IsSequence()) {
-        for (size_t i = 0; i < node.size(); i++) {
-            YAML::Node child = node[i];
-            get_dict_helper(child, element_map);
-        }
-    } else if (node.IsMap()) {
-        for (auto ele : node) {
-            if (ele.second.IsMap() && ele.second["kind"]) {
-                element_map->insert({ele.first.as<std::string>(), ele.second});
-            } else {
-                get_dict_helper(ele.second, element_map);
-            }
-        }
+// Shared helper: optionally stamp a key onto a node.
+static void maybe_set_key(ryml::Tree& t, size_t node, const char* key) {
+    if (key != nullptr) {
+        t.ref(node) |= ryml::KEY;
+        t.set_key(node, t.to_arena(ryml::to_csubstr(key)));
     }
 }
 
-/*
-Constructs the map from names to lattice elements. The values in the map
-are references to lattice elements with a given name, and modifying them
-will directly modifty the lattice. Elements in values are stored in the order
-that they appear in the lattice file. Use YAML::Clone if only the information
-is required.
-*/
-std::map<std::string, YAML::Node>* get_dict(YAML::Node root) {
-    std::map<std::string, YAML::Node>* element_map =
-        new std::map<std::string, YAML::Node>();
-    get_dict_helper(root, element_map);
-    return element_map;
+// Recursive deep copy used by deep_copy_node and internal helpers.
+static void deep_copy_recursive(ryml::Tree& dst_t, size_t dst_node,
+                                 const ryml::Tree& src_t, size_t src_node) {
+    ryml::NodeType safe_flags = ryml::MAP | ryml::SEQ | ryml::VAL | ryml::KEY;
+    dst_t.ref(dst_node) |= (src_t.type(src_node) & safe_flags);
+
+    // Capture key/val as std::string BEFORE any append_child calls because
+    // append_child can reallocate the arena, dangling any csubstr views.
+    std::string key_str, val_str;
+    bool has_key = src_t.has_key(src_node);
+    bool has_val = src_t.has_val(src_node);
+    if (has_key) key_str = std::string(src_t.key(src_node).str, src_t.key(src_node).len);
+    if (has_val) val_str = std::string(src_t.val(src_node).str, src_t.val(src_node).len);
+
+    // Collect child IDs before mutating the tree.
+    std::vector<size_t> src_children;
+    for (size_t c = src_t.first_child(src_node); c != ryml::NONE; c = src_t.next_sibling(c))
+        src_children.push_back(c);
+
+    // Append children first (may reallocate arena).
+    std::vector<size_t> dst_children;
+    for (size_t i = 0; i < src_children.size(); i++)
+        dst_children.push_back(dst_t.append_child(dst_node));
+
+    // Now safe to set key/val — arena is stable.
+    if (has_key) dst_t.set_key(dst_node, dst_t.to_arena(ryml::to_csubstr(key_str)));
+    if (has_val) dst_t.set_val(dst_node, dst_t.to_arena(ryml::to_csubstr(val_str)));
+
+    for (size_t i = 0; i < src_children.size(); i++)
+        deep_copy_recursive(dst_t, dst_children[i], src_t, src_children[i]);
 }
 
-/*
-Adds the file contained in `filename` to `original`, which should be
-lat.original. The key is the filename and the value is the contents of the file.
-*/
-void add_to_original(YAML::Node original, std::string filename) {
-    if (!original[filename]) {
-        YAML::Node node = YAML::Node(YAML::NodeType::Map);
-        node["path"] = "";
-        node["info"] = YAML::LoadFile(filename);
-        original[filename] = node;
+// ============================================================
+// INTERNAL LATTICE LOGIC
+// ============================================================
+
+static void make_ele_map(std::map<std::string, YAMLNodeId>& map,
+                          YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return;
+    if (is_scalar(tree, node)) return;
+
+    if (is_map(tree, node)) {
+        YAMLNodeId params = get_child_by_index(tree, node, 0);
+        YAMLNodeId kind   = get_child_by_key(tree, params, "kind");
+        char* key         = get_node_key(tree, params);
+        if (kind != YAML_NULL_ID && key != nullptr)
+            map.emplace(std::string(key), params);
+        yaml_free_string(key);
     }
+
+    for (size_t i = 0; i < get_size(tree, node); i++)
+        make_ele_map(map, tree, get_child_by_index(tree, node, i));
 }
 
-/*
-Constructs the original lattice.
-*/
-YAML::Node original_lattice(std::string filename) {
-    YAML::Node original = YAML::Node(YAML::NodeType::Map);
+static void expand(YAMLTreeHandle tree, YAMLNodeId node,
+                   std::map<std::string, YAMLNodeId>& map) {
+    if (node == YAML_NULL_ID) return;
 
-    std::vector<std::string> files_to_process;
-    files_to_process.push_back(filename);
+    if (is_scalar(tree, node)) {
+        char* name = as_string(tree, node);
+        if (name && map.count(name)) {
+            YAMLNodeId def = map.at(std::string(name));
+            GET_TREE(tree).ref(node).clear_val(); 
+            // Promote to map and deep-copy the definition under a keyed child.
+            GET_TREE(tree).ref(node) |= ryml::MAP;
+            size_t kv_child = GET_TREE(tree).append_child(node);
+            deep_copy_recursive(GET_TREE(tree), kv_child, GET_TREE(tree), def);
 
-    auto find_includes = [](const YAML::Node& node) {
-        return node.IsMap() && node["include"];
-    };
+            // Stamp the key after the copy (arena may have moved).
+            GET_TREE(tree).ref(kv_child) |= ryml::KEY;
+            GET_TREE(tree).set_key(kv_child,
+                GET_TREE(tree).to_arena(ryml::to_csubstr(name)));
 
-    while (!files_to_process.empty()) {
-        std::string current_file = files_to_process.back();
-        files_to_process.pop_back();
-
-        if (original[current_file]) {
-            continue;
+            expand(tree, node, map);
+        }
+        yaml_free_string(name);
+    } else if (is_map(tree, node)) {
+        YAMLNodeId to_inherit = get_child_by_key(tree, node, "inherit");
+        if (to_inherit != YAML_NULL_ID) {
+            YAMLNodeId ancestor = map.at(as_string(tree, to_inherit));
+            deep_copy_children(tree, node, tree, ancestor, END);
+            set_node_key(tree, to_inherit, "inherited");
+            expand(tree, node, map);
         }
 
-        add_to_original(original, current_file);
-        YAML::Node loaded_content = original[current_file]["info"];
-        std::vector<YAML::Node> includes_found =
-            search(loaded_content, find_includes);
-        for (const auto& inc_node : includes_found) {
-            std::string inc_fn = inc_node["include"].as<std::string>();
-            if (inc_fn.size() >= 5 &&
-                inc_fn.substr(inc_fn.size() - 5) == ".yaml") {
-                files_to_process.push_back(inc_fn);
-            }
-        }
-    }
-    return original;
-}
-
-/*
-Constructs the included lattice.
-*/
-YAML::Node included_lattice(std::string filename) {
-    YAML::Node included = YAML::LoadFile(filename);
-    std::vector<YAML::Node> include_files =
-        search(included,
-               [](YAML::Node node) { return node.IsMap() && node["include"]; });
-    for (int i = 0; i < include_files.size(); i++) {
-        std::string inc_fn = include_files[i]["include"].as<std::string>();
-        if (inc_fn.size() >= 5 && inc_fn.substr(inc_fn.size() - 5) == ".yaml") {
-            YAML::Node node(YAML::NodeType::Sequence);
-            YAML::Node content = included_lattice(inc_fn);
-            YAML::Node file(YAML::NodeType::Map);
-            file["file"] = inc_fn;
-
-            node.push_back(file);
-            node.push_back(content[0]);
-
-            include_files[i].remove("include");
-            include_files[i]["included"] = node;
-        }
-    }
-    return included;
-}
-
-/*
-Returns a new node with the elements in `line` inserted into `seq` at `index`
-a `repeat` number of times. The value at index will be rewritten by the first
-inserted element. For example, if seq = [1,2,3,4,5], line = [a,b], index = 2,
-repeat = 3, calling the function will output [1,2,a,b,a,b,a,b,4,5].
-*/
-YAML::Node repeat(YAML::Node target_element, YAML::Node seq, int index,
-                  int repeat_count) {
-    YAML::Node exp = YAML::Node(YAML::NodeType::Sequence);
-    for (int i = 0; i < index; i++) {
-        exp.push_back(YAML::Clone(seq[i]));
-    }
-
-    YAML::Node inner_content = target_element;
-    if (inner_content.IsMap() && inner_content["line"]) {
-        inner_content = inner_content["line"];
-    }
-
-    for (int i = 0; i < repeat_count; i++) {
-        if (inner_content.IsSequence()) {
-            for (std::size_t j = 0; j < inner_content.size(); j++) {
-                exp.push_back(YAML::Clone(inner_content[j]));
-            }
-        } else {
-            exp.push_back(YAML::Clone(inner_content));
-        }
-    }
-
-    for (std::size_t i = index + 1; i < seq.size(); i++) {
-        exp.push_back(YAML::Clone(seq[i]));
-    }
-    return exp;
-}
-
-/*
-Performs lattice expansion on the provided `node`.
-*/
-YAML::Node expand_internal(YAML::Node node,
-                           std::map<std::string, YAML::Node>* elements_map) {
-    if (node.IsScalar() && elements_map->count(node.as<std::string>())) {
-        std::string element_name = node.as<std::string>();
-        YAML::Node wrapped_node = YAML::Node(YAML::NodeType::Map);
-
-        wrapped_node[element_name] = expand_internal(
-            YAML::Clone(elements_map->at(element_name)), elements_map);
-        return wrapped_node;
-    } else if (node.IsSequence()) {
-        for (std::size_t i = 0; i < node.size(); i++) {
-            if (node[i].IsMap()) {
-                for (auto it = node[i].begin(); it != node[i].end(); ++it) {
-                    if (it->second.IsMap() && it->second["repeat"]) {
-                        std::string target_name = it->first.as<std::string>();
-                        if (elements_map->count(target_name)) {
-                            YAML::Node target_node =
-                                YAML::Clone(elements_map->at(target_name));
-                            YAML::Node repeated_seq =
-                                repeat(target_node, node, i,
-                                       it->second["repeat"].as<int>());
-                            return expand_internal(repeated_seq, elements_map);
+    } else if (is_sequence(tree, node)) {
+        for (size_t i = 0; i < get_size(tree, node); i++) {
+            YAMLNodeId child = get_child_by_index(tree, node, i);
+            if (is_map(tree, child)) {
+                for (size_t j = 0; j < get_size(tree, child); j++) {
+                    YAMLNodeId ele = get_child_by_index(tree, child, j);
+                    if (ele != YAML_NULL_ID) {
+                        YAMLNodeId repeat = get_child_by_key(tree, ele, "repeat");
+                        if (repeat != YAML_NULL_ID) {
+                            char* ntimes_str = as_string(tree, repeat);
+                            int ntimes = std::stoi(ntimes_str);
+                            yaml_free_string(ntimes_str); // Free the string allocation
+                            char* key_str = get_node_key(tree, ele); 
+                            remove_node(tree, node, child);
+                            if (key_str) {
+                                YAMLNodeId repeated_subline = map.at(key_str);
+                                YAMLNodeId line = get_child_by_key(tree, repeated_subline, "line");
+                                for (int n = 0; n < ntimes; n++) {
+                                    deep_copy_children(tree, node, tree, line, i);
+                                }
+                                std::cout << yaml_to_string(tree, line);
+                            }
+                            yaml_free_string(key_str); // Free the key allocation
                         }
                     }
                 }
             }
+            expand(tree, child, map);
         }
-        YAML::Node new_seq = YAML::Node(YAML::NodeType::Sequence);
-        for (std::size_t i = 0; i < node.size(); i++) {
-            new_seq.push_back(expand_internal(node[i], elements_map));
-        }
-        return new_seq;
-    } else if (node.IsMap()) {
-        YAML::Node new_map = YAML::Clone(node);
-
-        if (new_map["inherit"]) {
-            std::string parent_name = new_map["inherit"].as<std::string>();
-            new_map.remove("inherit");
-            new_map["inherited"] = parent_name;
-
-            if (elements_map->count(parent_name)) {
-                YAML::Node parent = elements_map->at(parent_name);
-                for (auto it = parent.begin(); it != parent.end(); ++it) {
-                    std::string key = it->first.as<std::string>();
-                    if (!new_map[key]) {
-                        new_map[key] = YAML::Clone(it->second);
-                    }
-                }
-            }
-        }
-
-        // Expand all values in place using iterators
-        std::vector<std::pair<std::string, YAML::Node>> expanded_entries;
-        for (auto it = new_map.begin(); it != new_map.end(); ++it) {
-            std::string key = it->first.as<std::string>();
-            YAML::Node expanded_value = expand_internal(it->second, elements_map);
-            expanded_entries.push_back({key, expanded_value});
-        }
-        
-        // Rebuild the map with expanded values
-        YAML::Node final_map = YAML::Node(YAML::NodeType::Map);
-        for (const auto& entry : expanded_entries) {
-            final_map[entry.first] = entry.second;
-        }
-        
-        return final_map;
     }
 
-    return YAML::Clone(node);
+    for (size_t i = 0; i < get_size(tree, node); i++)
+        expand(tree, get_child_by_index(tree, node, i), map);
 }
 
-/*
-Performs lattice expansion with the following rules:
-1. If name is specified, the lattice in `root` with the given name will be
-expanded.
-2. If no name is specified, the lattice that appears latest in `root` will be
-expanded.
-*/
-void find_and_replace(std::string name, YAML::Node root,
-                      std::map<std::string, YAML::Node>* elements_map) {
-    if (name != "") {
-        for (std::size_t i = 0; i < root.size(); i++) {
-            if (root[i].IsMap() && root[i][name]) {
-                root[i][name] = expand_internal(root[i][name], elements_map);
-                return;
-            }
-        }
-    } else {
-        for (int i = root.size() - 1; i >= 0; i--) {
-            if (root[i].IsMap() && root[i]["use"]) {
-                std::string target = root[i]["use"].as<std::string>();
+// static YAMLNodeId find_lattice_to_expand(YAMLTreeHandle tree, char* lat_name = "", 
+//     std::map<std::string, YAMLNodeId>& map) {
+//         if (lat_name != "") {
+//             return map.at(lat_name);
+//         } else {
 
-                for (std::size_t j = 0; j < root.size(); j++) {
-                    if (root[j].IsMap() && root[j][target]) {
-                        root[j][target] =
-                            expand_internal(root[j][target], elements_map);
-                        return;
-                    }
+//         }
+// }
+static YAMLTreeHandle make_expanded(const char* filename) {
+    YAMLTreeHandle expanded = parse_file(filename);
+    if (!expanded) return nullptr;
+
+    std::map<std::string, YAMLNodeId> map;
+    make_ele_map(map, expanded, get_root(expanded));
+    ryml::Tree& t = GET_TREE(expanded);
+    t.reserve_arena(t.arena_capacity() + 100000);
+    t.reserve(t.capacity() + 10000);
+
+    expand(expanded, get_root(expanded), map);
+    return expanded;
+}
+
+static void add_to_master_tree(YAMLTreeHandle master, YAMLTreeHandle tree,
+                                YAMLNodeId tree_node) {
+    if (tree_node == YAML_NULL_ID) return;
+    YAMLNodeId master_root = get_root(master);
+    if (is_scalar(tree, tree_node)) return;
+
+    for (size_t i = 0; i < get_size(tree, tree_node); i++) {
+        YAMLNodeId ele = get_child_by_index(tree, tree_node, i);
+        add_to_master_tree(master, tree, ele);
+
+        char* key = get_node_key(tree, ele);
+        if (key && strcmp(key, "include") == 0) {
+            char* child_filename = as_string(tree, ele);
+            if (child_filename) {
+                YAMLTreeHandle child_file = parse_file(child_filename);
+                if (child_file) {
+                    YAMLNodeId child_root = get_root(child_file);
+                    size_t dest = GET_TREE(master).append_child(master_root);
+                    deep_copy_recursive(GET_TREE(master), dest,
+                                        GET_TREE(child_file), child_root);
+                    set_node_key(master, dest, child_filename);
+                    add_to_master_tree(master, child_file, child_root);
+                    delete_tree(child_file);
                 }
+                yaml_free_string(child_filename);
             }
         }
-        for (int i = root.size() - 1; i >= 0; i--) {
-            if (is_kind(root[i], "Lattice")) {
-                root[i] = expand_internal(root[i], elements_map);
-                return;
-            }
-        }
+        yaml_free_string(key);
     }
 }
 
-/*
-Constructs the expanded lattice. Expanding has the following priority:
-1. If a lattice name is supplied through lattice_name, that lattice will be
-expanded.
-2. If no lattice_name is supplied, the lattice specified by the last use
-statement will be expanded.
-3. If no lattice_name is supplied and no use statements are present, the lattice
-that occurs latest in the file will be expanded.
-*/
-YAML::Node expanded_lattice(std::string filename, std::string lattice_name) {
-    YAML::Node root = YAML::LoadFile(filename);
-    root = included_lattice(filename);
-    std::map<std::string, YAML::Node>* elements_map = get_dict(root);
+static YAMLTreeHandle make_original(const char* filename) {
+    YAMLTreeHandle master = create_empty_tree();
+    YAMLTreeHandle tree   = parse_file(filename);
 
-    find_and_replace(lattice_name, root, elements_map);
-    return root;
+    if (tree) {
+        size_t dest = GET_TREE(master).append_child(get_root(master));
+        deep_copy_recursive(GET_TREE(master), dest,
+                            GET_TREE(tree), get_root(tree));
+        set_node_key(master, dest, filename);
+        add_to_master_tree(master, tree, get_root(tree));
+    }
+    return master;
 }
 
-struct lattices_int get_lattices_int(const std::string& filename,
-                                     const std::string& lattice_name = "") {
-    struct lattices_int lat;
-    lat.original = original_lattice(filename);
-    lat.included = included_lattice(filename);
-    lat.expanded = expanded_lattice(filename, lattice_name);
-    return lat;
-}
+// ============================================================
+// PUBLIC API
+// ============================================================
 
 extern "C" {
-typedef void* YAMLNodeHandle;
 
-struct lattices {
-    YAMLNodeHandle original;
-    YAMLNodeHandle included;
-    YAMLNodeHandle expanded;
-};
-
-YAML_API struct lattices get_lattices(const char* filename,
-                                      const char* lattice_name) {
-    struct lattices lat;
-    lat.original = static_cast<void*>(
-        new YAML::Node(original_lattice(std::string(filename))));
-    lat.included = static_cast<void*>(
-        new YAML::Node(included_lattice(std::string(filename))));
-    lat.expanded = static_cast<void*>(new YAML::Node(
-        expanded_lattice(std::string(filename), std::string(lattice_name))));
+YAML_API struct lattices get_lattices(const char* filename, const char* lattice_name) {
+    struct lattices lat = {};
+    lat.original = make_original(filename);
+    lat.expanded = make_expanded(filename);
     return lat;
 }
 
-// === CREATION/DELETION ===
-YAML_API YAMLNodeHandle create_node() { return new YAML::Node(); }
+// --- PARSING & MEMORY ---
 
-YAML_API YAMLNodeHandle create_map() {
-    auto node = new YAML::Node();
-    *node = YAML::Node(YAML::NodeType::Map);
-    return node;
-}
-
-YAML_API YAMLNodeHandle create_sequence() {
-    auto node = new YAML::Node();
-    *node = YAML::Node(YAML::NodeType::Sequence);
-    return node;
-}
-
-YAML_API YAMLNodeHandle create_scalar() {
-    auto node = new YAML::Node();
-    *node = YAML::Node(YAML::NodeType::Scalar);
-    return node;
-}
-
-YAML_API void delete_node(YAMLNodeHandle handle) {
-    delete static_cast<YAML::Node*>(handle);
-}
-
-// === TYPE CHECKS ===
-YAML_API bool is_scalar(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsScalar();
-}
-
-YAML_API bool is_sequence(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsSequence();
-}
-
-YAML_API bool is_map(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsMap();
-}
-
-YAML_API bool is_null(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->IsNull();
-}
-
-// === ACCESS ===
-// equivalent to map[key]
-YAML_API YAMLNodeHandle get_key(YAMLNodeHandle handle, const char* key) {
-    auto node = static_cast<YAML::Node*>(handle);
-    auto child = (*node)[key];
-    if (!child.IsDefined()) {
-        return nullptr;
-    }
-    return new YAML::Node(child);
-}
-
-YAML_API YAMLNodeHandle get_index(YAMLNodeHandle handle, int index) {
-    auto node = static_cast<YAML::Node*>(handle);
-    if (index < 0 || index >= node->size()) {
-        return nullptr;
-    }
-    return new YAML::Node((*node)[index]);
-}
-
-YAML_API bool has_key(YAMLNodeHandle handle, const char* key) {
-    auto node = static_cast<YAML::Node*>(handle);
-    return (*node)[key].IsDefined();
-}
-
-YAML_API int size(YAMLNodeHandle handle) {
-    return static_cast<YAML::Node*>(handle)->size();
-}
-
-// === PARSING ===
-YAML_API YAMLNodeHandle parse_string(const char* yaml_str) {
+YAML_API YAMLTreeHandle parse_file(const char* filename) {
     try {
-        return new YAML::Node(YAML::Load(yaml_str));
+        std::ifstream file(filename, std::ios::binary | std::ios::ate);
+        if (!file) return nullptr;
+
+        std::streamsize size = file.tellg();
+        file.seekg(0, std::ios::beg);
+
+        ParsedData* data = new ParsedData();
+        data->buffer.resize(size);
+        file.read(&data->buffer[0], size);
+        data->tree = ryml::parse_in_place(ryml::to_substr(data->buffer));
+        return data;
     } catch (...) {
         return nullptr;
     }
 }
 
-YAML_API YAMLNodeHandle parse_file(const char* filename) {
+YAML_API YAMLTreeHandle parse_string(const char* yaml_str) {
     try {
-        return new YAML::Node(YAML::LoadFile(filename));
+        ParsedData* data = new ParsedData();
+        data->buffer = yaml_str;
+        data->tree = ryml::parse_in_place(ryml::to_substr(data->buffer));
+        return data;
     } catch (...) {
         return nullptr;
     }
 }
 
-YAML_API char** get_keys(YAMLNodeHandle handle, int* out_count) {
-    auto node = static_cast<YAML::Node*>(handle);
-    if (!node->IsMap()) {
-        *out_count = 0;
-        return nullptr;
-    }
+YAML_API YAMLTreeHandle create_empty_tree() {
+    ParsedData* data = new ParsedData();
+    data->tree.rootref() |= ryml::MAP;
+    return data;
+}
 
-    std::vector<std::string> keys;
-    for (auto it = node->begin(); it != node->end(); ++it) {
-        keys.push_back(it->first.as<std::string>());
-    }
+YAML_API void delete_tree(YAMLTreeHandle tree) {
+    delete static_cast<ParsedData*>(tree);
+}
 
-    *out_count = keys.size();
-    char** result = new char*[keys.size()];
-    for (size_t i = 0; i < keys.size(); i++) {
-        result[i] = new char[keys[i].length() + 1];
-        strcpy(result[i], keys[i].c_str());
-    }
+YAML_API void remove_node(YAMLTreeHandle tree, YAMLNodeId parent, YAMLNodeId child) {
+    if (parent == YAML_NULL_ID || child == YAML_NULL_ID) return;
+    ryml::Tree& t = GET_TREE(tree);
+    size_t index = t.child_pos(parent, child);
+    if (index != ryml::NONE)
+        t.ref(parent).remove_child(index);
+}
+
+// --- TRAVERSAL ---
+
+YAML_API YAMLNodeId get_root(YAMLTreeHandle tree) {
+    if (!tree) return YAML_NULL_ID;
+    return GET_TREE(tree).root_id();
+}
+
+YAML_API YAMLNodeId get_parent(YAMLTreeHandle tree, YAMLNodeId node) {
+    ryml::Tree& t = GET_TREE(tree);
+    if (node == ryml::NONE || !t.has_parent(node)) return YAML_NULL_ID;
+    return t.parent(node);
+}
+
+YAML_API YAMLNodeId get_child_by_key(YAMLTreeHandle tree, YAMLNodeId parent, const char* key) {
+    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    ryml::Tree& t = GET_TREE(tree);
+    if (!t.is_map(parent)) return YAML_NULL_ID;
+    YAMLNodeId child = t.find_child(parent, ryml::to_csubstr(key));
+    return (child == ryml::NONE) ? YAML_NULL_ID : child;
+}
+
+YAML_API YAMLNodeId get_child_by_index(YAMLTreeHandle tree, YAMLNodeId parent, size_t index) {
+    ryml::Tree& t = GET_TREE(tree);
+    if (!(t.is_seq(parent) || t.is_map(parent)) || index >= t.num_children(parent))
+        return YAML_NULL_ID;
+    return t.child(parent, index);
+}
+
+YAML_API size_t get_size(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return 0;
+    return GET_TREE(tree).num_children(node);
+}
+
+YAML_API char* get_node_key(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return nullptr;
+    ryml::Tree& t = GET_TREE(tree);
+    if (!t.has_key(node)) return nullptr;
+    ryml::csubstr k = t.key(node);
+    char* result = new char[k.len + 1];
+    memcpy(result, k.str, k.len);
+    result[k.len] = '\0';
     return result;
 }
 
-// === CONVERT TO C TYPES (caller must free returned strings) ===
-YAML_API char* as_string(YAMLNodeHandle handle) {
-    try {
-        auto str = static_cast<YAML::Node*>(handle)->as<std::string>();
-        char* result = new char[str.length() + 1];
-        strcpy(result, str.c_str());
-        return result;
-    } catch (...) {
-        return nullptr;
+// --- TYPE CHECKS ---
+
+YAML_API bool is_map(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return false;
+    return GET_TREE(tree).is_map(node);
+}
+
+YAML_API bool is_sequence(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return false;
+    return GET_TREE(tree).is_seq(node);
+}
+
+YAML_API bool is_scalar(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return false;
+    return GET_TREE(tree).is_val(node);
+}
+
+// --- READING VALUES ---
+
+YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (node == YAML_NULL_ID) return nullptr;
+    ryml::Tree& t = GET_TREE(tree);
+    if (!t.has_val(node)) return nullptr;
+    ryml::csubstr v = t.val(node);
+    char* result = new char[v.len + 1];
+    memcpy(result, v.str, v.len);
+    result[v.len] = '\0';
+    return result;
+}
+
+// --- MODIFICATION ---
+
+
+YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
+                                const char* key, const char* value, size_t index) {
+    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    ryml::Tree& t = GET_TREE(tree);
+    size_t new_id = add_child_at(t, parent, index);
+    if (t.is_map(parent)) maybe_set_key(t, new_id, key);
+    t.ref(new_id) |= ryml::VAL;
+    t.set_val(new_id, t.to_arena(ryml::to_csubstr(value)));
+    return new_id;
+}
+
+YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
+                             const char* key, size_t index) {
+    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    ryml::Tree& t = GET_TREE(tree);
+    size_t new_id = add_child_at(t, parent, index);
+    if (t.is_map(parent)) maybe_set_key(t, new_id, key);
+    t.ref(new_id) |= ryml::MAP;
+    return new_id;
+}
+
+YAML_API YAMLNodeId add_sequence(YAMLTreeHandle tree, YAMLNodeId parent,
+                                  const char* key, size_t index) {
+    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    ryml::Tree& t = GET_TREE(tree);
+    size_t new_id = add_child_at(t, parent, index);
+    if (t.is_map(parent)) maybe_set_key(t, new_id, key);
+    t.ref(new_id) |= ryml::SEQ;
+    return new_id;
+}
+
+YAML_API void set_scalar(YAMLTreeHandle tree, YAMLNodeId node, const char* value) {
+    if (node == YAML_NULL_ID) return;
+    ryml::Tree& t = GET_TREE(tree);
+    t.ref(node) |= ryml::VAL;
+    t.set_val(node, t.to_arena(ryml::to_csubstr(value)));
+}
+
+YAML_API void set_node_key(YAMLTreeHandle tree, YAMLNodeId node, const char* key) {
+    if (node == YAML_NULL_ID) return;
+    ryml::Tree& t = GET_TREE(tree);
+    t.ref(node) |= ryml::KEY;
+    t.set_key(node, t.to_arena(ryml::to_csubstr(key)));
+}
+
+YAML_API void deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
+                              YAMLTreeHandle src_tree, YAMLNodeId src_node) {
+    if (!dst_tree || !src_tree) return;
+    if (dst_node == YAML_NULL_ID || src_node == YAML_NULL_ID) return;
+    deep_copy_recursive(GET_TREE(dst_tree), dst_node, GET_TREE(src_tree), src_node);
+}
+
+YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
+                                  YAMLTreeHandle src_tree, YAMLNodeId src_node, size_t index) {
+    if (!dst_tree || !src_tree) return;
+    if (dst_node == YAML_NULL_ID || src_node == YAML_NULL_ID) return;
+    ryml::Tree& dt = GET_TREE(dst_tree);
+    ryml::Tree& st = GET_TREE(src_tree);
+    size_t insert_pos = index;
+    for (size_t c = st.first_child(src_node); c != ryml::NONE; c = st.next_sibling(c)) {
+        if (dt.size() + 1 >= dt.capacity())
+            dt.reserve(dt.capacity() + 64);
+        size_t new_child = add_child_at(dt, dst_node, insert_pos);
+        deep_copy_recursive(dt, new_child, st, c);
+        if (insert_pos != END) insert_pos++;
     }
 }
 
-YAML_API int as_int(YAMLNodeHandle handle) {
+// --- EMITTING & UTILS ---
+
+YAML_API char* yaml_to_string(YAMLTreeHandle tree, YAMLNodeId node) {
+    ryml::Tree& t = GET_TREE(tree);
+    if (node == ryml::NONE || node >= t.capacity()) return nullptr;
+    std::stringstream ss;
+    ss << t.ref(node);
+    std::string str = ss.str();
+    char* result = new char[str.length() + 1];
+    strcpy(result, str.c_str());
+    return result;
+}
+
+YAML_API bool write_file(YAMLTreeHandle tree, const char* filename) {
     try {
-        return static_cast<YAML::Node*>(handle)->as<int>();
-    } catch (...) {
-        return 0;
-    }
-}
-
-YAML_API double as_float(YAMLNodeHandle handle) {
-    try {
-        return static_cast<YAML::Node*>(handle)->as<double>();
-    } catch (...) {
-        return 0.0;
-    }
-}
-
-YAML_API bool as_bool(YAMLNodeHandle handle) {
-    try {
-        return static_cast<YAML::Node*>(handle)->as<bool>();
-    } catch (...) {
-        return false;
-    }
-}
-
-// === MODIFICATION ===
-YAML_API void set_value_string(YAMLNodeHandle handle, const char* key,
-                               const char* value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    (*node)[key] = value;
-}
-
-YAML_API void set_value_int(YAMLNodeHandle handle, const char* key, int value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    (*node)[key] = value;
-}
-
-YAML_API void set_value_float(YAMLNodeHandle handle, const char* key,
-                              double value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    (*node)[key] = value;
-}
-
-YAML_API void set_value_bool(YAMLNodeHandle handle, const char* key,
-                             bool value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    (*node)[key] = value;
-}
-
-YAML_API void set_value_node(YAMLNodeHandle handle, const char* key,
-                             YAMLNodeHandle value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    auto val_node = static_cast<YAML::Node*>(value);
-    (*node)[key] = *val_node;
-}
-
-YAML_API void set_scalar_string(YAMLNodeHandle handle, const char* value) {
-    if (handle == nullptr || value == nullptr) return;
-    auto node = static_cast<YAML::Node*>(handle);
-    *node = value;
-}
-
-YAML_API void set_scalar_int(YAMLNodeHandle handle, int value) {
-    if (handle == nullptr) return;
-    auto node = static_cast<YAML::Node*>(handle);
-    *node = value;
-}
-
-YAML_API void set_scalar_float(YAMLNodeHandle handle, double value) {
-    if (handle == nullptr) return;
-    auto node = static_cast<YAML::Node*>(handle);
-    *node = value;
-}
-
-YAML_API void set_scalar_bool(YAMLNodeHandle handle, bool value) {
-    if (handle == nullptr) return;
-    auto node = static_cast<YAML::Node*>(handle);
-    *node = value;
-}
-
-// Set node at index for sequences
-YAML_API void set_at_index(YAMLNodeHandle handle, int index,
-                           YAMLNodeHandle value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    auto val_node = static_cast<YAML::Node*>(value);
-    (*node)[index] = *val_node;
-}
-
-YAML_API void push_string(YAMLNodeHandle handle, const char* value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    node->push_back(value);
-}
-
-YAML_API void push_int(YAMLNodeHandle handle, int value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    node->push_back(value);
-}
-
-YAML_API void push_float(YAMLNodeHandle handle, double value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    node->push_back(value);
-}
-
-YAML_API void push_node(YAMLNodeHandle handle, YAMLNodeHandle value) {
-    auto node = static_cast<YAML::Node*>(handle);
-    auto val_node = static_cast<YAML::Node*>(value);
-    node->push_back(*val_node);
-}
-
-// === WRITE TO FILE WITH EMITTER ===
-
-YAML_API bool write_file(YAMLNodeHandle handle, const char* filename) {
-    try {
-        auto node = static_cast<YAML::Node*>(handle);
-
         std::ofstream fout(filename);
-        if (!fout.is_open()) {
-            return false;
-        }
-
-        YAML::Emitter out;
-        out << *node;
-
-        fout << out.c_str();
-        fout.close();
+        if (!fout) return false;
+        fout << GET_TREE(tree);
         return true;
     } catch (...) {
         return false;
     }
 }
 
-// Write with emitter control (removed SetWrap)
-YAML_API bool write_file_formatted(YAMLNodeHandle handle, const char* filename,
-                                   int indent, bool flow_maps, bool flow_seqs) {
-    try {
-        auto node = static_cast<YAML::Node*>(handle);
-
-        std::ofstream fout(filename);
-        if (!fout.is_open()) {
-            return false;
-        }
-
-        YAML::Emitter out;
-
-        // Set formatting options (only valid ones)
-        out.SetIndent(indent);
-        out.SetMapFormat(flow_maps ? YAML::Flow : YAML::Block);
-        out.SetSeqFormat(flow_seqs ? YAML::Flow : YAML::Block);
-        out.SetBoolFormat(YAML::TrueFalseBool);  // true/false instead of yes/no
-        out.SetNullFormat(YAML::LowerNull);      // null instead of ~
-        out.SetStringFormat(YAML::Auto);         // Auto-detect if quotes needed
-
-        out << *node;
-
-        fout << out.c_str();
-        fout.close();
-        return true;
-    } catch (...) {
-        return false;
-    }
+YAML_API void yaml_free_string(char* str) {
+    delete[] str;
 }
 
-// Get YAML string with emitter
-YAML_API char* yaml_emit(YAMLNodeHandle handle, int indent) {
-    try {
-        auto node = static_cast<YAML::Node*>(handle);
-
-        YAML::Emitter out;
-        out.SetIndent(indent);
-        out.SetBoolFormat(YAML::TrueFalseBool);
-        out.SetNullFormat(YAML::LowerNull);
-        out << *node;
-
-        std::string str = out.c_str();
-        char* result = new char[str.length() + 1];
-        strcpy(result, str.c_str());
-        return result;
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-// Advanced version with all available options
-YAML_API bool write_file_advanced(
-    YAMLNodeHandle handle, const char* filename, int indent, bool flow_maps,
-    bool flow_seqs,
-    int bool_format,      // 0=YesNo, 1=TrueFalse, 2=OnOff
-    int null_format,      // 0=Tilde (~), 1=Null (null), 2=NULL, 3=Null
-    int string_format) {  // 0=Auto, 1=SingleQuoted, 2=DoubleQuoted, 3=Literal
-    try {
-        auto node = static_cast<YAML::Node*>(handle);
-
-        std::ofstream fout(filename);
-        if (!fout.is_open()) {
-            return false;
-        }
-
-        YAML::Emitter out;
-        out.SetIndent(indent);
-        out.SetMapFormat(flow_maps ? YAML::Flow : YAML::Block);
-        out.SetSeqFormat(flow_seqs ? YAML::Flow : YAML::Block);
-
-        // Boolean format
-        switch (bool_format) {
-            case 0:
-                out.SetBoolFormat(YAML::YesNoBool);
-                break;
-            case 1:
-                out.SetBoolFormat(YAML::TrueFalseBool);
-                break;
-            case 2:
-                out.SetBoolFormat(YAML::OnOffBool);
-                break;
-            default:
-                out.SetBoolFormat(YAML::TrueFalseBool);
-        }
-
-        // Null format
-        switch (null_format) {
-            case 0:
-                out.SetNullFormat(YAML::TildeNull);
-                break;  // ~
-            case 1:
-                out.SetNullFormat(YAML::LowerNull);
-                break;  // null
-            case 2:
-                out.SetNullFormat(YAML::UpperNull);
-                break;  // NULL
-            case 3:
-                out.SetNullFormat(YAML::CamelNull);
-                break;  // Null
-            default:
-                out.SetNullFormat(YAML::LowerNull);
-        }
-
-        // String format
-        switch (string_format) {
-            case 0:
-                out.SetStringFormat(YAML::Auto);
-                break;
-            case 1:
-                out.SetStringFormat(YAML::SingleQuoted);
-                break;
-            case 2:
-                out.SetStringFormat(YAML::DoubleQuoted);
-                break;
-            case 3:
-                out.SetStringFormat(YAML::Literal);
-                break;
-            default:
-                out.SetStringFormat(YAML::Auto);
-        }
-
-        out << *node;
-
-        fout << out.c_str();
-        fout.close();
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-// === UTILITY ===
-YAML_API char* yaml_to_string(YAMLNodeHandle handle) {
-    try {
-        YAML::Emitter out;
-        out << *static_cast<YAML::Node*>(handle);
-        std::string str = out.c_str();
-        char* result = new char[str.length() + 1];
-        strcpy(result, str.c_str());
-        return result;
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-// Helper to free strings allocated by this library
-YAML_API void yaml_free_string(char* str) { delete[] str; }
-
-YAML_API void yaml_free_keys(char** keys, int count) {
-    for (int i = 0; i < count; i++) {
-        delete[] keys[i];
-    }
-    delete[] keys;
-}
-
-YAML_API YAMLNodeHandle yaml_clone(YAMLNodeHandle handle) {
-    return new YAML::Node(YAML::Clone(*static_cast<YAML::Node*>(handle)));
-}
-}
+} // extern "C"
