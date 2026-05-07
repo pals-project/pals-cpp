@@ -129,8 +129,8 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //  1. Reads the ForkP
 //  2. If the beamline ForkP["to_line"] doesn't exist in the lattice,
 //     create the target branch in branches
-//  3. Rename the forked beamline to ForkP["branch_name"]
-//  4. Create a fork_pointer in the element with pointing to "to_element" in the
+//  3. Rename the forked beamline to ForkP["new_branch"]
+//  4. Create a fork_pointer in the element with pointing to "destination_element" in the
 //     new bracnh.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap) {
@@ -140,8 +140,8 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     if (forkp == ryml::NONE || !t.is_map(forkp)) return;
 
     std::string to_line = child_val_str(t, forkp, "to_line");
-    std::string to_element = child_val_str(t, forkp, "to_element");
-    std::string branch_name = child_val_str(t, forkp, "branch_name");
+    std::string to_element = child_val_str(t, forkp, "destination_element");
+    std::string branch_name = child_val_str(t, forkp, "new_branch");
     if (to_line.empty() || to_element.empty() || branch_name.empty()) return;
 
     // Check whether to_line already exists as a branch (by its original element

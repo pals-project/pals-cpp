@@ -1,0 +1,606 @@
+\doxysection{src/\+yaml\+\_\+c\+\_\+wrapper.cpp File Reference}
+\hypertarget{yaml__c__wrapper_8cpp}{}\label{yaml__c__wrapper_8cpp}\index{src/yaml\_c\_wrapper.cpp@{src/yaml\_c\_wrapper.cpp}}
+{\ttfamily \+\#include "{}yaml\+\_\+c\+\_\+wrapper.\+h"{}}\newline
+{\ttfamily \+\#include $<$cstring$>$}\newline
+{\ttfamily \+\#include $<$fstream$>$}\newline
+{\ttfamily \+\#include $<$iostream$>$}\newline
+{\ttfamily \+\#include $<$map$>$}\newline
+{\ttfamily \+\#include $<$ryml.\+hpp$>$}\newline
+{\ttfamily \+\#include $<$ryml\+\_\+std.\+hpp$>$}\newline
+{\ttfamily \+\#include $<$sstream$>$}\newline
+{\ttfamily \+\#include $<$string$>$}\newline
+\doxysubsubsection*{Classes}
+\begin{DoxyCompactItemize}
+\item 
+struct \doxymbox{\hyperlink{struct_parsed_data}{Parsed\+Data}}
+\end{DoxyCompactItemize}
+\doxysubsubsection*{Macros}
+\begin{DoxyCompactItemize}
+\item 
+\+\#define \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a274b9b971e1c2a6f0ade04ff31312cbb}{GET\+\_\+\+TREE}}(handle)
+\end{DoxyCompactItemize}
+\doxysubsubsection*{Functions}
+\begin{DoxyCompactItemize}
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} struct lattices \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_acdfa21dddacf25fbf6a383f1ddd07c3f}{get\+\_\+lattices}} (const char \texorpdfstring{$\ast$}{*}filename, const char \texorpdfstring{$\ast$}{*}lattice\+\_\+name)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a793f6a5475df6ff226bdbfa6d6558f88}{parse\+\_\+file}} (const char \texorpdfstring{$\ast$}{*}filename)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a799f4ed03dbaabaccbf7c3370d6f4f24}{parse\+\_\+string}} (const char \texorpdfstring{$\ast$}{*}yaml\+\_\+str)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_aa69ce5ae8fcf3fa2e6baa9c578262de7}{create\+\_\+empty\+\_\+tree}} ()
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a75a62ddf4b441aa2f6939b6aa023c794}{delete\+\_\+tree}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_aedb5c622b3423f07a1882ab6d5f640c1}{remove\+\_\+node}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} child)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_aa69256fc93607e49370ee5761448ce22}{get\+\_\+root}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_ad747f1d5996c51852db3f471584819c6}{get\+\_\+parent}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a1486611d04af33e2bc0902f0e78161ca}{get\+\_\+child\+\_\+by\+\_\+key}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, const char \texorpdfstring{$\ast$}{*}key)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a656e823e752ae7a225e9322cd2528282}{get\+\_\+child\+\_\+by\+\_\+index}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, size\+\_\+t index)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} size\+\_\+t \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_abd0ab041753378219f121a1ad3cff7b6}{get\+\_\+size}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a409094b8d66214f9451638d7f89d7591}{get\+\_\+node\+\_\+key}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a4b0b295c993d3211cf839f3f344cbef2}{is\+\_\+map}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a27205eeaf7147929e0969591f4c83daa}{is\+\_\+sequence}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a5fdd10fec9f6c67c39dbcf3b40f110a3}{is\+\_\+scalar}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a9c682b9b3604d1d64e049389cf40cf61}{as\+\_\+string}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a2014231c4640940da5744506b7452356}{add\+\_\+scalar}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, const char \texorpdfstring{$\ast$}{*}key, const char \texorpdfstring{$\ast$}{*}value, size\+\_\+t index)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a88f94fcaef41441f9f25979b507b6ccb}{add\+\_\+map}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, const char \texorpdfstring{$\ast$}{*}key, size\+\_\+t index)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a3a731cfb647a4ff4b89e32cffa55f7b0}{add\+\_\+sequence}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} parent, const char \texorpdfstring{$\ast$}{*}key, size\+\_\+t index)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a6ad9ca436a785a9e0c6986cdde55ab19}{set\+\_\+scalar}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node, const char \texorpdfstring{$\ast$}{*}value)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a8f05647ecfef61eae10c0615c70873c2}{set\+\_\+node\+\_\+key}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node, const char \texorpdfstring{$\ast$}{*}key)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a4f8ec39cba8a12fd3f285f357a569483}{deep\+\_\+copy\+\_\+node}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} dst\+\_\+tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} dst\+\_\+node, \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} src\+\_\+tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} src\+\_\+node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_ad99aa599df0b0889cde4a82cbdaaa78a}{deep\+\_\+copy\+\_\+children}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} dst\+\_\+tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} dst\+\_\+node, \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} src\+\_\+tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} src\+\_\+node, size\+\_\+t index)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a9893ab23c41cb15a8b4d97a282fdb4d2}{node\+\_\+to\+\_\+string}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} node)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_a6a3a9c1b18356e43368f648e80a27cf2}{tree\+\_\+to\+\_\+string}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_ac3b83371c3d0a1751c604ec2b5c531c5}{write\+\_\+file}} (\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} tree, const char \texorpdfstring{$\ast$}{*}filename)
+\item 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void \doxymbox{\hyperlink{yaml__c__wrapper_8cpp_ae5a063fd9a155dba27dcfa2676c878d2}{yaml\+\_\+free\+\_\+string}} (char \texorpdfstring{$\ast$}{*}str)
+\end{DoxyCompactItemize}
+
+
+\label{yaml__c__wrapper_8cpp_doc-define-members}
+\Hypertarget{yaml__c__wrapper_8cpp_doc-define-members}
+\doxysubsection{Macro Definition Documentation}
+\Hypertarget{yaml__c__wrapper_8cpp_a274b9b971e1c2a6f0ade04ff31312cbb}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!GET\_TREE@{GET\_TREE}}
+\index{GET\_TREE@{GET\_TREE}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{GET\_TREE}{GET\_TREE}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a274b9b971e1c2a6f0ade04ff31312cbb} 
+\+\#define GET\+\_\+\+TREE(\begin{DoxyParamCaption}\item[{}]{handle}{}\end{DoxyParamCaption})}
+
+{\bfseries Value:\+}
+\begin{DoxyCode}{0}
+\DoxyCodeLine{(\textcolor{keyword}{static\_cast<}\doxymbox{\hyperlink{struct_parsed_data}{ParsedData}}*\textcolor{keyword}{>}(handle)-\/>\doxymbox{\hyperlink{struct_parsed_data_a6091161c7f203f0a0e6bd2cf9e3a3919}{tree}})}
+
+\end{DoxyCode}
+
+
+\label{yaml__c__wrapper_8cpp_doc-func-members}
+\Hypertarget{yaml__c__wrapper_8cpp_doc-func-members}
+\doxysubsection{Function Documentation}
+\Hypertarget{yaml__c__wrapper_8cpp_a88f94fcaef41441f9f25979b507b6ccb}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!add\_map@{add\_map}}
+\index{add\_map@{add\_map}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{add\_map()}{add\_map()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a88f94fcaef41441f9f25979b507b6ccb} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} add\+\_\+map (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{key}{, }\item[{size\+\_\+t}]{index}{}\end{DoxyParamCaption})}
+
+Adds a new empty MAP child to an existing MAP or sequence.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em parent} & Node ID of the parent MAP or sequence. \\
+\hline
+{\em key} & Key string when parent is a MAP. Pass NULL for sequence elements. \\
+\hline
+{\em index} & Insertion position among existing children. Pass END to append. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Node ID of the newly created MAP child, or YAML\+\_\+\+NULL\+\_\+\+ID on failure. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a2014231c4640940da5744506b7452356}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!add\_scalar@{add\_scalar}}
+\index{add\_scalar@{add\_scalar}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{add\_scalar()}{add\_scalar()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a2014231c4640940da5744506b7452356} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} add\+\_\+scalar (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{key}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{value}{, }\item[{size\+\_\+t}]{index}{}\end{DoxyParamCaption})}
+
+Adds a scalar key-\/value child to a MAP, or a plain scalar to a sequence.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em parent} & Node ID of the parent MAP or sequence. \\
+\hline
+{\em key} & Key string for MAP parents. Pass NULL for sequence elements. \\
+\hline
+{\em value} & Null-\/terminated scalar value string. \\
+\hline
+{\em index} & Insertion position among existing children. Pass END to append. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Node ID of the newly created child, or YAML\+\_\+\+NULL\+\_\+\+ID on failure. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a3a731cfb647a4ff4b89e32cffa55f7b0}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!add\_sequence@{add\_sequence}}
+\index{add\_sequence@{add\_sequence}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{add\_sequence()}{add\_sequence()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a3a731cfb647a4ff4b89e32cffa55f7b0} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} add\+\_\+sequence (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{key}{, }\item[{size\+\_\+t}]{index}{}\end{DoxyParamCaption})}
+
+Adds a new empty sequence child to an existing MAP or sequence.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em parent} & Node ID of the parent MAP or sequence. \\
+\hline
+{\em key} & Key string when parent is a MAP. Pass NULL for sequence elements. \\
+\hline
+{\em index} & Insertion position among existing children. Pass END to append. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Node ID of the newly created sequence child, or YAML\+\_\+\+NULL\+\_\+\+ID on failure. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a9c682b9b3604d1d64e049389cf40cf61}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!as\_string@{as\_string}}
+\index{as\_string@{as\_string}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{as\_string()}{as\_string()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a9c682b9b3604d1d64e049389cf40cf61} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} as\+\_\+string (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns the scalar value of a node as a newly allocated null-\/terminated string.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID of a node that has a value. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Heap-\/allocated string containing the value. The caller must free it with \doxylink{yaml__c__wrapper_8h_ae5a063fd9a155dba27dcfa2676c878d2}{yaml\+\_\+free\+\_\+string()}. Returns NULL if node is YAML\+\_\+\+NULL\+\_\+\+ID or the node has no value (e.\+g. is a MAP or bare sequence). 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_aa69ce5ae8fcf3fa2e6baa9c578262de7}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!create\_empty\_tree@{create\_empty\_tree}}
+\index{create\_empty\_tree@{create\_empty\_tree}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{create\_empty\_tree()}{create\_empty\_tree()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_aa69ce5ae8fcf3fa2e6baa9c578262de7} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} create\+\_\+empty\+\_\+tree (\begin{DoxyParamCaption}{}{}\end{DoxyParamCaption})}
+
+Creates an empty tree with a MAP root node.
+
+Useful as a destination for \doxylink{yaml__c__wrapper_8h_a4f8ec39cba8a12fd3f285f357a569483}{deep\+\_\+copy\+\_\+node()} /\+ \doxylink{yaml__c__wrapper_8h_ad99aa599df0b0889cde4a82cbdaaa78a}{deep\+\_\+copy\+\_\+children()}, or for building a tree programmatically via \doxylink{yaml__c__wrapper_8h_a88f94fcaef41441f9f25979b507b6ccb}{add\+\_\+map()}, \doxylink{yaml__c__wrapper_8h_a3a731cfb647a4ff4b89e32cffa55f7b0}{add\+\_\+sequence()}, and \doxylink{yaml__c__wrapper_8h_a2014231c4640940da5744506b7452356}{add\+\_\+scalar()}.
+
+\begin{DoxyReturn}{Returns}
+A tree handle representing an empty MAP. Must be freed with \doxylink{yaml__c__wrapper_8h_a75a62ddf4b441aa2f6939b6aa023c794}{delete\+\_\+tree()}. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_ad99aa599df0b0889cde4a82cbdaaa78a}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!deep\_copy\_children@{deep\_copy\_children}}
+\index{deep\_copy\_children@{deep\_copy\_children}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{deep\_copy\_children()}{deep\_copy\_children()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_ad99aa599df0b0889cde4a82cbdaaa78a} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void deep\+\_\+copy\+\_\+children (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{dst\+\_\+tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{dst\+\_\+node}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{src\+\_\+tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{src\+\_\+node}{, }\item[{size\+\_\+t}]{index}{}\end{DoxyParamCaption})}
+
+Deep-\/copies the children of a source node into a destination node, inserting them at the given position. Works across different trees.
+
+Only the children are copied — the source node itself is not. Existing children of dst\+\_\+node are preserved. Strings are duplicated into the destination tree\textquotesingle{}s arena.
+
+
+\begin{DoxyParams}{Parameters}
+{\em dst\+\_\+tree} & Handle to the destination tree. \\
+\hline
+{\em dst\+\_\+node} & Node ID in dst\+\_\+tree to copy children into. \\
+\hline
+{\em src\+\_\+tree} & Handle to the source tree (may be the same as dst\+\_\+tree). \\
+\hline
+{\em src\+\_\+node} & Node ID in src\+\_\+tree whose children are copied. \\
+\hline
+{\em index} & Insertion position among dst\+\_\+node\textquotesingle{}s existing children. Pass END to append after all existing children, or 0 to prepend before all existing children. If either handle is NULL or either node is YAML\+\_\+\+NULL\+\_\+\+ID, this call is a no-\/op. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a4f8ec39cba8a12fd3f285f357a569483}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!deep\_copy\_node@{deep\_copy\_node}}
+\index{deep\_copy\_node@{deep\_copy\_node}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{deep\_copy\_node()}{deep\_copy\_node()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a4f8ec39cba8a12fd3f285f357a569483} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void deep\+\_\+copy\+\_\+node (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{dst\+\_\+tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{dst\+\_\+node}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{src\+\_\+tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{src\+\_\+node}{}\end{DoxyParamCaption})}
+
+Deep-\/copies the contents of a source node into a destination node, overwriting whatever was previously there. Works across different trees.
+
+Keys, values, type flags, and all descendants are copied. Strings are duplicated into the destination tree\textquotesingle{}s arena so the source tree may be freed independently afterwards.
+
+
+\begin{DoxyParams}{Parameters}
+{\em dst\+\_\+tree} & Handle to the destination tree. \\
+\hline
+{\em dst\+\_\+node} & Node ID in dst\+\_\+tree to copy into. \\
+\hline
+{\em src\+\_\+tree} & Handle to the source tree (may be the same as dst\+\_\+tree). \\
+\hline
+{\em src\+\_\+node} & Node ID in src\+\_\+tree to copy from. If either handle is NULL or either node is YAML\+\_\+\+NULL\+\_\+\+ID, this call is a no-\/op. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a75a62ddf4b441aa2f6939b6aa023c794}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!delete\_tree@{delete\_tree}}
+\index{delete\_tree@{delete\_tree}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{delete\_tree()}{delete\_tree()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a75a62ddf4b441aa2f6939b6aa023c794} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void delete\+\_\+tree (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{}\end{DoxyParamCaption})}
+
+Frees all memory associated with a tree handle.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle previously returned by \doxylink{yaml__c__wrapper_8h_a793f6a5475df6ff226bdbfa6d6558f88}{parse\+\_\+file()}, \doxylink{yaml__c__wrapper_8h_a799f4ed03dbaabaccbf7c3370d6f4f24}{parse\+\_\+string()}, \doxylink{yaml__c__wrapper_8h_aa69ce5ae8fcf3fa2e6baa9c578262de7}{create\+\_\+empty\+\_\+tree()}, or \doxylink{yaml__c__wrapper_8h_acdfa21dddacf25fbf6a383f1ddd07c3f}{get\+\_\+lattices()}. Passing NULL is safe and has no effect. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a656e823e752ae7a225e9322cd2528282}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_child\_by\_index@{get\_child\_by\_index}}
+\index{get\_child\_by\_index@{get\_child\_by\_index}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_child\_by\_index()}{get\_child\_by\_index()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a656e823e752ae7a225e9322cd2528282} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} get\+\_\+child\+\_\+by\+\_\+index (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{size\+\_\+t}]{index}{}\end{DoxyParamCaption})}
+
+Returns the nth child of a MAP or sequence node.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em parent} & Node ID of a MAP or sequence node. \\
+\hline
+{\em index} & Zero-\/based child index. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Node ID of the child at position index, or YAML\+\_\+\+NULL\+\_\+\+ID if index is out of range or parent is neither a MAP nor a sequence. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a1486611d04af33e2bc0902f0e78161ca}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_child\_by\_key@{get\_child\_by\_key}}
+\index{get\_child\_by\_key@{get\_child\_by\_key}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_child\_by\_key()}{get\_child\_by\_key()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a1486611d04af33e2bc0902f0e78161ca} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} get\+\_\+child\+\_\+by\+\_\+key (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{key}{}\end{DoxyParamCaption})}
+
+Finds a direct child of a MAP node by its key.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em parent} & Node ID of a MAP node to search. \\
+\hline
+{\em key} & Null-\/terminated key string to look up. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Node ID of the matching child, or YAML\+\_\+\+NULL\+\_\+\+ID if not found or if parent is not a MAP. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_acdfa21dddacf25fbf6a383f1ddd07c3f}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_lattices@{get\_lattices}}
+\index{get\_lattices@{get\_lattices}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_lattices()}{get\_lattices()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_acdfa21dddacf25fbf6a383f1ddd07c3f} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} struct lattices get\+\_\+lattices (\begin{DoxyParamCaption}\item[{const char \texorpdfstring{$\ast$}{*}}]{filename}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{lattice\+\_\+name}{}\end{DoxyParamCaption})}
+
+Builds and returns all three representations of a lattice file.
+
+
+\begin{DoxyParams}{Parameters}
+{\em filename} & Path to the top-\/level YAML lattice file. \\
+\hline
+{\em lattice\+\_\+name} & Name of the lattice to expand. If NULL or empty:\+
+\begin{DoxyItemize}
+\item expands the lattice named by the last "{}use"{} statement, or
+\item expands the last lattice defined in the file if no "{}use"{} is present. 
+\end{DoxyItemize}\\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+A {\ttfamily lattices} struct containing three handles:\+
+\begin{DoxyItemize}
+\item {\ttfamily original}:\+ raw tree mapping each file (including includes) to its unparsed contents.
+\item {\ttfamily included}:\+ tree with all "{}include"{} directives resolved and spliced inline.
+\item {\ttfamily expanded}:\+ tree with the selected lattice fully expanded — scalars substituted, repeats unrolled, inherits merged, and forks resolved. All three handles must be freed individually with \doxylink{yaml__c__wrapper_8h_a75a62ddf4b441aa2f6939b6aa023c794}{delete\+\_\+tree()}. 
+\end{DoxyItemize}
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a409094b8d66214f9451638d7f89d7591}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_node\_key@{get\_node\_key}}
+\index{get\_node\_key@{get\_node\_key}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_node\_key()}{get\_node\_key()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a409094b8d66214f9451638d7f89d7591} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} get\+\_\+node\+\_\+key (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns the key of a node as a newly allocated null-\/terminated string.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID of a keyed node. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Heap-\/allocated string containing the key. The caller must free it with \doxylink{yaml__c__wrapper_8h_ae5a063fd9a155dba27dcfa2676c878d2}{yaml\+\_\+free\+\_\+string()}. Returns NULL if node is YAML\+\_\+\+NULL\+\_\+\+ID or the node has no key. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_ad747f1d5996c51852db3f471584819c6}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_parent@{get\_parent}}
+\index{get\_parent@{get\_parent}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_parent()}{get\_parent()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_ad747f1d5996c51852db3f471584819c6} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} get\+\_\+parent (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns the parent of a given node.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree containing the node. \\
+\hline
+{\em node} & Node ID whose parent is requested. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Parent node ID, or YAML\+\_\+\+NULL\+\_\+\+ID if node is the root or has no parent. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_aa69256fc93607e49370ee5761448ce22}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_root@{get\_root}}
+\index{get\_root@{get\_root}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_root()}{get\_root()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_aa69256fc93607e49370ee5761448ce22} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}} get\+\_\+root (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{}\end{DoxyParamCaption})}
+
+Returns the node ID of the tree\textquotesingle{}s root node.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to a parsed or constructed tree. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Root node ID, or YAML\+\_\+\+NULL\+\_\+\+ID if tree is NULL. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_abd0ab041753378219f121a1ad3cff7b6}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!get\_size@{get\_size}}
+\index{get\_size@{get\_size}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{get\_size()}{get\_size()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_abd0ab041753378219f121a1ad3cff7b6} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} size\+\_\+t get\+\_\+size (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns the number of direct children of a node.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID of a MAP or sequence node. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Number of children, or 0 if node is YAML\+\_\+\+NULL\+\_\+\+ID or is a scalar. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a4b0b295c993d3211cf839f3f344cbef2}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!is\_map@{is\_map}}
+\index{is\_map@{is\_map}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{is\_map()}{is\_map()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a4b0b295c993d3211cf839f3f344cbef2} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool is\+\_\+map (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns true if the node is a MAP (key-\/value container).
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to test. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+true if the node is a MAP, false otherwise or if node is YAML\+\_\+\+NULL\+\_\+\+ID. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a5fdd10fec9f6c67c39dbcf3b40f110a3}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!is\_scalar@{is\_scalar}}
+\index{is\_scalar@{is\_scalar}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{is\_scalar()}{is\_scalar()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a5fdd10fec9f6c67c39dbcf3b40f110a3} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool is\+\_\+scalar (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns true if the node is a scalar (plain value, no children).
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to test. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+true if the node is a scalar, false otherwise or if node is YAML\+\_\+\+NULL\+\_\+\+ID. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a27205eeaf7147929e0969591f4c83daa}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!is\_sequence@{is\_sequence}}
+\index{is\_sequence@{is\_sequence}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{is\_sequence()}{is\_sequence()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a27205eeaf7147929e0969591f4c83daa} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool is\+\_\+sequence (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Returns true if the node is a sequence (ordered list).
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to test. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+true if the node is a sequence, false otherwise or if node is YAML\+\_\+\+NULL\+\_\+\+ID. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a9893ab23c41cb15a8b4d97a282fdb4d2}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!node\_to\_string@{node\_to\_string}}
+\index{node\_to\_string@{node\_to\_string}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{node\_to\_string()}{node\_to\_string()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a9893ab23c41cb15a8b4d97a282fdb4d2} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} node\+\_\+to\+\_\+string (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{}\end{DoxyParamCaption})}
+
+Emits a node and its descendants as a YAML string.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to emit. If YAML\+\_\+\+NULL\+\_\+\+ID or out of range, returns NULL. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Heap-\/allocated null-\/terminated YAML string. The caller must free it with \doxylink{yaml__c__wrapper_8h_ae5a063fd9a155dba27dcfa2676c878d2}{yaml\+\_\+free\+\_\+string()}. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a793f6a5475df6ff226bdbfa6d6558f88}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!parse\_file@{parse\_file}}
+\index{parse\_file@{parse\_file}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{parse\_file()}{parse\_file()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a793f6a5475df6ff226bdbfa6d6558f88} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} parse\+\_\+file (\begin{DoxyParamCaption}\item[{const char \texorpdfstring{$\ast$}{*}}]{filename}{}\end{DoxyParamCaption})}
+
+Parses a YAML file from disk into an opaque tree handle.
+
+The file is read into an internal buffer and parsed in-\/place; the buffer is owned by the returned handle and freed by \doxylink{yaml__c__wrapper_8h_a75a62ddf4b441aa2f6939b6aa023c794}{delete\+\_\+tree()}.
+
+
+\begin{DoxyParams}{Parameters}
+{\em filename} & Path to the YAML file to parse. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+A tree handle on success, NULL if the file cannot be opened or if parsing fails. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_a799f4ed03dbaabaccbf7c3370d6f4f24}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!parse\_string@{parse\_string}}
+\index{parse\_string@{parse\_string}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{parse\_string()}{parse\_string()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a799f4ed03dbaabaccbf7c3370d6f4f24} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} \doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}} parse\+\_\+string (\begin{DoxyParamCaption}\item[{const char \texorpdfstring{$\ast$}{*}}]{yaml\+\_\+str}{}\end{DoxyParamCaption})}
+
+Parses a YAML string into an opaque tree handle.
+
+The string is copied into an internal buffer and parsed in-\/place; the buffer is owned by the returned handle and freed by \doxylink{yaml__c__wrapper_8h_a75a62ddf4b441aa2f6939b6aa023c794}{delete\+\_\+tree()}.
+
+
+\begin{DoxyParams}{Parameters}
+{\em yaml\+\_\+str} & Null-\/terminated YAML string to parse. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+A tree handle on success, NULL if parsing fails. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_aedb5c622b3423f07a1882ab6d5f640c1}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!remove\_node@{remove\_node}}
+\index{remove\_node@{remove\_node}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{remove\_node()}{remove\_node()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_aedb5c622b3423f07a1882ab6d5f640c1} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void remove\+\_\+node (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{parent}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{child}{}\end{DoxyParamCaption})}
+
+Removes a child node and all its descendants from the tree.
+
+After removal the child\textquotesingle{}s node ID is invalid and must not be used again. The parent parameter is accepted for API symmetry but is not used internally — the parent is inferred from the tree structure.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree containing the node. \\
+\hline
+{\em parent} & Node ID of the parent (unused, may be YAML\+\_\+\+NULL\+\_\+\+ID). \\
+\hline
+{\em child} & Node ID to remove. If YAML\+\_\+\+NULL\+\_\+\+ID, this call is a no-\/op. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a8f05647ecfef61eae10c0615c70873c2}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!set\_node\_key@{set\_node\_key}}
+\index{set\_node\_key@{set\_node\_key}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{set\_node\_key()}{set\_node\_key()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a8f05647ecfef61eae10c0615c70873c2} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void set\+\_\+node\+\_\+key (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{key}{}\end{DoxyParamCaption})}
+
+Sets or replaces the key of an existing node.
+
+The key string is copied into the tree\textquotesingle{}s internal arena.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to update. If YAML\+\_\+\+NULL\+\_\+\+ID, this call is a no-\/op. \\
+\hline
+{\em key} & Null-\/terminated key string to set. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a6ad9ca436a785a9e0c6986cdde55ab19}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!set\_scalar@{set\_scalar}}
+\index{set\_scalar@{set\_scalar}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{set\_scalar()}{set\_scalar()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a6ad9ca436a785a9e0c6986cdde55ab19} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void set\+\_\+scalar (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_aece5bc8b825d96e4838c3b684e53314e}{YAMLNode\+Id}}}]{node}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{value}{}\end{DoxyParamCaption})}
+
+Sets or replaces the scalar value of an existing node.
+
+The value string is copied into the tree\textquotesingle{}s internal arena.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+{\em node} & Node ID to update. If YAML\+\_\+\+NULL\+\_\+\+ID, this call is a no-\/op. \\
+\hline
+{\em value} & Null-\/terminated value string to set. \\
+\hline
+\end{DoxyParams}
+\Hypertarget{yaml__c__wrapper_8cpp_a6a3a9c1b18356e43368f648e80a27cf2}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!tree\_to\_string@{tree\_to\_string}}
+\index{tree\_to\_string@{tree\_to\_string}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{tree\_to\_string()}{tree\_to\_string()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_a6a3a9c1b18356e43368f648e80a27cf2} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} char \texorpdfstring{$\ast$}{*} tree\+\_\+to\+\_\+string (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{}\end{DoxyParamCaption})}
+
+Emits a tree as a YAML string. Same as {\ttfamily \doxylink{yaml__c__wrapper_8h_a9893ab23c41cb15a8b4d97a282fdb4d2}{node\+\_\+to\+\_\+string}} but defaulted to the root.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+Heap-\/allocated null-\/terminated YAML string. The caller must free it with \doxylink{yaml__c__wrapper_8h_ae5a063fd9a155dba27dcfa2676c878d2}{yaml\+\_\+free\+\_\+string()}. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_ac3b83371c3d0a1751c604ec2b5c531c5}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!write\_file@{write\_file}}
+\index{write\_file@{write\_file}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{write\_file()}{write\_file()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_ac3b83371c3d0a1751c604ec2b5c531c5} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} bool write\+\_\+file (\begin{DoxyParamCaption}\item[{\doxymbox{\hyperlink{yaml__c__wrapper_8h_ad6ed6f1e38bd1b305a0917f4778364b9}{YAMLTree\+Handle}}}]{tree}{, }\item[{const char \texorpdfstring{$\ast$}{*}}]{filename}{}\end{DoxyParamCaption})}
+
+Writes the entire tree to a file as YAML.
+
+
+\begin{DoxyParams}{Parameters}
+{\em tree} & Handle to the tree to serialize. \\
+\hline
+{\em filename} & Path to the output file. Created or truncated if it already exists. \\
+\hline
+\end{DoxyParams}
+\begin{DoxyReturn}{Returns}
+true on success, false if the file could not be opened or if an error occurs during writing. 
+\end{DoxyReturn}
+\Hypertarget{yaml__c__wrapper_8cpp_ae5a063fd9a155dba27dcfa2676c878d2}\index{yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}!yaml\_free\_string@{yaml\_free\_string}}
+\index{yaml\_free\_string@{yaml\_free\_string}!yaml\_c\_wrapper.cpp@{yaml\_c\_wrapper.cpp}}
+\doxysubsubsection{\texorpdfstring{yaml\_free\_string()}{yaml\_free\_string()}}
+{\footnotesize\ttfamily \label{yaml__c__wrapper_8cpp_ae5a063fd9a155dba27dcfa2676c878d2} 
+\doxymbox{\hyperlink{yaml__c__wrapper_8h_ae8f754a5e053c2a65230d448e07fa9e9}{YAML\+\_\+\+API}} void yaml\+\_\+free\+\_\+string (\begin{DoxyParamCaption}\item[{char \texorpdfstring{$\ast$}{*}}]{str}{}\end{DoxyParamCaption})}
+
+Frees a string returned by \doxylink{yaml__c__wrapper_8h_a409094b8d66214f9451638d7f89d7591}{get\+\_\+node\+\_\+key()}, \doxylink{yaml__c__wrapper_8h_a9c682b9b3604d1d64e049389cf40cf61}{as\+\_\+string()}, or yaml\+\_\+to\+\_\+string().
+
+Passing NULL is safe and has no effect.
+
+
+\begin{DoxyParams}{Parameters}
+{\em str} & Pointer to the string to free. \\
+\hline
+\end{DoxyParams}

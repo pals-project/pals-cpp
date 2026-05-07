@@ -28,7 +28,7 @@
             ForkP:
                 to_line: generic_dump
                 destination_element: dump_begin
-                branch_name: this_dump
+                new_branch: this_dump
                 propagate_reference: true
 - include: "../lattice_files/include.pals.yaml"
 - a_subline:
