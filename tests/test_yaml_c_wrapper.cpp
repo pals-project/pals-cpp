@@ -524,7 +524,7 @@ TEST_CASE("YAML nodes can be converted to strings", "[conversion][string]") {
         YAMLNodeHandle map = create_map();
         set_value_string(map, "key", "value");
 
-        char* str = yaml_to_string(map);
+        char* str = node_to_string(map);
         REQUIRE(str != nullptr);
         REQUIRE(std::string(str).find("key") != std::string::npos);
         REQUIRE(std::string(str).find("value") != std::string::npos);
@@ -612,7 +612,7 @@ TEST_CASE("Memory is properly managed", "[memory]") {
             YAMLNodeHandle node = create_map();
             set_value_int(node, "test", i);
 
-            char* str = yaml_to_string(node);
+            char* str = node_to_string(node);
             yaml_free_string(str);
 
             delete_node(node);

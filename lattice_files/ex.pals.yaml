@@ -23,6 +23,13 @@
           direction: -1
       - a_subline:            # Item a_subline is repeated three times
           repeat: 3
+      - to_dump:
+            kind: Fork
+            ForkP:
+                to_line: generic_dump
+                destination_element: dump_begin
+                branch_name: this_dump
+                propagate_reference: true
 - include: "../lattice_files/include.pals.yaml"
 - a_subline:
     kind: BeamLine
@@ -33,24 +40,9 @@
 - use: "lat2"
 - use: "lat1"
 
-# - lat:
-#     kind: Lattice  
-#     branches:
-#         - inj_line
+- generic_dump:
+    kind: BeamLine
+    line:
+        - dump_begin
+        - amarker
 
-# - inj_line:
-#     kind: BeamLine
-#     line:
-#         - to_dump:
-#             kind: Fork
-#             ForkP:
-#                 to_line: generic_dump
-#                 to_element: b_subline
-#                 branch_name: this_dump
-#                 propagate_reference: true
-
-# - generic_dump:
-#     kind: BeamLine
-#     line:
-#         - a_subline
-#         - b_subline
