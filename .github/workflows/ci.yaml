@@ -18,3 +18,36 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure --verbose --no-compress-output
+
+  docs:
+    name: Generate and Deploy Docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+        
+      # Runs on every push and PR to verify Doxygen doesn't crash
+      - name: Generate Documentation
+        run: doxygen Doxyfile
+        
+      # Only upload the artifact if merging into main
+      - name: Upload GitHub Pages Artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs/html' 
+          
+      # Only deploy the site if merging into main
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        id: deployment
+        uses: actions/deploy-pages@v4
