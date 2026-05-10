@@ -27,7 +27,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(rapidyaml)
 FetchContent_MakeAvailable(Catch2)
 
-# add_subdirectory(tests)
+add_subdirectory(tests)
 
 file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
      DESTINATION ${CMAKE_BINARY_DIR}/lattice_files/)

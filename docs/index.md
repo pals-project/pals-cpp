@@ -1,3 +1,5 @@
-# yaml_c_wrapper
+# pals-cpp
+A parser in C++ for the PALS language.
 
-A C wrapper for the yaml-cpp library, providing a clean C API for parsing and manipulating YAML documents.
+## API Documentation
+* [YAML C Wrapper API](yaml__c__wrapper_8h.html)

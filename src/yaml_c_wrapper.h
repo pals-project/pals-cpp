@@ -1,6 +1,11 @@
 #ifndef YAML_C_WRAPPER_H
 #define YAML_C_WRAPPER_H
 
+/**
+ * @file yaml_c_wrapper.h
+ * @brief Public C API for parsing and manipulating PALS YAML lattices.
+ */
+
 #include <stdbool.h>
 #include <stddef.h>
 

@@ -1,7 +1,0 @@
-var searchData=
-[
-  ['add_5fmap_0',['add_map',['../yaml__c__wrapper_8cpp.html#a88f94fcaef41441f9f25979b507b6ccb',1,'add_map(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, size_t index):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a88f94fcaef41441f9f25979b507b6ccb',1,'add_map(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, size_t index):&#160;yaml_c_wrapper.cpp']]],
-  ['add_5fscalar_1',['add_scalar',['../yaml__c__wrapper_8cpp.html#a2014231c4640940da5744506b7452356',1,'add_scalar(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, const char *value, size_t index):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a2014231c4640940da5744506b7452356',1,'add_scalar(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, const char *value, size_t index):&#160;yaml_c_wrapper.cpp']]],
-  ['add_5fsequence_2',['add_sequence',['../yaml__c__wrapper_8cpp.html#a3a731cfb647a4ff4b89e32cffa55f7b0',1,'add_sequence(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, size_t index):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a3a731cfb647a4ff4b89e32cffa55f7b0',1,'add_sequence(YAMLTreeHandle tree, YAMLNodeId parent, const char *key, size_t index):&#160;yaml_c_wrapper.cpp']]],
-  ['as_5fstring_3',['as_string',['../yaml__c__wrapper_8cpp.html#a9c682b9b3604d1d64e049389cf40cf61',1,'as_string(YAMLTreeHandle tree, YAMLNodeId node):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a9c682b9b3604d1d64e049389cf40cf61',1,'as_string(YAMLTreeHandle tree, YAMLNodeId node):&#160;yaml_c_wrapper.cpp']]]
-];

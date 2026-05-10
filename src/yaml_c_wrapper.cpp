@@ -585,6 +585,11 @@ YAML_API YAMLTreeHandle parse_file(const char* filename) {
 }
 
 YAML_API YAMLTreeHandle parse_string(const char* yaml_str) {
+    // Explicit null check prevents the segfault
+    if (yaml_str == nullptr) {
+        return nullptr;
+    }
+
     try {
         ParsedData* data = new ParsedData();
         data->buffer = yaml_str;

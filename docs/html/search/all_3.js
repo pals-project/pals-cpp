@@ -1,6 +1,0 @@
-var searchData=
-[
-  ['deep_5fcopy_5fchildren_0',['deep_copy_children',['../yaml__c__wrapper_8cpp.html#ad99aa599df0b0889cde4a82cbdaaa78a',1,'deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node, size_t index):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#ad99aa599df0b0889cde4a82cbdaaa78a',1,'deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node, size_t index):&#160;yaml_c_wrapper.cpp']]],
-  ['deep_5fcopy_5fnode_1',['deep_copy_node',['../yaml__c__wrapper_8cpp.html#a4f8ec39cba8a12fd3f285f357a569483',1,'deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a4f8ec39cba8a12fd3f285f357a569483',1,'deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node, YAMLTreeHandle src_tree, YAMLNodeId src_node):&#160;yaml_c_wrapper.cpp']]],
-  ['delete_5ftree_2',['delete_tree',['../yaml__c__wrapper_8cpp.html#a75a62ddf4b441aa2f6939b6aa023c794',1,'delete_tree(YAMLTreeHandle tree):&#160;yaml_c_wrapper.cpp'],['../yaml__c__wrapper_8h.html#a75a62ddf4b441aa2f6939b6aa023c794',1,'delete_tree(YAMLTreeHandle tree):&#160;yaml_c_wrapper.cpp']]]
-];

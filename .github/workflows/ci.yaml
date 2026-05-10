@@ -14,11 +14,39 @@ jobs:
       actions: write
       contents: read
     steps:
-      # 1. Check out your code
       - uses: actions/checkout@v4
-      # # 2. Install dependencies (if using vcpkg, Conan, etc.)
-      # - name: Install dependencies
-      #   run: sudo apt update && sudo apt install -y cmake g++ make
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure --verbose --no-compress-output
+
+  docs:
+    name: Generate and Deploy Docs
+    runs-on: ubuntu-latest
+    # Only deploy docs when merging to the main branch
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+        
+      - name: Generate Documentation
+        run: doxygen Doxyfile
+        
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Your Doxyfile sets OUTPUT_DIRECTORY to ./docs [cite: 19] 
+          # and HTML_OUTPUT to html [cite: 389]
+          path: './docs/html' 
+          
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
