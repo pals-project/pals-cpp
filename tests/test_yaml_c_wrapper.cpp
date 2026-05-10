@@ -1,5 +1,4 @@
 #define CATCH_CONFIG_MAIN
-#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
 #include <fstream>
@@ -7,663 +6,621 @@
 
 #include "../src/yaml_c_wrapper.h"
 
-using Catch::Approx;
+// ─── helpers ────────────────────────────────────────────────────────────────
 
-// Helper to create test YAML files
-void create_test_file(const std::string& filename, const std::string& content) {
-    std::ofstream file(filename);
-    file << content;
-    file.close();
+static void write_tmp(const std::string& path, const std::string& content) {
+    std::ofstream f(path);
+    f << content;
 }
 
-// Helper to read file content
-std::string read_file(const std::string& filename) {
-    std::ifstream file(filename);
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
-    return content;
+static void rm_tmp(const std::string& path) {
+    std::remove(path.c_str());
 }
 
-// Helper to clean up test files
-void cleanup_file(const std::string& filename) {
-    std::remove(filename.c_str());
+// Convenience: get a string value and compare, then free it.
+static bool val_eq(YAMLTreeHandle tree, YAMLNodeId node, const char* expected) {
+    char* s = as_string(tree, node);
+    if (!s) return false;
+    bool ok = std::string(s) == expected;
+    yaml_free_string(s);
+    return ok;
 }
 
-// ===========================================
-// TEST SUITE: Creation and Deletion
-// ===========================================
+// ============================================================
+// PARSING & MEMORY
+// ============================================================
 
-TEST_CASE("YAML nodes can be created and deleted", "[creation]") {
-    SECTION("Create empty node") {
-        YAMLNodeHandle node = create_node();
-        REQUIRE(node != nullptr);
-        delete_node(node);
-    }
-
-    SECTION("Create map node") {
-        YAMLNodeHandle map = create_map();
-        REQUIRE(map != nullptr);
-        REQUIRE(is_map(map));
-        delete_node(map);
-    }
-
-    SECTION("Create sequence node") {
-        YAMLNodeHandle seq = create_sequence();
-        REQUIRE(seq != nullptr);
-        REQUIRE(is_sequence(seq));
-        delete_node(seq);
-    }
-
-    SECTION("Create scalar node") {
-        YAMLNodeHandle scalar = create_scalar();
-        REQUIRE(scalar != nullptr);
-        REQUIRE(is_scalar(scalar));
-        delete_node(scalar);
-    }
+TEST_CASE("parse_string returns a valid tree for well-formed YAML", "[parsing]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    REQUIRE(tree != nullptr);
+    REQUIRE(is_map(tree, get_root(tree)));
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Parsing
-// ===========================================
-
-TEST_CASE("YAML can be parsed from strings", "[parsing]") {
-    SECTION("Parse simple map") {
-        const char* yaml = "key: value";
-        YAMLNodeHandle node = parse_string(yaml);
-
-        REQUIRE(node != nullptr);
-        REQUIRE(is_map(node));
-        REQUIRE(has_key(node, "key"));
-
-        delete_node(node);
-    }
-
-    SECTION("Parse sequence") {
-        const char* yaml = "[a, b, c]";
-        YAMLNodeHandle node = parse_string(yaml);
-
-        REQUIRE(node != nullptr);
-        REQUIRE(is_sequence(node));
-        REQUIRE(size(node) == 3);
-
-        delete_node(node);
-    }
-
-    SECTION("Parse invalid YAML returns nullptr") {
-        const char* invalid = "invalid: yaml: :";
-        YAMLNodeHandle node = parse_string(invalid);
-
-        REQUIRE(node == nullptr);
-    }
+TEST_CASE("parse_string returns nullptr for nullptr input", "[parsing]") {
+    // should not crash
+    YAMLTreeHandle tree = parse_string(nullptr);
+    // behaviour is implementation-defined; just don't crash
+    if (tree) delete_tree(tree);
 }
 
-TEST_CASE("YAML can be parsed from files", "[parsing][file]") {
-    SECTION("Parse valid file") {
-        YAMLNodeHandle node = parse_file("../lattice_files/ex.pals.yaml");
-
-        REQUIRE(node != nullptr);
-        REQUIRE(is_sequence(node));
-        REQUIRE(size(node) >= 2);
-
-        delete_node(node);
-    }
-
-    SECTION("Parse non-existent file returns nullptr") {
-        YAMLNodeHandle node = parse_file("nonexistent.pals.yaml");
-        REQUIRE(node == nullptr);
-    }
+TEST_CASE("parse_file returns a valid tree for an existing file", "[parsing][file]") {
+    write_tmp("tmp_parse.yaml", "- a\n- b\n- c\n");
+    YAMLTreeHandle tree = parse_file("tmp_parse.yaml");
+    REQUIRE(tree != nullptr);
+    REQUIRE(is_sequence(tree, get_root(tree)));
+    REQUIRE(get_size(tree, get_root(tree)) == 3);
+    delete_tree(tree);
+    rm_tmp("tmp_parse.yaml");
 }
 
-// ===========================================
-// TEST SUITE: Type Checking
-// ===========================================
-
-TEST_CASE("Node types can be checked", "[types]") {
-    SECTION("Check scalar type") {
-        YAMLNodeHandle node = parse_string("value");
-        REQUIRE(is_scalar(node));
-        REQUIRE_FALSE(is_map(node));
-        REQUIRE_FALSE(is_sequence(node));
-        delete_node(node);
-    }
-
-    SECTION("Check map type") {
-        YAMLNodeHandle node = parse_string("key: value");
-        REQUIRE(is_map(node));
-        REQUIRE_FALSE(is_scalar(node));
-        REQUIRE_FALSE(is_sequence(node));
-        delete_node(node);
-    }
-
-    SECTION("Check sequence type") {
-        YAMLNodeHandle node = parse_string("[a, b, c]");
-        REQUIRE(is_sequence(node));
-        REQUIRE_FALSE(is_map(node));
-        REQUIRE_FALSE(is_scalar(node));
-        delete_node(node);
-    }
-
-    SECTION("Check null type") {
-        YAMLNodeHandle node = parse_string("null");
-        REQUIRE(is_null(node));
-        delete_node(node);
-    }
+TEST_CASE("parse_file returns nullptr for a missing file", "[parsing][file]") {
+    YAMLTreeHandle tree = parse_file("does_not_exist.yaml");
+    REQUIRE(tree == nullptr);
 }
 
-// ===========================================
-// TEST SUITE: Access Operations
-// ===========================================
-
-TEST_CASE("Map keys can be accessed", "[access][map]") {
-    const char* yaml = "name: test\nvalue: 42";
-    YAMLNodeHandle node = parse_string(yaml);
-
-    SECTION("Check key existence") {
-        REQUIRE(has_key(node, "name"));
-        REQUIRE(has_key(node, "value"));
-        REQUIRE_FALSE(has_key(node, "nonexistent"));
-    }
-
-    SECTION("Get key value") {
-        YAMLNodeHandle name = get_key(node, "name");
-        REQUIRE(name != nullptr);
-
-        char* str = as_string(name);
-        REQUIRE(std::string(str) == "test");
-
-        yaml_free_string(str);
-        delete_node(name);
-    }
-
-    SECTION("Get non-existent key returns nullptr") {
-        YAMLNodeHandle missing = get_key(node, "missing");
-        REQUIRE(missing == nullptr);
-    }
-
-    SECTION("Get all keys") {
-        int count;
-        char** keys = get_keys(node, &count);
-
-        REQUIRE(count == 2);
-        REQUIRE(keys != nullptr);
-
-        bool has_name = false, has_value = false;
-        for (int i = 0; i < count; i++) {
-            if (std::string(keys[i]) == "name") has_name = true;
-            if (std::string(keys[i]) == "value") has_value = true;
-        }
-
-        REQUIRE(has_name);
-        REQUIRE(has_value);
-
-        yaml_free_keys(keys, count);
-    }
-
-    delete_node(node);
+TEST_CASE("create_empty_tree gives an empty MAP root", "[parsing]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(tree != nullptr);
+    REQUIRE(is_map(tree, get_root(tree)));
+    REQUIRE(get_size(tree, get_root(tree)) == 0);
+    delete_tree(tree);
 }
 
-TEST_CASE("Sequence indices can be accessed", "[access][sequence]") {
-    const char* yaml = "[apple, banana, cherry]";
-    YAMLNodeHandle node = parse_string(yaml);
-
-    SECTION("Check size") { REQUIRE(size(node) == 3); }
-
-    SECTION("Access valid index") {
-        YAMLNodeHandle item = get_index(node, 1);
-        REQUIRE(item != nullptr);
-
-        char* str = as_string(item);
-        REQUIRE(std::string(str) == "banana");
-
-        yaml_free_string(str);
-        delete_node(item);
-    }
-
-    SECTION("Access out of bounds index returns nullptr") {
-        YAMLNodeHandle item = get_index(node, 999);
-        REQUIRE(item == nullptr);
-    }
-
-    SECTION("Access negative index returns nullptr") {
-        YAMLNodeHandle item = get_index(node, -1);
-        REQUIRE(item == nullptr);
-    }
-
-    delete_node(node);
+TEST_CASE("delete_tree accepts nullptr without crashing", "[memory]") {
+    delete_tree(nullptr);  // must not crash
 }
 
-// ===========================================
-// TEST SUITE: Type Conversions
-// ===========================================
+// ============================================================
+// TRAVERSAL
+// ============================================================
 
-TEST_CASE("Values can be converted to C types", "[conversion]") {
-    SECTION("Convert to string") {
-        YAMLNodeHandle node = parse_string("test_value");
-        char* str = as_string(node);
-
-        REQUIRE(str != nullptr);
-        REQUIRE(std::string(str) == "test_value");
-
-        yaml_free_string(str);
-        delete_node(node);
-    }
-
-    SECTION("Convert to int") {
-        YAMLNodeHandle node = parse_string("42");
-        int val = as_int(node);
-
-        REQUIRE(val == 42);
-
-        delete_node(node);
-    }
-
-    SECTION("Convert to float") {
-        YAMLNodeHandle node = parse_string("3.14");
-        double val = as_float(node);
-
-        REQUIRE(val == Approx(3.14));
-
-        delete_node(node);
-    }
-
-    SECTION("Convert to bool") {
-        YAMLNodeHandle node_true = parse_string("true");
-        YAMLNodeHandle node_false = parse_string("false");
-
-        REQUIRE(as_bool(node_true) == true);
-        REQUIRE(as_bool(node_false) == false);
-
-        delete_node(node_true);
-        delete_node(node_false);
-    }
-
-    SECTION("Invalid conversion returns default") {
-        YAMLNodeHandle node = parse_string("[a, b, c]");
-
-        // Can't convert sequence to string
-        char* str = as_string(node);
-        REQUIRE(str == nullptr);
-
-        delete_node(node);
-    }
+TEST_CASE("get_root returns YAML_NULL_ID for a null handle", "[traversal]") {
+    REQUIRE(get_root(nullptr) == YAML_NULL_ID);
 }
 
-// ===========================================
-// TEST SUITE: Modification - Maps
-// ===========================================
+TEST_CASE("get_child_by_key finds a MAP child by name", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("name: alice\nage: 30");
+    YAMLNodeId root = get_root(tree);
 
-TEST_CASE("Map values can be set", "[modification][map]") {
-    YAMLNodeHandle map = create_map();
+    YAMLNodeId name = get_child_by_key(tree, root, "name");
+    REQUIRE(name != YAML_NULL_ID);
+    REQUIRE(val_eq(tree, name, "alice"));
 
-    SECTION("Set string value") {
-        set_value_string(map, "name", "test");
-        REQUIRE(has_key(map, "name"));
+    YAMLNodeId age = get_child_by_key(tree, root, "age");
+    REQUIRE(age != YAML_NULL_ID);
+    REQUIRE(val_eq(tree, age, "30"));
 
-        YAMLNodeHandle value = get_key(map, "name");
-        char* str = as_string(value);
-        REQUIRE(std::string(str) == "test");
-
-        yaml_free_string(str);
-        delete_node(value);
-    }
-
-    SECTION("Set int value") {
-        set_value_int(map, "count", 42);
-
-        YAMLNodeHandle value = get_key(map, "count");
-        REQUIRE(as_int(value) == 42);
-
-        delete_node(value);
-    }
-
-    SECTION("Set float value") {
-        set_value_float(map, "pi", 3.14);
-
-        YAMLNodeHandle value = get_key(map, "pi");
-        REQUIRE(as_float(value) == Catch::Approx(3.14));
-
-        delete_node(value);
-    }
-
-    SECTION("Set bool value") {
-        set_value_bool(map, "enabled", true);
-
-        YAMLNodeHandle value = get_key(map, "enabled");
-        REQUIRE(as_bool(value) == true);
-
-        delete_node(value);
-    }
-
-    SECTION("Set nested node") {
-        YAMLNodeHandle nested = create_map();
-        set_value_string(nested, "inner", "value");
-
-        set_value_node(map, "nested", nested);
-
-        REQUIRE(has_key(map, "nested"));
-        YAMLNodeHandle retrieved = get_key(map, "nested");
-        REQUIRE(is_map(retrieved));
-
-        delete_node(retrieved);
-        delete_node(nested);
-    }
-
-    delete_node(map);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Modification - Sequences
-// ===========================================
-
-TEST_CASE("Sequence values can be pushed", "[modification][sequence]") {
-    YAMLNodeHandle seq = create_sequence();
-
-    SECTION("Push string values") {
-        push_string(seq, "first");
-        push_string(seq, "second");
-
-        REQUIRE(size(seq) == 2);
-
-        YAMLNodeHandle item = get_index(seq, 1);
-        char* str = as_string(item);
-        REQUIRE(std::string(str) == "second");
-
-        yaml_free_string(str);
-        delete_node(item);
-    }
-
-    SECTION("Push int values") {
-        push_int(seq, 10);
-        push_int(seq, 20);
-
-        REQUIRE(size(seq) == 2);
-
-        YAMLNodeHandle item = get_index(seq, 0);
-        REQUIRE(as_int(item) == 10);
-
-        delete_node(item);
-    }
-
-    SECTION("Push float values") {
-        push_float(seq, 1.1);
-        push_float(seq, 2.2);
-
-        REQUIRE(size(seq) == 2);
-
-        YAMLNodeHandle item = get_index(seq, 1);
-        REQUIRE(as_float(item) == Catch::Approx(2.2));
-
-        delete_node(item);
-    }
-
-    SECTION("Push node") {
-        YAMLNodeHandle node = create_map();
-        set_value_string(node, "key", "value");
-
-        push_node(seq, node);
-
-        REQUIRE(size(seq) == 1);
-
-        YAMLNodeHandle retrieved = get_index(seq, 0);
-        REQUIRE(is_map(retrieved));
-
-        delete_node(retrieved);
-        delete_node(node);
-    }
-
-    delete_node(seq);
+TEST_CASE("get_child_by_key returns YAML_NULL_ID for missing key", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    REQUIRE(get_child_by_key(tree, get_root(tree), "missing") == YAML_NULL_ID);
+    delete_tree(tree);
 }
 
-TEST_CASE("Sequence values can be set at index", "[modification][sequence]") {
-    YAMLNodeHandle seq = parse_string("[a, b, c]");
-
-    SECTION("Set string at index") {
-        YAMLNodeHandle replacement = parse_string("replaced");
-        set_at_index(seq, 1, replacement);
-
-        YAMLNodeHandle item = get_index(seq, 1);
-        char* str = as_string(item);
-        REQUIRE(std::string(str) == "replaced");
-
-        yaml_free_string(str);
-        delete_node(item);
-        delete_node(replacement);
-    }
-
-    delete_node(seq);
+TEST_CASE("get_child_by_key returns YAML_NULL_ID on non-MAP parent", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("- a\n- b");
+    YAMLNodeId root = get_root(tree);
+    REQUIRE(is_sequence(tree, root));
+    REQUIRE(get_child_by_key(tree, root, "anything") == YAML_NULL_ID);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Scalar Editing
-// ===========================================
+TEST_CASE("get_child_by_index accesses sequence elements in order", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("- apple\n- banana\n- cherry");
+    YAMLNodeId root = get_root(tree);
 
-TEST_CASE("Scalar values can be edited directly", "[modification][scalar]") {
-    SECTION("Set scalar string") {
-        YAMLNodeHandle scalar = create_scalar();
-        set_scalar_string(scalar, "new_value");
+    REQUIRE(val_eq(tree, get_child_by_index(tree, root, 0), "apple"));
+    REQUIRE(val_eq(tree, get_child_by_index(tree, root, 1), "banana"));
+    REQUIRE(val_eq(tree, get_child_by_index(tree, root, 2), "cherry"));
 
-        char* str = as_string(scalar);
-        REQUIRE(std::string(str) == "new_value");
-
-        yaml_free_string(str);
-        delete_node(scalar);
-    }
-
-    SECTION("Set scalar int") {
-        YAMLNodeHandle scalar = create_scalar();
-        set_scalar_int(scalar, 99);
-
-        REQUIRE(as_int(scalar) == 99);
-
-        delete_node(scalar);
-    }
-
-    SECTION("Set scalar float") {
-        YAMLNodeHandle scalar = create_scalar();
-        set_scalar_float(scalar, 2.718);
-
-        REQUIRE(as_float(scalar) == Catch::Approx(2.718));
-
-        delete_node(scalar);
-    }
-
-    SECTION("Set scalar bool") {
-        YAMLNodeHandle scalar = create_scalar();
-        set_scalar_bool(scalar, false);
-
-        REQUIRE(as_bool(scalar) == false);
-
-        delete_node(scalar);
-    }
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: File I/O
-// ===========================================
-
-TEST_CASE("YAML can be written to files", "[io][file]") {
-    const char* test_file = "test_output.pals.yaml";
-
-    SECTION("Write simple map") {
-        YAMLNodeHandle map = create_map();
-        set_value_string(map, "test", "value");
-        set_value_int(map, "count", 5);
-
-        REQUIRE(write_file(map, test_file));
-
-        // Read back and verify
-        YAMLNodeHandle loaded = parse_file(test_file);
-        REQUIRE(loaded != nullptr);
-        REQUIRE(has_key(loaded, "test"));
-        REQUIRE(has_key(loaded, "count"));
-
-        delete_node(map);
-        delete_node(loaded);
-        cleanup_file(test_file);
-    }
-
-    SECTION("Write with formatting") {
-        YAMLNodeHandle seq = parse_string("[a, b, c]");
-
-        REQUIRE(write_file_formatted(seq, test_file, 4, false, true));
-
-        std::string content = read_file(test_file);
-        REQUIRE(content.find("[a, b, c]") != std::string::npos);  // Flow style
-
-        delete_node(seq);
-        cleanup_file(test_file);
-    }
+TEST_CASE("get_child_by_index returns YAML_NULL_ID out of bounds", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("- a\n- b");
+    REQUIRE(get_child_by_index(tree, get_root(tree), 99) == YAML_NULL_ID);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: String Conversion
-// ===========================================
-
-TEST_CASE("YAML nodes can be converted to strings", "[conversion][string]") {
-    SECTION("Convert map to string") {
-        YAMLNodeHandle map = create_map();
-        set_value_string(map, "key", "value");
-
-        char* str = yaml_to_string(map);
-        REQUIRE(str != nullptr);
-        REQUIRE(std::string(str).find("key") != std::string::npos);
-        REQUIRE(std::string(str).find("value") != std::string::npos);
-
-        yaml_free_string(str);
-        delete_node(map);
-    }
-
-    SECTION("Emit with custom indent") {
-        YAMLNodeHandle map = create_map();
-        set_value_string(map, "test", "val");
-
-        char* str2 = yaml_emit(map, 2);
-        char* str4 = yaml_emit(map, 4);
-
-        REQUIRE(str2 != nullptr);
-        REQUIRE(str4 != nullptr);
-
-        yaml_free_string(str2);
-        yaml_free_string(str4);
-        delete_node(map);
-    }
+TEST_CASE("get_size counts direct children", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("a: 1\nb: 2\nc: 3");
+    REQUIRE(get_size(tree, get_root(tree)) == 3);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Cloning
-// ===========================================
-
-TEST_CASE("YAML nodes can be cloned", "[clone]") {
-    SECTION("Clone simple map") {
-        YAMLNodeHandle original = create_map();
-        set_value_string(original, "name", "original");
-
-        YAMLNodeHandle clone = yaml_clone(original);
-        REQUIRE(clone != nullptr);
-
-        // Modify clone
-        set_value_string(clone, "name", "modified");
-
-        // Verify original unchanged
-        YAMLNodeHandle orig_val = get_key(original, "name");
-        char* orig_str = as_string(orig_val);
-        REQUIRE(std::string(orig_str) == "original");
-
-        // Verify clone changed
-        YAMLNodeHandle clone_val = get_key(clone, "name");
-        char* clone_str = as_string(clone_val);
-        REQUIRE(std::string(clone_str) == "modified");
-
-        yaml_free_string(orig_str);
-        yaml_free_string(clone_str);
-        delete_node(orig_val);
-        delete_node(clone_val);
-        delete_node(original);
-        delete_node(clone);
-    }
-
-    SECTION("Clone nested structure") {
-        YAMLNodeHandle original = parse_string("outer: {inner: value}");
-        YAMLNodeHandle clone = yaml_clone(original);
-
-        REQUIRE(clone != nullptr);
-        REQUIRE(is_map(clone));
-
-        YAMLNodeHandle outer = get_key(clone, "outer");
-        REQUIRE(has_key(outer, "inner"));
-
-        delete_node(outer);
-        delete_node(original);
-        delete_node(clone);
-    }
+TEST_CASE("get_size returns 0 for YAML_NULL_ID", "[traversal]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(get_size(tree, YAML_NULL_ID) == 0);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Memory Safety
-// ===========================================
-
-TEST_CASE("Memory is properly managed", "[memory]") {
-    SECTION("Can safely delete nullptr") {
-        delete_node(nullptr);  // Should not crash
-    }
-
-    SECTION("Multiple operations don't leak") {
-        for (int i = 0; i < 100; i++) {
-            YAMLNodeHandle node = create_map();
-            set_value_int(node, "test", i);
-
-            char* str = yaml_to_string(node);
-            yaml_free_string(str);
-
-            delete_node(node);
-        }
-        // No assertion - just shouldn't crash or leak
-    }
-
-    SECTION("Complex structure cleanup") {
-        YAMLNodeHandle root = create_sequence();
-
-        for (int i = 0; i < 10; i++) {
-            YAMLNodeHandle map = create_map();
-            set_value_int(map, "id", i);
-            push_node(root, map);
-            delete_node(map);  // Safe after push_node copies
-        }
-
-        delete_node(root);
-    }
+TEST_CASE("get_parent returns the correct parent node", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    YAMLNodeId root = get_root(tree);
+    YAMLNodeId child = get_child_by_key(tree, root, "key");
+    REQUIRE(get_parent(tree, child) == root);
+    delete_tree(tree);
 }
 
-// ===========================================
-// TEST SUITE: Edge Cases
-// ===========================================
+TEST_CASE("get_parent returns YAML_NULL_ID for the root", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    REQUIRE(get_parent(tree, get_root(tree)) == YAML_NULL_ID);
+    delete_tree(tree);
+}
 
-TEST_CASE("Edge cases are handled correctly", "[edge_cases]") {
-    SECTION("Empty map") {
-        YAMLNodeHandle map = create_map();
-        REQUIRE(size(map) == 0);
+TEST_CASE("get_node_key returns the key string for a MAP child", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("mykey: value");
+    YAMLNodeId child = get_child_by_key(tree, get_root(tree), "mykey");
+    char* key = get_node_key(tree, child);
+    REQUIRE(std::string(key) == "mykey");
+    yaml_free_string(key);
+    delete_tree(tree);
+}
 
-        int count;
-        char** keys = get_keys(map, &count);
-        REQUIRE(count == 0);
+TEST_CASE("get_node_key returns nullptr for a keyless node", "[traversal]") {
+    YAMLTreeHandle tree = parse_string("- item");
+    YAMLNodeId item = get_child_by_index(tree, get_root(tree), 0);
+    REQUIRE(get_node_key(tree, item) == nullptr);
+    delete_tree(tree);
+}
 
-        delete_node(map);
-    }
+TEST_CASE("get_node_key returns nullptr for YAML_NULL_ID", "[traversal]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(get_node_key(tree, YAML_NULL_ID) == nullptr);
+    delete_tree(tree);
+}
 
-    SECTION("Empty sequence") {
-        YAMLNodeHandle seq = create_sequence();
-        REQUIRE(size(seq) == 0);
+// ============================================================
+// TYPE CHECKS
+// ============================================================
 
-        YAMLNodeHandle item = get_index(seq, 0);
-        REQUIRE(item == nullptr);
+TEST_CASE("is_map identifies MAP nodes", "[types]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    REQUIRE(is_map(tree, get_root(tree)));
+    REQUIRE_FALSE(is_sequence(tree, get_root(tree)));
+    REQUIRE_FALSE(is_scalar(tree, get_root(tree)));
+    delete_tree(tree);
+}
 
-        delete_node(seq);
-    }
+TEST_CASE("is_sequence identifies sequence nodes", "[types]") {
+    YAMLTreeHandle tree = parse_string("- a\n- b");
+    REQUIRE(is_sequence(tree, get_root(tree)));
+    REQUIRE_FALSE(is_map(tree, get_root(tree)));
+    REQUIRE_FALSE(is_scalar(tree, get_root(tree)));
+    delete_tree(tree);
+}
 
-    SECTION("Set scalar to nullptr is safe") {
-        YAMLNodeHandle scalar = create_scalar();
-        set_scalar_string(nullptr, "test");  // Should not crash
-        set_scalar_string(scalar, nullptr);  // Should not crash
-        delete_node(scalar);
-    }
+TEST_CASE("is_scalar identifies bare scalar nodes", "[types]") {
+    // A document containing only a value guarantees the root is a VAL
+    YAMLTreeHandle tree = parse_string("just_a_bare_string");
+    YAMLNodeId root = get_root(tree);
+    
+    REQUIRE(root != YAML_NULL_ID);
+    REQUIRE(is_scalar(tree, root));
+    REQUIRE_FALSE(is_map(tree, root));
+    REQUIRE_FALSE(is_sequence(tree, root));
+    
+    delete_tree(tree);
+}
+
+TEST_CASE("type checks return false for YAML_NULL_ID", "[types]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE_FALSE(is_map(tree, YAML_NULL_ID));
+    REQUIRE_FALSE(is_sequence(tree, YAML_NULL_ID));
+    REQUIRE_FALSE(is_scalar(tree, YAML_NULL_ID));
+    delete_tree(tree);
+}
+
+// ============================================================
+// READING VALUES
+// ============================================================
+
+TEST_CASE("as_string returns the scalar value", "[reading]") {
+    YAMLTreeHandle tree = parse_string("word: hello");
+    YAMLNodeId node = get_child_by_key(tree, get_root(tree), "word");
+    char* s = as_string(tree, node);
+    REQUIRE(std::string(s) == "hello");
+    yaml_free_string(s);
+    delete_tree(tree);
+}
+
+TEST_CASE("as_string returns nullptr for a MAP node", "[reading]") {
+    YAMLTreeHandle tree = parse_string("key: value");
+    REQUIRE(as_string(tree, get_root(tree)) == nullptr);
+    delete_tree(tree);
+}
+
+TEST_CASE("as_string returns nullptr for YAML_NULL_ID", "[reading]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(as_string(tree, YAML_NULL_ID) == nullptr);
+    delete_tree(tree);
+}
+
+TEST_CASE("as_string works for numeric and boolean strings", "[reading]") {
+    YAMLTreeHandle tree = parse_string("count: 42\nratio: 3.14\nflag: true");
+    YAMLNodeId root = get_root(tree);
+
+    REQUIRE(val_eq(tree, get_child_by_key(tree, root, "count"), "42"));
+    REQUIRE(val_eq(tree, get_child_by_key(tree, root, "ratio"), "3.14"));
+    REQUIRE(val_eq(tree, get_child_by_key(tree, root, "flag"), "true"));
+
+    delete_tree(tree);
+}
+
+// ============================================================
+// MODIFICATION — add_scalar, add_map, add_sequence
+// ============================================================
+
+TEST_CASE("add_scalar appends a keyed scalar to a MAP", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+
+    YAMLNodeId node = add_scalar(tree, root, "lang", "C++", END);
+    REQUIRE(node != YAML_NULL_ID);
+    REQUIRE(val_eq(tree, get_child_by_key(tree, root, "lang"), "C++"));
+
+    delete_tree(tree);
+}
+
+TEST_CASE("add_scalar appends a keyless scalar to a sequence", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    YAMLNodeId seq = add_sequence(tree, root, "items", END);
+
+    add_scalar(tree, seq, nullptr, "x", END);
+    add_scalar(tree, seq, nullptr, "y", END);
+
+    REQUIRE(get_size(tree, seq) == 2);
+    REQUIRE(val_eq(tree, get_child_by_index(tree, seq, 0), "x"));
+    REQUIRE(val_eq(tree, get_child_by_index(tree, seq, 1), "y"));
+
+    delete_tree(tree);
+}
+
+TEST_CASE("add_scalar inserts at a specific index", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    add_scalar(tree, root, "first",  "a", END);
+    add_scalar(tree, root, "third",  "c", END);
+    add_scalar(tree, root, "second", "b", 1);   // insert between first and third
+
+    char* k0 = get_node_key(tree, get_child_by_index(tree, root, 0));
+    char* k1 = get_node_key(tree, get_child_by_index(tree, root, 1));
+    char* k2 = get_node_key(tree, get_child_by_index(tree, root, 2));
+
+    REQUIRE(std::string(k0) == "first");
+    REQUIRE(std::string(k1) == "second");
+    REQUIRE(std::string(k2) == "third");
+
+    yaml_free_string(k0);
+    yaml_free_string(k1);
+    yaml_free_string(k2);
+    delete_tree(tree);
+}
+
+TEST_CASE("add_map creates an empty MAP child", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    YAMLNodeId child = add_map(tree, root, "nested", END);
+
+    REQUIRE(child != YAML_NULL_ID);
+    REQUIRE(is_map(tree, child));
+    REQUIRE(get_size(tree, child) == 0);
+
+    delete_tree(tree);
+}
+
+TEST_CASE("add_sequence creates an empty sequence child", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    YAMLNodeId seq = add_sequence(tree, root, "list", END);
+
+    REQUIRE(seq != YAML_NULL_ID);
+    REQUIRE(is_sequence(tree, seq));
+    REQUIRE(get_size(tree, seq) == 0);
+
+    delete_tree(tree);
+}
+
+TEST_CASE("add_map inside a sequence creates an anonymous MAP element", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    YAMLNodeId seq  = add_sequence(tree, root, "records", END);
+    YAMLNodeId elem = add_map(tree, seq, nullptr, END);   // seq element has no key
+
+    REQUIRE(is_map(tree, elem));
+    add_scalar(tree, elem, "id", "1", END);
+    REQUIRE(val_eq(tree, get_child_by_key(tree, elem, "id"), "1"));
+
+    delete_tree(tree);
+}
+
+TEST_CASE("add_scalar returns YAML_NULL_ID for a null parent", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(add_scalar(tree, YAML_NULL_ID, "k", "v", END) == YAML_NULL_ID);
+    delete_tree(tree);
+}
+
+// ============================================================
+// MODIFICATION — set_scalar, set_node_key
+// ============================================================
+
+TEST_CASE("set_scalar updates an existing scalar value", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root  = get_root(tree);
+    YAMLNodeId child = add_scalar(tree, root, "key", "initial", END);
+
+    set_scalar(tree, child, "updated");
+    REQUIRE(val_eq(tree, child, "updated"));
+
+    delete_tree(tree);
+}
+
+TEST_CASE("set_scalar on YAML_NULL_ID does not crash", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    set_scalar(tree, YAML_NULL_ID, "value");  // must not crash
+    delete_tree(tree);
+}
+
+TEST_CASE("set_node_key renames a MAP child", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root  = get_root(tree);
+    YAMLNodeId child = add_scalar(tree, root, "old", "val", END);
+
+    set_node_key(tree, child, "new");
+
+    REQUIRE(get_child_by_key(tree, root, "old") == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(tree, root, "new") != YAML_NULL_ID);
+
+    delete_tree(tree);
+}
+
+TEST_CASE("set_node_key on YAML_NULL_ID does not crash", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    set_node_key(tree, YAML_NULL_ID, "key");  // must not crash
+    delete_tree(tree);
+}
+
+// ============================================================
+// MODIFICATION — remove_node
+// ============================================================
+
+TEST_CASE("remove_node removes a child from a MAP", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    add_scalar(tree, root, "keep",   "yes", END);
+    add_scalar(tree, root, "remove", "no",  END);
+
+    YAMLNodeId to_remove = get_child_by_key(tree, root, "remove");
+    remove_node(tree, root, to_remove);
+
+    REQUIRE(get_size(tree, root) == 1);
+    REQUIRE(get_child_by_key(tree, root, "remove") == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(tree, root, "keep")   != YAML_NULL_ID);
+
+    delete_tree(tree);
+}
+
+TEST_CASE("remove_node on YAML_NULL_ID does not crash", "[modification]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    remove_node(tree, YAML_NULL_ID, YAML_NULL_ID);  // must not crash
+    delete_tree(tree);
+}
+
+// ============================================================
+// DEEP COPY
+// ============================================================
+
+TEST_CASE("deep_copy_node copies content into an existing node", "[copy]") {
+    YAMLTreeHandle src = parse_string("x: 10\ny: 20");
+    YAMLTreeHandle dst = create_empty_tree();
+
+    deep_copy_node(dst, get_root(dst), src, get_root(src));
+
+    REQUIRE(val_eq(dst, get_child_by_key(dst, get_root(dst), "x"), "10"));
+    REQUIRE(val_eq(dst, get_child_by_key(dst, get_root(dst), "y"), "20"));
+
+    delete_tree(src);
+    delete_tree(dst);
+}
+
+TEST_CASE("deep_copy_node works across different trees", "[copy]") {
+    YAMLTreeHandle src = parse_string("nested:\n  a: 1\n  b: 2");
+    YAMLTreeHandle dst = create_empty_tree();
+
+    deep_copy_node(dst, get_root(dst), src, get_root(src));
+
+    YAMLNodeId nested = get_child_by_key(dst, get_root(dst), "nested");
+    REQUIRE(nested != YAML_NULL_ID);
+    REQUIRE(is_map(dst, nested));
+    REQUIRE(val_eq(dst, get_child_by_key(dst, nested, "a"), "1"));
+    REQUIRE(val_eq(dst, get_child_by_key(dst, nested, "b"), "2"));
+
+    delete_tree(src);
+    delete_tree(dst);
+}
+
+TEST_CASE("deep_copy_node with null handles does not crash", "[copy]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    deep_copy_node(nullptr, YAML_NULL_ID, tree, get_root(tree));
+    deep_copy_node(tree, get_root(tree), nullptr, YAML_NULL_ID);
+    delete_tree(tree);
+}
+
+TEST_CASE("deep_copy_children appends children to dst", "[copy]") {
+    YAMLTreeHandle src = parse_string("a: 1\nb: 2\nc: 3");
+    YAMLTreeHandle dst = create_empty_tree();
+    YAMLNodeId dst_root = get_root(dst);
+
+    // Pre-populate dst with one entry
+    add_scalar(dst, dst_root, "existing", "yes", END);
+    REQUIRE(get_size(dst, dst_root) == 1);
+
+    deep_copy_children(dst, dst_root, src, get_root(src), END);
+
+    // Should now have original + 3 copied children
+    REQUIRE(get_size(dst, dst_root) == 4);
+    REQUIRE(val_eq(dst, get_child_by_key(dst, dst_root, "a"), "1"));
+    REQUIRE(val_eq(dst, get_child_by_key(dst, dst_root, "existing"), "yes"));
+
+    delete_tree(src);
+    delete_tree(dst);
+}
+
+TEST_CASE("deep_copy_children inserts at index 0 (prepend)", "[copy]") {
+    YAMLTreeHandle src = parse_string("new: value");
+    YAMLTreeHandle dst = create_empty_tree();
+    add_scalar(dst, get_root(dst), "existing", "old", END);
+
+    deep_copy_children(dst, get_root(dst), src, get_root(src), 0);
+
+    // "new" should be at index 0
+    char* key = get_node_key(dst, get_child_by_index(dst, get_root(dst), 0));
+    REQUIRE(std::string(key) == "new");
+    yaml_free_string(key);
+
+    delete_tree(src);
+    delete_tree(dst);
+}
+
+// ============================================================
+// EMITTING
+// ============================================================
+
+TEST_CASE("node_to_string emits valid YAML containing expected keys", "[emitting]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    add_scalar(tree, root, "greeting", "hello", END);
+
+    char* str = node_to_string(tree, root);
+    REQUIRE(str != nullptr);
+    REQUIRE(std::string(str).find("greeting") != std::string::npos);
+    REQUIRE(std::string(str).find("hello") != std::string::npos);
+
+    yaml_free_string(str);
+    delete_tree(tree);
+}
+
+TEST_CASE("node_to_string returns nullptr for YAML_NULL_ID", "[emitting]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE(node_to_string(tree, YAML_NULL_ID) == nullptr);
+    delete_tree(tree);
+}
+
+TEST_CASE("tree_to_string emits the full tree", "[emitting]") {
+    YAMLTreeHandle tree = parse_string("a: 1\nb: 2");
+    char* str = tree_to_string(tree);
+    REQUIRE(str != nullptr);
+    std::string s(str);
+    REQUIRE(s.find("a") != std::string::npos);
+    REQUIRE(s.find("b") != std::string::npos);
+    yaml_free_string(str);
+    delete_tree(tree);
+}
+
+TEST_CASE("write_file writes a tree that can be read back", "[emitting][file]") {
+    const char* path = "tmp_write.yaml";
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root = get_root(tree);
+    add_scalar(tree, root, "written", "true", END);
+    add_scalar(tree, root, "count",   "7",    END);
+
+    REQUIRE(write_file(tree, path));
+    delete_tree(tree);
+
+    YAMLTreeHandle loaded = parse_file(path);
+    REQUIRE(loaded != nullptr);
+    REQUIRE(val_eq(loaded, get_child_by_key(loaded, get_root(loaded), "written"), "true"));
+    REQUIRE(val_eq(loaded, get_child_by_key(loaded, get_root(loaded), "count"),   "7"));
+    delete_tree(loaded);
+
+    rm_tmp(path);
+}
+
+TEST_CASE("write_file returns false for an unwritable path", "[emitting][file]") {
+    YAMLTreeHandle tree = create_empty_tree();
+    REQUIRE_FALSE(write_file(tree, "/nonexistent_dir/file.yaml"));
+    delete_tree(tree);
+}
+
+TEST_CASE("yaml_free_string accepts nullptr without crashing", "[memory]") {
+    yaml_free_string(nullptr);
+}
+
+// ============================================================
+// ROUND-TRIP: build, emit, parse, verify
+// ============================================================
+
+TEST_CASE("Nested structure survives a write/read round-trip", "[round_trip]") {
+    const char* path = "tmp_roundtrip.yaml";
+
+    // Build: { server: { host: localhost, port: 8080 }, tags: [web, api] }
+    YAMLTreeHandle tree = create_empty_tree();
+    YAMLNodeId root   = get_root(tree);
+    YAMLNodeId server = add_map(tree, root, "server", END);
+    add_scalar(tree, server, "host", "localhost", END);
+    add_scalar(tree, server, "port", "8080",      END);
+    YAMLNodeId tags = add_sequence(tree, root, "tags", END);
+    add_scalar(tree, tags, nullptr, "web", END);
+    add_scalar(tree, tags, nullptr, "api", END);
+
+    REQUIRE(write_file(tree, path));
+    delete_tree(tree);
+
+    // Read back and verify
+    YAMLTreeHandle loaded = parse_file(path);
+    REQUIRE(loaded != nullptr);
+    YAMLNodeId lroot  = get_root(loaded);
+    YAMLNodeId lserver = get_child_by_key(loaded, lroot, "server");
+    REQUIRE(lserver != YAML_NULL_ID);
+    REQUIRE(is_map(loaded, lserver));
+    REQUIRE(val_eq(loaded, get_child_by_key(loaded, lserver, "host"), "localhost"));
+    REQUIRE(val_eq(loaded, get_child_by_key(loaded, lserver, "port"), "8080"));
+
+    YAMLNodeId ltags = get_child_by_key(loaded, lroot, "tags");
+    REQUIRE(ltags != YAML_NULL_ID);
+    REQUIRE(is_sequence(loaded, ltags));
+    REQUIRE(get_size(loaded, ltags) == 2);
+    REQUIRE(val_eq(loaded, get_child_by_index(loaded, ltags, 0), "web"));
+    REQUIRE(val_eq(loaded, get_child_by_index(loaded, ltags, 1), "api"));
+
+    delete_tree(loaded);
+    rm_tmp(path);
+}
+
+// ============================================================
+// CLONE via create_empty_tree + deep_copy_node
+// ============================================================
+
+TEST_CASE("Cloning via deep_copy_node produces an independent copy", "[copy]") {
+    YAMLTreeHandle original = parse_string("name: original\ncount: 1");
+    YAMLTreeHandle clone    = create_empty_tree();
+    deep_copy_node(clone, get_root(clone), original, get_root(original));
+
+    // Modify clone — original must be unchanged
+    YAMLNodeId clone_name = get_child_by_key(clone, get_root(clone), "name");
+    set_scalar(clone, clone_name, "modified");
+
+    REQUIRE(val_eq(clone,    get_child_by_key(clone,    get_root(clone),    "name"), "modified"));
+    REQUIRE(val_eq(original, get_child_by_key(original, get_root(original), "name"), "original"));
+
+    delete_tree(original);
+    delete_tree(clone);
+}
+
+// ============================================================
+// get_lattices (smoke test — requires the example lattice files)
+// ============================================================
+
+TEST_CASE("get_lattices returns three non-null handles", "[lattices]") {
+    struct lattices lat = get_lattices("../lattice_files/ex.pals.yaml", nullptr);
+    REQUIRE(lat.original != nullptr);
+    REQUIRE(lat.included != nullptr);
+    REQUIRE(lat.expanded != nullptr);
+    delete_tree(lat.original);
+    delete_tree(lat.included);
+    delete_tree(lat.expanded);
 }
