@@ -38,5 +38,5 @@ target_link_libraries(yaml_c_wrapper PUBLIC ryml)
 add_executable(example_rw examples/example_rw.cpp)
 target_link_libraries(example_rw yaml_c_wrapper ryml)
 
-add_executable(get_lattices src/get_lattices.cpp)
-target_link_libraries(get_lattices yaml_c_wrapper ryml)
+add_executable(print_lattices examples/print_lattices.cpp)
+target_link_libraries(print_lattices yaml_c_wrapper ryml)
