@@ -37,6 +37,14 @@ To see the console output, in the build directory, run
 ./print_lattices ex.pals.yaml -lat lat2
 ```
 
+## Extensions
+
+The [PALSJulia.jl](https://github.com/pals-project/PALSJulia.jl) package is an extension of `pals-cpp` to:
+
+- Provide a Julia interface for `pals-cpp` C++ functions.
+- Provide a translator from `PALS` files to [`Bmad`](https://github.com/bmad-sim/bmad-ecosystem) lattice files.
+- Provide a translator from `PALS` files to [`SciBmad`](https://github.com/bmad-sim/SciBmad.jl) lattice files.
+
 ## Developer Notes
 `YAMLTreeHandle` wraps `ryml::Tree` into C objects so they can be part of a shared object library to interface with other languages. `ryml::Tree`s are stored in memory simply as arrays. `ryml::NodeRef` acts as a simple wrapper around nodes, which are just indices in the tree array. Trees are obtained by parsing C++ std::string, and values are simply pointers to locations in the string. Therefore, the string must be kept in memory as long as the tree is in use. 
 
@@ -58,6 +66,3 @@ To run a specific test, run
 ```console
 ctest --test-dir build -R "Test Name"
 ```
-
-## To Do
-Search by kind
