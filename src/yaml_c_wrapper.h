@@ -56,7 +56,7 @@ extern "C" {
  * scalars substituted, repeats unrolled, inherits merged, and forks resolved.
  *         All three handles must be freed individually with delete_tree().
  */
-YAML_API struct lattices get_lattices(const char* filename,
+YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* lattice_name);
 
 // --- PARSING & MEMORY ---
@@ -100,7 +100,7 @@ YAML_API YAMLTreeHandle create_empty_tree();
  * Frees all memory associated with a tree handle.
  *
  * @param tree Handle previously returned by parse_file(), parse_string(),
- *             create_empty_tree(), or get_lattices(). Passing NULL is safe
+ *             create_empty_tree(), or parse_and_expand_PALS(). Passing NULL is safe
  *             and has no effect.
  */
 YAML_API void delete_tree(YAMLTreeHandle tree);

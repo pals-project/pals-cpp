@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 
     std::string file_path = std::string("../lattice_files/") + file_name;
 
-    struct lattices lat = get_lattices(file_path.c_str(), lattice_name);
+    struct lattices lat = parse_and_expand_PALS(file_path.c_str(), lattice_name);
 
     std::cout << "========== Printing original lattice ==========" << std::endl;
     std::cout << tree_to_string(lat.original) << std::endl << "\n\n";

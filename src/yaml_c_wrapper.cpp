@@ -557,7 +557,7 @@ static YAMLTreeHandle make_original(const char* filename) {
 
 extern "C" {
 
-YAML_API struct lattices get_lattices(const char* filename,
+YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* lattice_name) {
     struct lattices lat = {};
     lat.original = make_original(filename);
