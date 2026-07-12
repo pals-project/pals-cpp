@@ -612,11 +612,11 @@ TEST_CASE("Cloning via deep_copy_node produces an independent copy", "[copy]") {
 }
 
 // ============================================================
-// get_lattices (smoke test — requires the example lattice files)
+// parse_and_expand_PALS (smoke test — requires the example lattice files)
 // ============================================================
 
-TEST_CASE("get_lattices returns three non-null handles", "[lattices]") {
-    struct lattices lat = get_lattices("../lattice_files/ex.pals.yaml", nullptr);
+TEST_CASE("parse_and_expand_PALS returns three non-null handles", "[lattices]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
     REQUIRE(lat.original != nullptr);
     REQUIRE(lat.included != nullptr);
     REQUIRE(lat.expanded != nullptr);
