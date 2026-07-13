@@ -29,7 +29,7 @@ This builds `libyaml_c_wrapper.dylib`, a shared object library that can interfac
 The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat root_lattice` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing three lattices:
 - `original` is a map containing the base lattice as well as any lattices included
 in the base lattice.
-- `included` is the base lattice but with all included files substituted in.
+- `combined` is the base lattice but with all included files substituted in.
 - `expanded` is the base lattice after lattice expansion has been performed.
 To see the console output, in the build directory, run
 

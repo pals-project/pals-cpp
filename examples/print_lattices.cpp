@@ -34,8 +34,8 @@ int main(int argc, char* argv[]) {
     std::cout << "========== Printing original lattice ==========" << std::endl;
     std::cout << tree_to_string(lat.original) << std::endl << "\n\n";
 
-    std::cout << "========== Printing included lattice ==========" << std::endl;
-    std::cout << tree_to_string(lat.included) << std::endl << "\n\n";
+    std::cout << "========== Printing combined lattice ==========" << std::endl;
+    std::cout << tree_to_string(lat.combined) << std::endl << "\n\n";
 
     std::cout << "========== Printing expanded lattice ==========" << std::endl;
     std::cout << tree_to_string(lat.expanded) << std::endl;

@@ -31,7 +31,7 @@ typedef size_t YAMLNodeId;
 struct lattices {
     YAMLTreeHandle original;  // Raw tree mapping each file (including includes)
                               // to its unparsed contents
-    YAMLTreeHandle included;  // Tree with all "include" directives resolved and
+    YAMLTreeHandle combined;  // Tree with all "include" directives resolved and
                               // spliced inline
     YAMLTreeHandle expanded;  // Tree with the selected lattice fully expanded
 };
@@ -50,7 +50,7 @@ extern "C" {
  * @return A `lattices` struct containing three handles:
  *           - `original`: raw tree mapping each file (including includes) to
  * its unparsed contents.
- *           - `included`: tree with all "include" directives resolved and
+ *           - `combined`: tree with all "include" directives resolved and
  * spliced inline.
  *           - `expanded`: tree with the selected lattice fully expanded —
  * scalars substituted, repeats unrolled, inherits merged, and forks resolved.

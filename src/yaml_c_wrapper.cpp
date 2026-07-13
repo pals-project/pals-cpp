@@ -307,11 +307,11 @@ static void expand(ryml::Tree& t, size_t node,
 }
 
 /**
- * Recursive helper for make_included. Starting from `node`, replace all
+ * Recursive helper for make_combined. Starting from `node`, replace all
  * instances of "include: filename" with the contents of `filename`. Also
  * recurses into `filename` to handle nested include statements.
  */
-static void make_included_recursive(ryml::Tree& t, size_t node) {
+static void make_combined_recursive(ryml::Tree& t, size_t node) {
     if (node == ryml::NONE) return;
 
     if (t.is_seq(node)) {
@@ -363,35 +363,35 @@ static void make_included_recursive(ryml::Tree& t, size_t node) {
                     }
                     delete inc;
                     // Recurse into inserted nodes to handle nested includes
-                    for (size_t n : inserted) make_included_recursive(t, n);
+                    for (size_t n : inserted) make_combined_recursive(t, n);
                 }
                 t.remove(child);
                 child = next;
                 continue;
             }
 
-            make_included_recursive(t, child);
+            make_combined_recursive(t, child);
             child = next;
         }
         return;
     }
 
     for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
-        make_included_recursive(t, c);
+        make_combined_recursive(t, c);
 }
 
 /**
- * Makes the included lattice file. Takes all instances of include statements in
+ * Makes the combined lattice file. Takes all instances of include statements in
  * filename, as well as nested include statements within included files, and
  * adds them all to the master tree.
  */
-static YAMLTreeHandle make_included(const char* filename) {
+static YAMLTreeHandle make_combined(const char* filename) {
     ParsedData* data = static_cast<ParsedData*>(parse_file(filename));
     if (!data) return nullptr;
     ryml::Tree& t = data->tree;
     t.reserve(t.capacity() + 64);
     t.reserve_arena(t.arena_capacity() + 65536);
-    make_included_recursive(t, t.root_id());
+    make_combined_recursive(t, t.root_id());
     return data;
 }
 
@@ -463,7 +463,7 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 }
 
 /**
- * Create the expanded lattice. Starts with the included lattice, and expands
+ * Create the expanded lattice. Starts with the combined lattice, and expands
  * the lattice with the following priorities:
  *  1. If `root_lattice` != null, then expand the lattice called `root_lattice`
  *  2. If `root_lattice` == null, expand the lattice specified in the last `use`
@@ -478,7 +478,7 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
  */
 static YAMLTreeHandle make_expanded(const char* filename,
                                     const char* root_lattice) {
-    YAMLTreeHandle data = make_included(filename);
+    YAMLTreeHandle data = make_combined(filename);
     if (!data) return nullptr;
     ryml::Tree& t = GET_TREE(data);
     t.reserve_arena(t.arena_capacity() + 100000);
@@ -561,7 +561,7 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice) {
     struct lattices lat = {};
     lat.original = make_original(filename);
-    lat.included = make_included(filename);
+    lat.combined = make_combined(filename);
     lat.expanded = make_expanded(filename, root_lattice);
     return lat;
 }
