@@ -465,8 +465,8 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 /**
  * Create the expanded lattice. Starts with the included lattice, and expands
  * the lattice with the following priorities:
- *  1. If `lat_name` != null, then expand the lattice called `lat_name`
- *  2. If `lat_name` == null, expand the lattice specified in the last `use`
+ *  1. If `root_lattice` != null, then expand the lattice called `root_lattice`
+ *  2. If `root_lattice` == null, expand the lattice specified in the last `use`
  * statement.
  *  3. If no use statement is present, expand the lattice that occurs last in
  * the file. Last expansion performs the following:
@@ -477,7 +477,7 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
  * copied into element.
  */
 static YAMLTreeHandle make_expanded(const char* filename,
-                                    const char* lat_name) {
+                                    const char* root_lattice) {
     YAMLTreeHandle data = make_included(filename);
     if (!data) return nullptr;
     ryml::Tree& t = GET_TREE(data);
@@ -487,7 +487,7 @@ static YAMLTreeHandle make_expanded(const char* filename,
     std::map<std::string, size_t> emap;
     make_ele_map(emap, t, t.root_id());
 
-    std::string name_str = lat_name ? lat_name : "";
+    std::string name_str = root_lattice ? root_lattice : "";
     size_t lat_node = find_lattice(t, name_str);
     if (lat_node == ryml::NONE) return data;
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
@@ -558,11 +558,11 @@ static YAMLTreeHandle make_original(const char* filename) {
 extern "C" {
 
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
-                                      const char* lattice_name) {
+                                      const char* root_lattice) {
     struct lattices lat = {};
     lat.original = make_original(filename);
     lat.included = make_included(filename);
-    lat.expanded = make_expanded(filename, lattice_name);
+    lat.expanded = make_expanded(filename, root_lattice);
     return lat;
 }
 

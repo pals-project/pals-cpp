@@ -42,7 +42,7 @@ extern "C" {
  * Builds and returns all three representations of a lattice file.
  *
  * @param filename     Path to the top-level YAML lattice file.
- * @param lattice_name Name of the lattice to expand. If NULL or empty:
+ * @param root_lattice Name of the lattice to expand. If NULL or empty:
  *                       - expands the lattice named by the last "use"
  * statement, or
  *                       - expands the last lattice defined in the file if no
@@ -57,7 +57,7 @@ extern "C" {
  *         All three handles must be freed individually with delete_tree().
  */
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
-                                      const char* lattice_name);
+                                      const char* root_lattice);
 
 // --- PARSING & MEMORY ---
 
