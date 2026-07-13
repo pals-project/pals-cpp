@@ -618,9 +618,9 @@ TEST_CASE("Cloning via deep_copy_node produces an independent copy", "[copy]") {
 TEST_CASE("parse_and_expand_PALS returns three non-null handles", "[lattices]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
     REQUIRE(lat.original != nullptr);
-    REQUIRE(lat.included != nullptr);
+    REQUIRE(lat.combined != nullptr);
     REQUIRE(lat.expanded != nullptr);
     delete_tree(lat.original);
-    delete_tree(lat.included);
+    delete_tree(lat.combined);
     delete_tree(lat.expanded);
 }
