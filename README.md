@@ -1,6 +1,6 @@
 ## Introduction
 Pals-cpp is the parser library for PALS accelerator lattice files. It uses rapidyaml https://github.com/biojppm/rapidyaml to read lattices into memory and provides additional capabilities like printing to console, writing to files, and searching for elements. One major component is performing lattice expansion following the PALS specifications:
-1. The lattice to be expanded can be specified by the user. If none is specified, the one in the last `use: lattice_name` statement will be expanded. If none exists, the last lattice in the file is expanded. 
+1. The lattice to be expanded can be specified by the user. If none is specified, the one in the last `use: root_lattice` statement will be expanded. If none exists, the last lattice in the file is expanded. 
 2. Content from other files can be brought into scope using `include: filename`
 3. Elements that inherit parameters from other elements will have those properties brought into scope.
 4. Beamlines in a lattice with a `repeat: count` will have their contents repeated `count` times in the lattice.
@@ -26,7 +26,7 @@ This builds `libyaml_c_wrapper.dylib`, a shared object library that can interfac
 ```
 
 ### Example 2
-The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat lattice_name` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing three lattices:
+The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat root_lattice` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing three lattices:
 - `original` is a map containing the base lattice as well as any lattices included
 in the base lattice.
 - `included` is the base lattice but with all included files substituted in.
