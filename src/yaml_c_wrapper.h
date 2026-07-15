@@ -99,6 +99,29 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
 
 /**
+ * Evaluates a single PALS mathematical expression to a double.
+ *
+ * Supports the full PALS expression grammar: arithmetic (+ - * / ^), unary
+ * signs, parentheses, the built-in constants (pi, c_light, r_electron, ...),
+ * the math functions (sqrt, log, sin, floor, modulo, ...), and the
+ * particle-data functions mass_of / charge_of / anomalous_moment_of (backed by
+ * AtomicAndPhysicalConstantsCLib). A leading `expr(...)` wrapper is accepted
+ * and unwrapped.
+ *
+ * This entry point evaluates a standalone string: user-defined constants and
+ * variables are NOT in scope (use parse_and_expand_PALS() for whole-lattice
+ * evaluation, which resolves them). Expressions containing random() /
+ * random_gauss() are treated as non-evaluable here.
+ *
+ * @param expr Null-terminated expression string.
+ * @param ok   Optional out-param. Set to true on success, false on a parse
+ *             error, unknown identifier/species, deferred random(), or a
+ *             non-finite result. May be NULL.
+ * @return The evaluated value on success, or 0.0 on failure.
+ */
+YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
+
+/**
  * Builds the node correspondence between the three trees of a `lattices` value.
  *
  * Returns a flat list containing one `node_link` per node of the `expanded`
