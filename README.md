@@ -23,6 +23,16 @@ containing `random()`/`random_gauss()` are left as text so the expanded tree sta
 reproducible. The `combined` and `original` trees always retain the original
 expression text.
 
+**Controllers.** A `kind: Controller` element bundles expressions that drive
+lattice parameters. Its `variables:` form a controller-scoped symbol table
+(variables may reference earlier variables of the same controller and, via the
+`controller>variable` syntax, variables of another controller), and each entry
+in `controls:` pairs a `parameter` target with an `expression`. Controller
+`variables` and control `expression`s are evaluated against that scoped table
+(rather than the global one), and each control `expression` is computed and its
+value written into the control entry. The `parameter` target specs and
+`control_type` are names and are left untouched.
+
 The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of`, and
 the physical values behind the named constants, are provided by
 [AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
