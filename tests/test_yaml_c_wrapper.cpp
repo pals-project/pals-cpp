@@ -1,7 +1,9 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <string>
 
 #include "../src/yaml_c_wrapper.h"
@@ -623,4 +625,163 @@ TEST_CASE("parse_and_expand_PALS returns three non-null handles", "[lattices]") 
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+}
+
+// ============================================================
+// build_correspondence_map
+// ============================================================
+
+TEST_CASE("build_correspondence_map is empty for null handles", "[correspondence]") {
+    struct correspondence_map m = build_correspondence_map(nullptr, nullptr, nullptr);
+    REQUIRE(m.count == 0);
+    REQUIRE(m.links == nullptr);
+    free_correspondence_map(m);  // must not crash
+}
+
+TEST_CASE("build_correspondence_map links the three tree roots", "[correspondence]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
+    struct correspondence_map m =
+        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+
+    REQUIRE(m.count > 0);
+
+    // One link is emitted per expanded node, so the count matches the number
+    // of nodes reachable from the expanded root.
+    YAMLNodeId exp_root = get_root(lat.expanded);
+
+    // Find the link for the expanded root and verify it points at the combined
+    // root and at the top-level file's entry in the original tree.
+    bool found_root = false;
+    for (size_t i = 0; i < m.count; i++) {
+        if (m.links[i].expanded == exp_root) {
+            found_root = true;
+            REQUIRE(m.links[i].combined == get_root(lat.combined));
+            // The original tree's first child is the top-level file's contents.
+            REQUIRE(m.links[i].original ==
+                    get_child_by_index(lat.original, get_root(lat.original), 0));
+            REQUIRE(is_map(lat.combined, m.links[i].combined));
+            REQUIRE(is_map(lat.original, m.links[i].original));
+        }
+        // Every emitted link has a valid expanded node.
+        REQUIRE(m.links[i].expanded != YAML_NULL_ID);
+    }
+    REQUIRE(found_root);
+
+    free_correspondence_map(m);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+}
+
+// Helper: navigate root -> PALS -> facility for a given tree.
+static YAMLNodeId facility_of(YAMLTreeHandle t) {
+    YAMLNodeId pals = get_child_by_key(t, get_root(t), "PALS");
+    return get_child_by_key(t, pals, "facility");
+}
+
+TEST_CASE("build_correspondence_map connects a node across trees by value",
+          "[correspondence]") {
+    // A constant that lives outside the expanded lattice appears, unchanged,
+    // in all three trees; the map must connect the three copies.
+    const char* path = "tmp_corr.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - constants:\n"
+              "        a_const: 0.3 * r_electron\n"
+              "    - q1:\n"
+              "        kind: Quadrupole\n"
+              "        length: 1.0\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - q1\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct correspondence_map m =
+        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+
+    // Locate a_const in the expanded tree: facility[0] -> constants -> a_const.
+    YAMLNodeId e_const = get_child_by_index(lat.expanded, facility_of(lat.expanded), 0);
+    YAMLNodeId e_a_const =
+        get_child_by_key(lat.expanded,
+                         get_child_by_key(lat.expanded, e_const, "constants"),
+                         "a_const");
+    REQUIRE(e_a_const != YAML_NULL_ID);
+    REQUIRE(val_eq(lat.expanded, e_a_const, "0.3 * r_electron"));
+
+    // Find its link and follow it to the combined and original copies.
+    bool found = false;
+    for (size_t i = 0; i < m.count; i++) {
+        if (m.links[i].expanded != e_a_const) continue;
+        found = true;
+        REQUIRE(m.links[i].combined != YAML_NULL_ID);
+        REQUIRE(m.links[i].original != YAML_NULL_ID);
+        REQUIRE(val_eq(lat.combined, m.links[i].combined, "0.3 * r_electron"));
+        REQUIRE(val_eq(lat.original, m.links[i].original, "0.3 * r_electron"));
+    }
+    REQUIRE(found);
+
+    free_correspondence_map(m);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
+TEST_CASE("build_correspondence_map maps one source to many expanded copies",
+          "[correspondence]") {
+    // A `repeat` unrolls one combined element into several expanded nodes; the
+    // map must link all copies back to a single combined source.
+    const char* path = "tmp_corr_repeat.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - d1:\n"
+              "        kind: Drift\n"
+              "        length: 2.0\n"
+              "    - cell:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - d1\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - cell:\n"
+              "              repeat: 3\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct correspondence_map m =
+        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+
+    // Unrolling `repeat: 3` over a one-element cell produces three keyless `d1`
+    // scalars in the expanded line, all copied from the same combined source.
+    // Build a histogram of the combined ids that the expanded scalar `d1`
+    // nodes point to; a single source must account for at least three copies.
+    std::map<YAMLNodeId, int> combined_hits;
+    for (size_t i = 0; i < m.count; i++) {
+        if (!is_scalar(lat.expanded, m.links[i].expanded)) continue;
+        if (!val_eq(lat.expanded, m.links[i].expanded, "d1")) continue;
+        REQUIRE(m.links[i].combined != YAML_NULL_ID);  // has a source
+        combined_hits[m.links[i].combined]++;
+    }
+    int max_copies = 0;
+    for (auto& kv : combined_hits) max_copies = std::max(max_copies, kv.second);
+    REQUIRE(max_copies >= 3);  // one combined node -> three expanded copies
+
+    free_correspondence_map(m);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
 }

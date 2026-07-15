@@ -35,6 +35,35 @@ struct lattices {
                               // spliced inline
     YAMLTreeHandle expanded;  // Tree with the selected lattice fully expanded
 };
+#endif
+
+// --- CORRESPONDENCE MAP ---
+//
+// Links a node across the three representations produced by
+// parse_and_expand_PALS(). The three trees are built as a derivation chain
+// (original -> combined -> expanded), and provenance is recorded at every copy,
+// so each link records which node in each tree a single logical entity maps to.
+//
+// The mapping is functional per link: one expanded node maps to at most one
+// combined node, which maps to at most one original node. Because expansion can
+// duplicate nodes (scalar substitution, `repeat`, `inherit`, forks), a single
+// combined/original node may appear in several links — one per expanded copy.
+// A field is YAML_NULL_ID when no corresponding node exists (e.g. the
+// `fork_pointer` scalars synthesised during expansion have no original source).
+struct node_link {
+    YAMLNodeId original;
+    YAMLNodeId combined;
+    YAMLNodeId expanded;
+};
+
+// A flat list of node_links. One link is emitted per node of the expanded tree.
+// Free with free_correspondence_map().
+struct correspondence_map {
+    struct node_link* links;
+    size_t count;
+};
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -58,6 +87,38 @@ extern "C" {
  */
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
+
+/**
+ * Builds the node correspondence between the three trees of a `lattices` value.
+ *
+ * Returns a flat list containing one `node_link` per node of the `expanded`
+ * tree. Each link gives the corresponding `combined` and `original` node ids
+ * (or YAML_NULL_ID where none exists). Grouping the links by shared combined /
+ * original ids recovers, for any node in any of the three trees, the set of
+ * nodes it corresponds to in the other two.
+ *
+ * The three handles must come from the same parse_and_expand_PALS() call — the
+ * provenance recorded during that call is what makes the mapping exact. The
+ * `original` handle is accepted for API symmetry; the mapping is derived from
+ * the provenance stored in `combined` and `expanded`.
+ *
+ * @param original Handle to the `original` tree.
+ * @param combined Handle to the `combined` tree.
+ * @param expanded Handle to the `expanded` tree.
+ * @return A correspondence_map. The caller must free it with
+ *         free_correspondence_map(). `links` is NULL and `count` is 0 if
+ *         `combined` or `expanded` is NULL.
+ */
+YAML_API struct correspondence_map build_correspondence_map(
+    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded);
+
+/**
+ * Frees the link array owned by a correspondence_map. Passing a map with a NULL
+ * `links` pointer is safe and has no effect.
+ *
+ * @param map The map to free (passed by value).
+ */
+YAML_API void free_correspondence_map(struct correspondence_map map);
 
 // --- PARSING & MEMORY ---
 
