@@ -63,6 +63,16 @@ struct correspondence_map {
     size_t count;
 };
 
+// --- NAME MATCHING ---
+//
+// A flat list of node ids identifying every named construct that matched a
+// query string. Each id is a node within the single tree that was passed to
+// match_names(). Free with free_name_matches().
+struct name_matches {
+    YAMLNodeId* nodes;
+    size_t count;
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -119,6 +129,53 @@ YAML_API struct correspondence_map build_correspondence_map(
  * @param map The map to free (passed by value).
  */
 YAML_API void free_correspondence_map(struct correspondence_map map);
+
+/**
+ * Finds every named construct matched by a PALS name-matching string.
+ *
+ * The string follows the "Name Matching" / "Element Name Matching" syntax:
+ *
+ *   [{lattice}>>>][{branch}>>][{kind}::]{name}[>{group}.{sub}. ... .{param}]
+ *
+ * `{lattice}`, `{branch}`, and `{name}` are PCRE2 patterns matched against the
+ * whole name (anchored at both ends); `{kind}` is matched exactly; the
+ * parameter path after the single `>` is matched exactly, key by key. An
+ * omitted or empty pattern component matches any name at that level. `{branch}`
+ * matches an element if any enclosing BeamLine/Branch name matches, so elements
+ * in sub-lines are included.
+ *
+ * The node returned for each match is whatever the string resolves to: the
+ * element node (no parameter path), the parameter-group or parameter node (with
+ * a path), or, for a bare name — no lattice/branch/kind qualifier and no
+ * parameter path — additionally each matching constant and variable defined
+ * directly under the `PALS` or `facility` node (both the full
+ * `kind: constant`/`kind: variable` and the compact `constants:`/`variables:`
+ * forms).
+ *
+ * Not yet implemented from Element Name Matching: `#N` instance selection,
+ * `{e1}:{e2}` ranges, `,` unions, and `&` intersections.
+ *
+ * Because beamlines and elements are only fully realised after expansion, this
+ * is normally run on the `expanded` tree of a parse_and_expand_PALS() result,
+ * but it works on any tree. Results are de-duplicated and returned in
+ * document order.
+ *
+ * @param tree         Handle to the tree to search.
+ * @param match_string Null-terminated name-matching string.
+ * @return A name_matches listing the matched node ids. `nodes` is NULL and
+ *         `count` is 0 when there are no matches or on a malformed pattern. The
+ *         caller must free it with free_name_matches().
+ */
+YAML_API struct name_matches match_names(YAMLTreeHandle tree,
+                                         const char* match_string);
+
+/**
+ * Frees the node array owned by a name_matches. Passing a value with a NULL
+ * `nodes` pointer is safe and has no effect.
+ *
+ * @param matches The value to free (passed by value).
+ */
+YAML_API void free_name_matches(struct name_matches matches);
 
 // --- PARSING & MEMORY ---
 
