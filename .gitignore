@@ -1,4 +1,5 @@
 build/
+alocal    # Scratch directory
 
 # Prerequisites
 *.d
