@@ -672,13 +672,22 @@ static std::string format_double(double v) {
     return std::string(buf);
 }
 
+// True if `node` is a map defining a `kind: Controller` element.
+static bool is_controller(const ryml::Tree& t, size_t node) {
+    if (node == ryml::NONE || !t.is_map(node)) return false;
+    size_t kind = t.find_child(node, ryml::to_csubstr("kind"));
+    if (kind == ryml::NONE || !t.has_val(kind)) return false;
+    return t.val(kind) == ryml::to_csubstr("Controller");
+}
+
 // Collects user constant/variable definitions (name -> defining expression),
 // in both the full (`kind: constant`/`value:`) and compact
 // (`constants:`/`variables:` lists) forms. First definition of a name wins;
-// the standard requires duplicates to share the same value.
+// the standard requires duplicates to share the same value. Controller subtrees
+// are skipped: their variables are controller-scoped, not global symbols.
 static void collect_defs(const ryml::Tree& t, size_t node,
                          std::map<std::string, std::string>& defs) {
-    if (node == ryml::NONE) return;
+    if (node == ryml::NONE || is_controller(t, node)) return;
 
     // Full form: a named map with `kind: constant|variable` and a `value:`.
     if (t.is_map(node) && t.has_key(node)) {
@@ -719,9 +728,11 @@ static void collect_defs(const ryml::Tree& t, size_t node,
 }
 
 // Replaces every evaluable scalar value in the subtree with its numeric value.
+// Controller subtrees are skipped: their variables and control expressions use
+// a controller-scoped symbol table and are handled by evaluate_controllers.
 static void substitute_values(ryml::Tree& t, size_t node,
                               const pals::SymbolLookup& resolve) {
-    if (node == ryml::NONE) return;
+    if (node == ryml::NONE || is_controller(t, node)) return;
 
     if (t.has_val(node)) {
         bool skip = false;
@@ -749,6 +760,158 @@ static void substitute_values(ryml::Tree& t, size_t node,
     for (size_t c = t.first_child(node); c != ryml::NONE;
          c = t.next_sibling(c))
         substitute_values(t, c, resolve);
+}
+
+// Collects every `kind: Controller` node in the subtree.
+static void collect_controllers(const ryml::Tree& t, size_t node,
+                                std::vector<size_t>& out) {
+    if (node == ryml::NONE) return;
+    if (is_controller(t, node)) {
+        out.push_back(node);
+        return;  // controllers do not nest
+    }
+    for (size_t c = t.first_child(node); c != ryml::NONE;
+         c = t.next_sibling(c))
+        collect_controllers(t, c, out);
+}
+
+// A controller `variables` entry awaiting evaluation.
+struct CtrlVar {
+    size_t node;         // scalar value node to overwrite in place
+    size_t ctrl;         // index into the controllers vector
+    std::string qname;   // fully-qualified name, `controller>variable`
+    std::string bare;    // unqualified name, as used within the controller
+    std::string text;    // defining expression
+    bool done = false;
+};
+
+// Iterates the `variables` of a controller, in both the documented map form
+// (`cur1: 0.023`) and the compact seq-of-single-key-maps form, invoking `emit`
+// with each (name, value-node) pair.
+template <typename F>
+static void for_each_ctrl_var(const ryml::Tree& t, size_t vars, F&& emit) {
+    if (vars == ryml::NONE) return;
+    if (t.is_map(vars)) {
+        for (size_t kv = t.first_child(vars); kv != ryml::NONE;
+             kv = t.next_sibling(kv))
+            if (t.has_key(kv) && t.has_val(kv))
+                emit(std::string(t.key(kv).str, t.key(kv).len), kv);
+    } else if (t.is_seq(vars)) {
+        for (size_t el = t.first_child(vars); el != ryml::NONE;
+             el = t.next_sibling(el))
+            for (size_t kv = t.first_child(el); kv != ryml::NONE;
+                 kv = t.next_sibling(kv))
+                if (t.has_key(kv) && t.has_val(kv))
+                    emit(std::string(t.key(kv).str, t.key(kv).len), kv);
+    }
+}
+
+// Evaluates controllers. Each controller's `variables` form a controller-scoped
+// symbol table (variables may reference earlier variables of the same
+// controller and, via the `controller>variable` syntax, variables of another
+// controller). Once the tables are resolved, every control `expression` is
+// computed with its controller's table and the numeric value is written into
+// the control entry. Controller expressions are "delayed" in the standard, but
+// per the PALS expansion model the expanded tree carries the computed value.
+static void evaluate_controllers(ryml::Tree& t,
+                                 const pals::SymbolLookup& global_resolve) {
+    std::vector<size_t> controllers;
+    collect_controllers(t, t.root_id(), controllers);
+    if (controllers.empty()) return;
+
+    std::vector<std::string> names(controllers.size());
+    for (size_t i = 0; i < controllers.size(); ++i)
+        if (t.has_key(controllers[i]))
+            names[i].assign(t.key(controllers[i]).str,
+                            t.key(controllers[i]).len);
+
+    // Symbol tables, filled in as variables resolve.
+    std::vector<std::map<std::string, double>> locals(controllers.size());
+    std::map<std::string, double> qualified;  // `controller>variable` -> value
+
+    // Resolver scoped to controller `ci`: unqualified names come from that
+    // controller's table, `>`-qualified names from any controller, and anything
+    // else falls through to the global resolver (built-in / user constants).
+    auto make_resolver = [&locals, &qualified, &global_resolve](
+                             size_t ci) -> pals::SymbolLookup {
+        return [ci, &locals, &qualified, &global_resolve](
+                   const std::string& name, double& out) -> bool {
+            if (name.find('>') != std::string::npos) {
+                auto it = qualified.find(name);
+                if (it == qualified.end()) return false;
+                out = it->second;
+                return true;
+            }
+            auto& lv = locals[ci];
+            auto it = lv.find(name);
+            if (it != lv.end()) {
+                out = it->second;
+                return true;
+            }
+            return global_resolve ? global_resolve(name, out) : false;
+        };
+    };
+
+    // Gather every variable definition across all controllers.
+    std::vector<CtrlVar> vars;
+    for (size_t ci = 0; ci < controllers.size(); ++ci) {
+        size_t vnode = t.find_child(controllers[ci], ryml::to_csubstr("variables"));
+        for_each_ctrl_var(t, vnode, [&](const std::string& vname, size_t vn) {
+            CtrlVar v;
+            v.node = vn;
+            v.ctrl = ci;
+            v.bare = vname;
+            v.qname = names[ci] + ">" + vname;
+            v.text = std::string(t.val(vn).str, t.val(vn).len);
+            vars.push_back(std::move(v));
+        });
+    }
+
+    // Fixed-point evaluation resolves acyclic dependencies regardless of the
+    // order variables are written (within a controller or across controllers).
+    for (size_t pass = 0, limit = vars.size() + 1; pass <= limit; ++pass) {
+        bool changed = false;
+        for (CtrlVar& v : vars) {
+            if (v.done) continue;
+            pals::SymbolLookup res = make_resolver(v.ctrl);
+            bool was_expr = false;
+            std::string body = strip_expr_wrapper(v.text, was_expr);
+            pals::EvalOutcome r = pals::eval_expression(body, res);
+            if (r.ok) {
+                locals[v.ctrl][v.bare] = r.value;
+                qualified[v.qname] = r.value;
+                t.set_val(v.node,
+                          t.to_arena(ryml::to_csubstr(format_double(r.value))));
+                v.done = true;
+                changed = true;
+            } else if (r.deferred) {
+                v.done = true;  // random(); leave the text untouched
+            }
+        }
+        if (!changed) break;
+    }
+
+    // Compute each control `expression` with its controller's table and store
+    // the value back in the control entry.
+    for (size_t ci = 0; ci < controllers.size(); ++ci) {
+        size_t controls =
+            t.find_child(controllers[ci], ryml::to_csubstr("controls"));
+        if (controls == ryml::NONE) continue;
+        pals::SymbolLookup res = make_resolver(ci);
+        for (size_t entry = t.first_child(controls); entry != ryml::NONE;
+             entry = t.next_sibling(entry)) {
+            if (!t.is_map(entry)) continue;
+            size_t enode = t.find_child(entry, ryml::to_csubstr("expression"));
+            if (enode == ryml::NONE || !t.has_val(enode)) continue;
+            bool was_expr = false;
+            std::string body = strip_expr_wrapper(
+                std::string(t.val(enode).str, t.val(enode).len), was_expr);
+            pals::EvalOutcome r = pals::eval_expression(body, res);
+            if (r.ok)
+                t.set_val(enode,
+                          t.to_arena(ryml::to_csubstr(format_double(r.value))));
+        }
+    }
 }
 
 // Evaluates all expressions in the (already expanded) tree in place.
@@ -783,6 +946,9 @@ static void evaluate_expressions(ryml::Tree& t) {
         return true;
     };
 
+    // Controllers first (controller-scoped symbol tables), then the generic
+    // pass over the rest of the tree (which skips controller subtrees).
+    evaluate_controllers(t, *resolve);
     substitute_values(t, t.root_id(), *resolve);
 }
 

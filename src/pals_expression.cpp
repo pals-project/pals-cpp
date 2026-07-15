@@ -156,7 +156,9 @@ class Parser {
     size_t start = pos_;
     while (pos_ < s_.size()) {
       char c = s_[pos_];
-      if (std::isalnum(static_cast<unsigned char>(c)) || c == '_')
+      // `>` joins a controller name to one of its variables (`ps27>cur1`); PALS
+      // has no `>` operator, so it is unambiguous inside an identifier.
+      if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '>')
         ++pos_;
       else
         break;
