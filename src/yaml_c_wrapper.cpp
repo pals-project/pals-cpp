@@ -1,5 +1,6 @@
 #include "yaml_c_wrapper.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -8,13 +9,22 @@
 #include <ryml_std.hpp>
 #include <sstream>
 #include <string>
+#include <vector>
 
 // Underlying object for YAMLTreeHandle. Contains the parsed YAML tree and the
 // string buffer it was parsed from. Nodes are identied by their index (of type
 // size_t within its tree.
+//
+// `provenance` links this tree back to the one it was derived from in the
+// original->combined->expanded chain: it maps a node id in *this* tree to the
+// node id in the *source* tree it was copied from. It is empty for trees that
+// are not derived from another (e.g. `original`). For `combined` it maps
+// combined ids -> original ids; for `expanded` it maps expanded ids ->
+// combined ids.
 struct ParsedData {
     ryml::Tree tree;
     std::string buffer;
+    std::map<size_t, size_t> provenance;
 };
 
 #define GET_TREE(handle) (static_cast<ParsedData*>(handle)->tree)
@@ -72,6 +82,100 @@ static void deep_copy_recursive(ryml::Tree& dst_t, size_t dst_node,
         deep_copy_recursive(dst_t, dst_children[i], src_t, src_children[i]);
 }
 
+// ============================================================
+// PROVENANCE-TRACKED COPY HELPERS
+// ============================================================
+//
+// These mirror the plain copy/duplicate routines but record, for every node
+// they create, which source node it came from. The recorded map (`prov`) is
+// what lets build_correspondence_map() link a node across the three trees.
+
+// Cross-tree deep copy (like deep_copy_recursive) that records
+// prov[dst_node] = src_node for every copied node. The destination root keeps
+// no key even if src_node has one (a tree root cannot be keyed).
+static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
+                              const ryml::Tree& src_t, size_t src_node,
+                              std::map<size_t, size_t>& prov) {
+    prov[dst_node] = src_node;
+
+    // Copy type flags (MAP, SEQ, VAL, KEY). A tree root cannot carry a key, so
+    // drop the KEY flag when the destination is the root.
+    auto src_type = src_t.type(src_node);
+    dst_t.ref(dst_node) |= (src_type & (ryml::MAP | ryml::SEQ | ryml::VAL));
+    if (!dst_t.is_root(dst_node))
+        dst_t.ref(dst_node) |= (src_type & ryml::KEY);
+
+    if (src_t.has_key(src_node) && !dst_t.is_root(dst_node))
+        dst_t.set_key(dst_node, dst_t.to_arena(src_t.key(src_node)));
+    if (src_t.has_val(src_node))
+        dst_t.set_val(dst_node, dst_t.to_arena(src_t.val(src_node)));
+
+    std::vector<size_t> src_children;
+    for (size_t c = src_t.first_child(src_node); c != ryml::NONE;
+         c = src_t.next_sibling(c))
+        src_children.push_back(c);
+
+    std::vector<size_t> dst_children;
+    for (size_t i = 0; i < src_children.size(); i++) {
+        ensure_capacity(dst_t);
+        dst_children.push_back(dst_t.append_child(dst_node));
+    }
+    for (size_t i = 0; i < src_children.size(); i++)
+        deep_copy_tracked(dst_t, dst_children[i], src_t, src_children[i], prov);
+}
+
+// Remove every entry for `node` and its descendants from `prov`. Call this
+// before ryml removes a subtree, so freed ids that get reused later cannot
+// carry a stale provenance link.
+static void erase_prov_subtree(const ryml::Tree& t, size_t node,
+                               std::map<size_t, size_t>& prov) {
+    if (node == ryml::NONE) return;
+    for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
+        erase_prov_subtree(t, c, prov);
+    prov.erase(node);
+}
+
+// After a within-tree duplicate produced `new_node` from `src_node` (an
+// isomorphic subtree), walk both in parallel and give each new node the same
+// provenance as its template — i.e. new copies point at the same source node
+// their template did. Nodes whose template had no provenance stay unmapped.
+static void assign_prov_parallel(const ryml::Tree& t, size_t new_node,
+                                 size_t src_node,
+                                 std::map<size_t, size_t>& prov) {
+    auto it = prov.find(src_node);
+    if (it != prov.end()) prov[new_node] = it->second;
+    size_t nc = t.first_child(new_node);
+    size_t sc = t.first_child(src_node);
+    while (nc != ryml::NONE && sc != ryml::NONE) {
+        assign_prov_parallel(t, nc, sc, prov);
+        nc = t.next_sibling(nc);
+        sc = t.next_sibling(sc);
+    }
+}
+
+// Within-tree duplicate of `src` under `parent` (after `after`), recording
+// provenance for the whole duplicated subtree.
+static size_t duplicate_tracked(ryml::Tree& t, size_t src, size_t parent,
+                                size_t after, std::map<size_t, size_t>& prov) {
+    size_t nw = t.duplicate(src, parent, after);
+    assign_prov_parallel(t, nw, src, prov);
+    return nw;
+}
+
+// Provenance-tracked version of ryml's duplicate_children_no_rep: copies the
+// children of `src` into `dst` (appending after `after`) but skips any child
+// whose key already exists in `dst`. Used for `inherit`.
+static void duplicate_children_no_rep_tracked(ryml::Tree& t, size_t src,
+                                              size_t dst, size_t after,
+                                              std::map<size_t, size_t>& prov) {
+    for (size_t c = t.first_child(src); c != ryml::NONE;
+         c = t.next_sibling(c)) {
+        if (t.has_key(c) && t.find_child(dst, t.key(c)) != ryml::NONE)
+            continue;  // key already present — do not overwrite
+        after = duplicate_tracked(t, c, dst, after, prov);
+    }
+}
+
 // Build a name->node map for all elements that have a "kind" key.
 static void make_ele_map(std::map<std::string, size_t>& emap,
                          const ryml::Tree& t, size_t node) {
@@ -97,7 +201,7 @@ static void make_ele_map(std::map<std::string, size_t>& emap,
 // Forward declaration — handle_fork calls expand, expand calls handle_fork
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
-                   size_t branches = ryml::NONE);
+                   std::map<size_t, size_t>& prov, size_t branches = ryml::NONE);
 
 // Helper: get a string value of a keyed child, returns "" if not found
 static std::string child_val_str(const ryml::Tree& t, size_t parent,
@@ -133,7 +237,8 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //  4. Create a fork_pointer in the element with pointing to "destination_element" in the
 //     new bracnh.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
-                        std::map<std::string, size_t>& emap) {
+                        std::map<std::string, size_t>& emap,
+                        std::map<size_t, size_t>& prov) {
     if (branches == ryml::NONE) return;
 
     size_t forkp = t.find_child(fork_node, ryml::to_csubstr("ForkP"));
@@ -166,11 +271,11 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         ensure_capacity(t, t.num_children(def) + 2);
         size_t wrapper = t.append_child(branches);
         t.to_map(wrapper);
-        branch_node = t.duplicate(def, wrapper, ryml::NONE);
+        branch_node = duplicate_tracked(t, def, wrapper, ryml::NONE, prov);
         // Rename from original element name to branch_name
         t.set_key(branch_node, t.to_arena(ryml::to_csubstr(branch_name)));
         // Expand the new branch so its scalars and inherits are resolved
-        expand(t, branch_node, emap, branches);
+        expand(t, branch_node, emap, prov, branches);
     }
 
     if (branch_node == ryml::NONE) return;
@@ -198,7 +303,8 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
  * copied into element.
  */
 static void expand(ryml::Tree& t, size_t node,
-                   std::map<std::string, size_t>& emap, size_t branches) {
+                   std::map<std::string, size_t>& emap,
+                   std::map<size_t, size_t>& prov, size_t branches) {
     if (node == ryml::NONE) return;
 
     // Sequence — handle 'repeat'
@@ -238,7 +344,8 @@ static void expand(ryml::Tree& t, size_t node,
                                          c2 != ryml::NONE;
                                          c2 = t.next_sibling(c2)) {
                                         ensure_capacity(t, 2);
-                                        after = t.duplicate(c2, node, after);
+                                        after = duplicate_tracked(t, c2, node,
+                                                                  after, prov);
                                     }
                             } else {
                                 for (int r = 0; r < count; r++) {
@@ -246,10 +353,12 @@ static void expand(ryml::Tree& t, size_t node,
                                     size_t wrapper =
                                         t.insert_child(node, after);
                                     t.ref(wrapper) |= ryml::MAP;
-                                    t.duplicate(def, wrapper, ryml::NONE);
+                                    duplicate_tracked(t, def, wrapper,
+                                                      ryml::NONE, prov);
                                     after = wrapper;
                                 }
                             }
+                            erase_prov_subtree(t, child, prov);
                             t.remove(child);
                             child = next;
                             continue;
@@ -257,7 +366,7 @@ static void expand(ryml::Tree& t, size_t node,
                     }
                 }
             }
-            expand(t, child, emap, branches);
+            expand(t, child, emap, prov, branches);
             child = next;
         }
         return;
@@ -271,8 +380,8 @@ static void expand(ryml::Tree& t, size_t node,
             size_t def = emap[name];
             ensure_capacity(t, 2);
             t.change_type(node, ryml::MAP);
-            t.duplicate(def, node, ryml::NONE);
-            expand(t, node, emap, branches);
+            duplicate_tracked(t, def, node, ryml::NONE, prov);
+            expand(t, node, emap, prov, branches);
         }
         return;
     }
@@ -285,7 +394,8 @@ static void expand(ryml::Tree& t, size_t node,
             std::string name(t.val(inherit_id).str, t.val(inherit_id).len);
             if (emap.count(name)) {
                 ensure_capacity(t, t.num_children(emap[name]) + 1);
-                t.duplicate_children_no_rep(emap[name], node, ryml::NONE);
+                duplicate_children_no_rep_tracked(t, emap[name], node,
+                                                  ryml::NONE, prov);
             }
         }
 
@@ -295,23 +405,26 @@ static void expand(ryml::Tree& t, size_t node,
         if (kind == "Lattice") {
             node_branches = t.find_child(node, ryml::to_csubstr("branches"));
         } else if (kind == "Fork") {
-            handle_fork(t, node, branches, emap);
+            handle_fork(t, node, branches, emap, prov);
         }
 
         size_t original_size = t.num_children(node);
         size_t c = t.first_child(node);
         for (size_t i = 0; i < original_size && c != ryml::NONE;
              i++, c = t.next_sibling(c))
-            expand(t, c, emap, node_branches);
+            expand(t, c, emap, prov, node_branches);
     }
 }
 
 /**
- * Recursive helper for make_combined. Starting from `node`, replace all
- * instances of "include: filename" with the contents of `filename`. Also
- * recurses into `filename` to handle nested include statements.
+ * Recursive helper for make_combined_from_original. Starting from `node` in the
+ * combined tree `t`, replace every "include: filename" element with the
+ * contents of that file, sourced from the already-parsed `original` tree so
+ * provenance can be recorded. Also recurses into spliced content to handle
+ * nested include statements.
  */
-static void make_combined_recursive(ryml::Tree& t, size_t node) {
+static void make_combined_splice(ryml::Tree& t, size_t node, ParsedData* orig,
+                                 std::map<size_t, size_t>& prov) {
     if (node == ryml::NONE) return;
 
     if (t.is_seq(node)) {
@@ -336,20 +449,22 @@ static void make_combined_recursive(ryml::Tree& t, size_t node) {
             }
 
             if (is_include) {
-                ParsedData* inc =
-                    static_cast<ParsedData*>(parse_file(filename.c_str()));
-                if (inc) {
-                    ryml::Tree& inc_t = inc->tree;
-                    size_t after = child;
-                    std::vector<size_t> inserted;
+                // Look up the included file's raw contents in `original`. It is
+                // stored keyed by the exact filename string used in the include.
+                ryml::Tree& ot = orig->tree;
+                size_t inc_root =
+                    ot.find_child(ot.root_id(), ryml::to_csubstr(filename));
+                size_t after = child;
+                std::vector<size_t> inserted;
+                if (inc_root != ryml::NONE) {
                     // Splice each child of the included file's root into this
-                    // sequence
-                    if (inc_t.is_seq(inc_t.root_id())) {
-                        for (size_t c = inc_t.first_child(inc_t.root_id());
-                             c != ryml::NONE; c = inc_t.next_sibling(c)) {
+                    // sequence, recording provenance into `original`.
+                    if (ot.is_seq(inc_root)) {
+                        for (size_t c = ot.first_child(inc_root);
+                             c != ryml::NONE; c = ot.next_sibling(c)) {
                             ensure_capacity(t);
                             size_t n = t.insert_child(node, after);
-                            deep_copy_recursive(t, n, inc_t, c);
+                            deep_copy_tracked(t, n, ot, c, prov);
                             inserted.push_back(n);
                             after = n;
                         }
@@ -358,40 +473,53 @@ static void make_combined_recursive(ryml::Tree& t, size_t node) {
                         // element
                         ensure_capacity(t);
                         size_t n = t.insert_child(node, after);
-                        deep_copy_recursive(t, n, inc_t, inc_t.root_id());
+                        deep_copy_tracked(t, n, ot, inc_root, prov);
                         inserted.push_back(n);
                     }
-                    delete inc;
-                    // Recurse into inserted nodes to handle nested includes
-                    for (size_t n : inserted) make_combined_recursive(t, n);
                 }
+                // Recurse into inserted nodes to handle nested includes
+                for (size_t n : inserted) make_combined_splice(t, n, orig, prov);
+                erase_prov_subtree(t, child, prov);
                 t.remove(child);
                 child = next;
                 continue;
             }
 
-            make_combined_recursive(t, child);
+            make_combined_splice(t, child, orig, prov);
             child = next;
         }
         return;
     }
 
     for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
-        make_combined_recursive(t, c);
+        make_combined_splice(t, c, orig, prov);
 }
 
 /**
- * Makes the combined lattice file. Takes all instances of include statements in
- * filename, as well as nested include statements within included files, and
- * adds them all to the master tree.
+ * Makes the combined lattice tree by deep-copying the top-level file's contents
+ * out of the `original` tree and then splicing in every include (including
+ * nested ones) from `original`. Records provenance mapping each combined node
+ * to the original node it was copied from.
+ *
+ * @param orig     The already-built `original` tree (see make_original).
+ * @param filename The top-level filename, used to find its entry in `original`.
  */
-static YAMLTreeHandle make_combined(const char* filename) {
-    ParsedData* data = static_cast<ParsedData*>(parse_file(filename));
-    if (!data) return nullptr;
+static YAMLTreeHandle make_combined_from_original(ParsedData* orig,
+                                                  const char* filename) {
+    if (!orig) return nullptr;
+    ParsedData* data = new ParsedData();
     ryml::Tree& t = data->tree;
-    t.reserve(t.capacity() + 64);
+    t.reserve(t.capacity() + 128);
     t.reserve_arena(t.arena_capacity() + 65536);
-    make_combined_recursive(t, t.root_id());
+
+    ryml::Tree& ot = orig->tree;
+    // The top-level file is stored in `original` keyed by its filename.
+    size_t top = ot.find_child(ot.root_id(), ryml::to_csubstr(filename));
+    if (top == ryml::NONE) top = ot.first_child(ot.root_id());
+    if (top == ryml::NONE) return data;
+
+    deep_copy_tracked(t, t.root_id(), ot, top, data->provenance);
+    make_combined_splice(t, t.root_id(), orig, data->provenance);
     return data;
 }
 
@@ -446,7 +574,7 @@ static size_t find_lattice_recursive(const ryml::Tree& t, size_t node,
 }
 
 /**
- * Finds the lattice to be expanded as specified in make_expanded.
+ * Finds the lattice to be expanded as specified in make_expanded_from_combined.
  */
 static size_t find_lattice(ryml::Tree& t, const std::string& name) {
     size_t last_lattice = ryml::NONE;
@@ -476,13 +604,18 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
  */
-static YAMLTreeHandle make_expanded(const char* filename,
-                                    const char* root_lattice) {
-    YAMLTreeHandle data = make_combined(filename);
-    if (!data) return nullptr;
-    ryml::Tree& t = GET_TREE(data);
-    t.reserve_arena(t.arena_capacity() + 100000);
-    t.reserve(t.capacity() + 10000);
+static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
+                                                  const char* root_lattice) {
+    if (!comb) return nullptr;
+    ParsedData* data = new ParsedData();
+    ryml::Tree& t = data->tree;
+    t.reserve(t.capacity() + comb->tree.capacity() + 10000);
+    t.reserve_arena(t.arena_capacity() + comb->tree.arena_capacity() + 100000);
+
+    // Start expanded as a full copy of combined, recording expanded->combined
+    // provenance for every node.
+    deep_copy_tracked(t, t.root_id(), comb->tree, comb->tree.root_id(),
+                      data->provenance);
 
     std::map<std::string, size_t> emap;
     make_ele_map(emap, t, t.root_id());
@@ -492,7 +625,7 @@ static YAMLTreeHandle make_expanded(const char* filename,
     if (lat_node == ryml::NONE) return data;
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
 
-    expand(t, lat_node, emap, branches);
+    expand(t, lat_node, emap, data->provenance, branches);
     return data;
 }
 
@@ -560,10 +693,65 @@ extern "C" {
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice) {
     struct lattices lat = {};
+    // Built as a derivation chain so provenance can be recorded at each step:
+    //   original --(splice includes)--> combined --(expand)--> expanded
     lat.original = make_original(filename);
-    lat.combined = make_combined(filename);
-    lat.expanded = make_expanded(filename, root_lattice);
+    lat.combined = make_combined_from_original(
+        static_cast<ParsedData*>(lat.original), filename);
+    lat.expanded = make_expanded_from_combined(
+        static_cast<ParsedData*>(lat.combined), root_lattice);
     return lat;
+}
+
+YAML_API struct correspondence_map build_correspondence_map(
+    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded) {
+    (void)original;  // provenance is stored in combined & expanded
+    struct correspondence_map out = {nullptr, 0};
+    if (!combined || !expanded) return out;
+
+    ParsedData* comb = static_cast<ParsedData*>(combined);
+    ParsedData* exp = static_cast<ParsedData*>(expanded);
+    const std::map<size_t, size_t>& e2c = exp->provenance;   // expanded->combined
+    const std::map<size_t, size_t>& c2o = comb->provenance;  // combined->original
+    ryml::Tree& et = exp->tree;
+
+    // Emit one link per node of the expanded tree, walking it from the root so
+    // that exactly the live nodes are visited.
+    std::vector<struct node_link> links;
+    std::vector<size_t> stack;
+    if (et.root_id() != ryml::NONE) stack.push_back(et.root_id());
+    while (!stack.empty()) {
+        size_t n = stack.back();
+        stack.pop_back();
+
+        struct node_link link;
+        link.expanded = n;
+        auto ec = e2c.find(n);
+        if (ec != e2c.end()) {
+            link.combined = ec->second;
+            auto co = c2o.find(ec->second);
+            link.original = (co != c2o.end()) ? co->second : YAML_NULL_ID;
+        } else {
+            link.combined = YAML_NULL_ID;
+            link.original = YAML_NULL_ID;
+        }
+        links.push_back(link);
+
+        for (size_t c = et.first_child(n); c != ryml::NONE;
+             c = et.next_sibling(c))
+            stack.push_back(c);
+    }
+
+    out.count = links.size();
+    if (out.count > 0) {
+        out.links = new struct node_link[out.count];
+        std::copy(links.begin(), links.end(), out.links);
+    }
+    return out;
+}
+
+YAML_API void free_correspondence_map(struct correspondence_map map) {
+    delete[] map.links;
 }
 
 // --- PARSING & MEMORY ---
