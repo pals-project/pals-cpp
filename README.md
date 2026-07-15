@@ -33,8 +33,9 @@ in `controls:` pairs a `parameter` target with an `expression`. Controller
 value written into the control entry. The `parameter` target specs and
 `control_type` are names and are left untouched.
 
-The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of`, and
-the physical values behind the named constants, are provided by
+The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of` take
+a quoted species name (e.g. `mass_of("3He")`); an unquoted name is an error. These
+functions and the physical values behind the named constants are provided by
 [AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
 (a C++ mirror of [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl)),
 fetched automatically by CMake. A single expression can also be evaluated on its

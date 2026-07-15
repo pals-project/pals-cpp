@@ -7,7 +7,8 @@
  *        Expressions", "Functions", and "Constants and Variables" sections of
  *        the PALS standard).
  *
- * Particle-data functions (mass_of, charge_of, anomalous_moment_of) and the
+ * Particle-data functions (mass_of, charge_of, anomalous_moment_of), which take
+ * a quoted species name such as mass_of("3He"), and the
  * named physical constants (c_light, r_electron, ...) are sourced from
  * AtomicAndPhysicalConstantsCLib so the whole PALS/Bmad ecosystem shares one
  * set of numbers.

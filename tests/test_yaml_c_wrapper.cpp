@@ -1127,19 +1127,30 @@ TEST_CASE("evaluate_pals_expression: built-in constants", "[expr]") {
     REQUIRE(eval_ok("c_light") == 2.99792458e8);
     // classical_radius_factor and k_boltzmann are derived from AAPC quantities.
     REQUIRE(close(eval_ok("classical_radius_factor"),
-                  eval_ok("r_electron") * eval_ok("mass_of(electron)")));
+                  eval_ok("r_electron") * eval_ok("mass_of(\"electron\")")));
 }
 
 TEST_CASE("evaluate_pals_expression: particle-data functions from libapc",
           "[expr]") {
-    // Values mirror AtomicAndPhysicalConstantsCLib (CODATA 2022).
-    REQUIRE(close(eval_ok("mass_of(proton)"), 938272089.43000007));
-    REQUIRE(eval_ok("charge_of(electron)") == -1.0);
-    REQUIRE(eval_ok("charge_of(anti-proton)") == -1.0);
-    REQUIRE(close(eval_ok("2 * mass_of(electron)"), 2 * 510998.95069000003));
+    // Species names must always be quoted (single or double). Values mirror
+    // AtomicAndPhysicalConstantsCLib (CODATA 2022).
+    REQUIRE(close(eval_ok("mass_of(\"proton\")"), 938272089.43000007));
+    REQUIRE(eval_ok("charge_of('electron')") == -1.0);
+    REQUIRE(eval_ok("charge_of(\"anti-proton\")") == -1.0);
+    REQUIRE(close(eval_ok("2 * mass_of(\"electron\")"), 2 * 510998.95069000003));
     // A bare isotope is the neutral atom; the ionised form carries the charge.
-    REQUIRE(eval_ok("charge_of(3He)") == 0.0);
-    REQUIRE(eval_ok("charge_of(helion)") == 2.0);
+    REQUIRE(eval_ok("charge_of(\"3He\")") == 0.0);
+    REQUIRE(eval_ok("charge_of(\"helion\")") == 2.0);
+    // The `#` isotope form is unaffected by YAML's comment rule once quoted.
+    REQUIRE(close(eval_ok("mass_of(\"#3He\")"), eval_ok("mass_of(\"3He\")")));
+
+    // An unquoted species name is an error.
+    bool ok = true;
+    evaluate_pals_expression("mass_of(electron)", &ok);
+    REQUIRE_FALSE(ok);
+    ok = true;
+    evaluate_pals_expression("charge_of(3He)", &ok);
+    REQUIRE_FALSE(ok);
 }
 
 TEST_CASE("evaluate_pals_expression: expr() wrapper is accepted", "[expr]") {
@@ -1157,7 +1168,7 @@ TEST_CASE("evaluate_pals_expression: non-evaluable inputs report failure",
     evaluate_pals_expression("thingB", &ok);          // unknown identifier
     REQUIRE_FALSE(ok);
     ok = true;
-    evaluate_pals_expression("mass_of(nonsense)", &ok);  // unknown species
+    evaluate_pals_expression("mass_of(\"nonsense\")", &ok);  // unknown species
     REQUIRE_FALSE(ok);
     ok = true;
     evaluate_pals_expression("1 + ", &ok);            // parse error
@@ -1199,7 +1210,7 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
               "        - b_var: -0.34\n"
               "    - m_e:\n"
               "        kind: constant\n"
-              "        value: mass_of(electron)\n"
+              "        value: mass_of(\"electron\")\n"
               "    - cleo:\n"
               "        kind: Solenoid\n"
               "        length: 0.1*log(abs(b_var))\n"
