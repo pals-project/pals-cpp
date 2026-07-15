@@ -9,9 +9,10 @@
  *   unary   := ('+' | '-') unary | primary
  *   primary := number | name | name '(' args ')' | '(' expr ')'
  *
- * The particle functions mass_of / charge_of / anomalous_moment_of take a bare
- * species name (e.g. `mass_of(He3)`), not a numeric sub-expression, so their
- * argument is read as raw text and passed to AtomicAndPhysicalConstantsCLib.
+ * The particle functions mass_of / charge_of / anomalous_moment_of take a
+ * quoted species name (e.g. `mass_of("3He")`), not a numeric sub-expression, so
+ * their argument is read as raw text and passed to
+ * AtomicAndPhysicalConstantsCLib. An unquoted species name is an error.
  */
 
 #include "pals_expression.h"
@@ -187,8 +188,14 @@ class Parser {
     if (depth != 0) throw ParseError{};
     size_t a = out.find_first_not_of(" \t");
     size_t b = out.find_last_not_of(" \t");
-    if (a == std::string::npos) return "";
-    return out.substr(a, b - a + 1);
+    std::string arg = (a == std::string::npos) ? "" : out.substr(a, b - a + 1);
+    // A species name must always be quoted (single or double), e.g.
+    // mass_of("#3He"); an unquoted name is an error. Strip the quotes before
+    // handing the name to AtomicAndPhysicalConstantsCLib.
+    if (arg.size() < 2 || (arg.front() != '"' && arg.front() != '\'') ||
+        arg.back() != arg.front())
+      throw ParseError{};
+    return arg.substr(1, arg.size() - 2);
   }
 
   double name() {
