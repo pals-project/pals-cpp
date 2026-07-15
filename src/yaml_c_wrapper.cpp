@@ -704,19 +704,28 @@ static void collect_defs(const ryml::Tree& t, size_t node,
         }
     }
 
-    // Compact form: a `constants:`/`variables:` sequence of single-key maps.
+    // Compact form: a `constants:`/`variables:` block. The standard writes it
+    // as a sequence of single-key maps (`- const_a: ...`), but the plain-map
+    // form (`const_a: ...` directly under the key) is also accepted.
     if (t.has_key(node)) {
         std::string k(t.key(node).str, t.key(node).len);
-        if ((k == "constants" || k == "variables") && t.is_seq(node)) {
-            for (size_t el = t.first_child(node); el != ryml::NONE;
-                 el = t.next_sibling(el)) {
-                if (!t.is_map(el)) continue;
-                for (size_t kv = t.first_child(el); kv != ryml::NONE;
-                     kv = t.next_sibling(kv)) {
-                    if (t.has_key(kv) && t.has_val(kv))
-                        defs.emplace(
-                            std::string(t.key(kv).str, t.key(kv).len),
-                            std::string(t.val(kv).str, t.val(kv).len));
+        if (k == "constants" || k == "variables") {
+            auto emit = [&](size_t kv) {
+                if (t.has_key(kv) && t.has_val(kv))
+                    defs.emplace(std::string(t.key(kv).str, t.key(kv).len),
+                                 std::string(t.val(kv).str, t.val(kv).len));
+            };
+            if (t.is_map(node)) {
+                for (size_t kv = t.first_child(node); kv != ryml::NONE;
+                     kv = t.next_sibling(kv))
+                    emit(kv);
+            } else if (t.is_seq(node)) {
+                for (size_t el = t.first_child(node); el != ryml::NONE;
+                     el = t.next_sibling(el)) {
+                    if (!t.is_map(el)) continue;
+                    for (size_t kv = t.first_child(el); kv != ryml::NONE;
+                         kv = t.next_sibling(kv))
+                        emit(kv);
                 }
             }
         }

@@ -1254,6 +1254,62 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     rm_tmp(path);
 }
 
+TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
+          "[expr][lattices]") {
+    // The compact `constants:`/`variables:` block may be written as a plain map
+    // (`a_const: ...`) as well as the standard seq-of-single-key-maps form; a
+    // later definition must be able to reference an earlier one by name.
+    const char* path = "tmp_mapdefs.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - constants:\n"
+              "        a_const: 0.3 * r_electron\n"
+              "        b_const: 0.45\n"
+              "    - variables:\n"
+              "        a_var: a_const^2\n"
+              "        b_var: 0.37 * atan2(0.1, 0.2)\n"
+              "    - d1:\n"
+              "        kind: Drift\n"
+              "        length: a_const + b_const\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - d1\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    const double a_const = 0.3 * evaluate_pals_expression("r_electron", nullptr);
+
+    YAMLNodeId consts = facility_param(lat.expanded, "constants");
+    REQUIRE(close(num_val(lat.expanded,
+                          get_child_by_key(lat.expanded, consts, "a_const")),
+                  a_const));
+
+    // a_var references the map-form constant a_const defined above it.
+    YAMLNodeId vars = facility_param(lat.expanded, "variables");
+    REQUIRE(close(num_val(lat.expanded,
+                          get_child_by_key(lat.expanded, vars, "a_var")),
+                  a_const * a_const));
+
+    // An element parameter may reference the map-form definitions too.
+    YAMLNodeId d1 = facility_param(lat.expanded, "d1");
+    REQUIRE(close(num_val(lat.expanded, get_child_by_key(lat.expanded, d1,
+                                                         "length")),
+                  a_const + 0.45));
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
 TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
           "[expr][lattices][controller]") {
     const char* path = "tmp_controller.pals.yaml";
