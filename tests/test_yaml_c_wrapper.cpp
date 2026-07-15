@@ -1,6 +1,8 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -713,7 +715,19 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
                          get_child_by_key(lat.expanded, e_const, "constants"),
                          "a_const");
     REQUIRE(e_a_const != YAML_NULL_ID);
-    REQUIRE(val_eq(lat.expanded, e_a_const, "0.3 * r_electron"));
+    // The expanded tree has its expressions evaluated, so this constant now
+    // holds a number; the combined/original copies (checked below) still carry
+    // the original expression text.
+    {
+        char* s = as_string(lat.expanded, e_a_const);
+        REQUIRE(s != nullptr);
+        double got = std::strtod(s, nullptr);
+        yaml_free_string(s);
+        bool okc = false;
+        double want = evaluate_pals_expression("0.3 * r_electron", &okc);
+        REQUIRE(okc);
+        REQUIRE(got == want);
+    }
 
     // Find its link and follow it to the combined and original copies.
     bool found = false;
@@ -1065,4 +1079,177 @@ TEST_CASE("a malformed pattern yields an empty result, not a crash",
     REQUIRE(m.count == 0);
     free_name_matches(m);
     delete_tree(t);
+}
+
+// ============================================================
+// EXPRESSION EVALUATION
+// ============================================================
+
+// Evaluate a standalone expression, requiring success, and return its value.
+static double eval_ok(const char* expr) {
+    bool ok = false;
+    double v = evaluate_pals_expression(expr, &ok);
+    REQUIRE(ok);
+    return v;
+}
+
+// True if two doubles agree to a relative/absolute tolerance.
+static bool close(double got, double want) {
+    return std::fabs(got - want) <= 1e-9 * std::max(1.0, std::fabs(want));
+}
+
+TEST_CASE("evaluate_pals_expression: arithmetic and precedence", "[expr]") {
+    REQUIRE(eval_ok("2 + 3 * 4") == 14.0);
+    REQUIRE(eval_ok("(2 + 3) * 4") == 20.0);
+    REQUIRE(eval_ok("2 ^ 3 ^ 2") == 512.0);   // right-associative
+    REQUIRE(eval_ok("-2 ^ 2") == -4.0);        // unary minus looser than ^
+    REQUIRE(eval_ok("2 ^ -2") == 0.25);
+    REQUIRE(close(eval_ok("3.75e7 / c_light^2"),
+                  3.75e7 / (2.99792458e8 * 2.99792458e8)));
+}
+
+TEST_CASE("evaluate_pals_expression: functions", "[expr]") {
+    REQUIRE(close(eval_ok("sqrt(2)"), std::sqrt(2.0)));
+    REQUIRE(close(eval_ok("0.1*log(abs(-0.34))"), 0.1 * std::log(0.34)));
+    REQUIRE(eval_ok("modulo(7, 3)") == 1.0);
+    REQUIRE(eval_ok("floor(-1.5)") == -2.0);
+    REQUIRE(eval_ok("ceiling(-1.5)") == -1.0);
+    REQUIRE(eval_ok("int(-1.9)") == -1.0);     // toward zero
+    REQUIRE(eval_ok("nint(2.5)") == 3.0);      // nearest
+    REQUIRE(eval_ok("sign(-3)") == -1.0);
+    REQUIRE(eval_ok("sinc(0)") == 1.0);
+    REQUIRE(close(eval_ok("atan2(1, 1)"), std::atan(1.0)));
+    REQUIRE(close(eval_ok("factorial(5)"), 120.0));
+}
+
+TEST_CASE("evaluate_pals_expression: built-in constants", "[expr]") {
+    REQUIRE(close(eval_ok("pi"), 3.14159265358979323846));
+    REQUIRE(eval_ok("c_light") == 2.99792458e8);
+    // classical_radius_factor and k_boltzmann are derived from AAPC quantities.
+    REQUIRE(close(eval_ok("classical_radius_factor"),
+                  eval_ok("r_electron") * eval_ok("mass_of(electron)")));
+}
+
+TEST_CASE("evaluate_pals_expression: particle-data functions from libapc",
+          "[expr]") {
+    // Values mirror AtomicAndPhysicalConstantsCLib (CODATA 2022).
+    REQUIRE(close(eval_ok("mass_of(proton)"), 938272089.43000007));
+    REQUIRE(eval_ok("charge_of(electron)") == -1.0);
+    REQUIRE(eval_ok("charge_of(anti-proton)") == -1.0);
+    REQUIRE(close(eval_ok("2 * mass_of(electron)"), 2 * 510998.95069000003));
+    // A bare isotope is the neutral atom; the ionised form carries the charge.
+    REQUIRE(eval_ok("charge_of(3He)") == 0.0);
+    REQUIRE(eval_ok("charge_of(helion)") == 2.0);
+}
+
+TEST_CASE("evaluate_pals_expression: expr() wrapper is accepted", "[expr]") {
+    REQUIRE(eval_ok("expr(3.74 * 2)") == 7.48);
+    REQUIRE(eval_ok("expr( (1 + 2) * 3 )") == 9.0);
+}
+
+TEST_CASE("evaluate_pals_expression: non-evaluable inputs report failure",
+          "[expr]") {
+    bool ok = true;
+    // random()/random_gauss() are deferred, so not evaluable here.
+    evaluate_pals_expression("0.01 + 0.003 * random_gauss()", &ok);
+    REQUIRE_FALSE(ok);
+    ok = true;
+    evaluate_pals_expression("thingB", &ok);          // unknown identifier
+    REQUIRE_FALSE(ok);
+    ok = true;
+    evaluate_pals_expression("mass_of(nonsense)", &ok);  // unknown species
+    REQUIRE_FALSE(ok);
+    ok = true;
+    evaluate_pals_expression("1 + ", &ok);            // parse error
+    REQUIRE_FALSE(ok);
+    ok = true;
+    evaluate_pals_expression(nullptr, &ok);           // null input
+    REQUIRE_FALSE(ok);
+}
+
+// Navigate root -> PALS -> facility -> the value node keyed `name` inside the
+// facility entry whose single key is `entry` (facility is a sequence of
+// single-key maps).
+static YAMLNodeId facility_param(YAMLTreeHandle t, const char* entry) {
+    YAMLNodeId fac = facility_of(t);
+    size_t n = get_size(t, fac);
+    for (size_t i = 0; i < n; i++) {
+        YAMLNodeId e = get_child_by_index(t, fac, i);
+        YAMLNodeId c = get_child_by_key(t, e, entry);
+        if (c != YAML_NULL_ID) return c;
+    }
+    return YAML_NULL_ID;
+}
+
+static double num_val(YAMLTreeHandle t, YAMLNodeId n) {
+    char* s = as_string(t, n);
+    double v = s ? std::strtod(s, nullptr) : NAN;
+    yaml_free_string(s);
+    return v;
+}
+
+TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
+          "[expr][lattices]") {
+    const char* path = "tmp_expr.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - variables:\n"
+              "        - a_var: 3.75e7 / c_light^2\n"
+              "        - b_var: -0.34\n"
+              "    - m_e:\n"
+              "        kind: constant\n"
+              "        value: mass_of(electron)\n"
+              "    - cleo:\n"
+              "        kind: Solenoid\n"
+              "        length: 0.1*log(abs(b_var))\n"
+              "        MagneticMultipoleP:\n"
+              "          Kn1: expr(3.74 * a_var)\n"
+              "          Kn2: 0.01 + 0.003*random_gauss()\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - cleo\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    const double a_var = 3.75e7 / (2.99792458e8 * 2.99792458e8);
+
+    YAMLNodeId cleo = facility_param(lat.expanded, "cleo");
+    REQUIRE(cleo != YAML_NULL_ID);
+
+    // Immediate expression using a user variable.
+    YAMLNodeId len = get_child_by_key(lat.expanded, cleo, "length");
+    REQUIRE(close(num_val(lat.expanded, len), 0.1 * std::log(0.34)));
+
+    YAMLNodeId mmp = get_child_by_key(lat.expanded, cleo, "MagneticMultipoleP");
+    // expr()-delayed expression is evaluated to a number in the expanded tree.
+    YAMLNodeId kn1 = get_child_by_key(lat.expanded, mmp, "Kn1");
+    REQUIRE(close(num_val(lat.expanded, kn1), 3.74 * a_var));
+
+    // random_gauss() is deferred: the text is left untouched.
+    YAMLNodeId kn2 = get_child_by_key(lat.expanded, mmp, "Kn2");
+    REQUIRE(val_eq(lat.expanded, kn2, "0.01 + 0.003*random_gauss()"));
+
+    // Full-form constant defined via a particle function.
+    YAMLNodeId m_e = facility_param(lat.expanded, "m_e");
+    YAMLNodeId m_e_val = get_child_by_key(lat.expanded, m_e, "value");
+    REQUIRE(close(num_val(lat.expanded, m_e_val), 510998.95069000003));
+
+    // The combined tree keeps the original expression text (only `expanded`
+    // is evaluated).
+    YAMLNodeId c_cleo = facility_param(lat.combined, "cleo");
+    YAMLNodeId c_len = get_child_by_key(lat.combined, c_cleo, "length");
+    REQUIRE(val_eq(lat.combined, c_len, "0.1*log(abs(b_var))"));
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
 }

@@ -1,10 +1,14 @@
 #include "yaml_c_wrapper.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <ryml.hpp>
 #include <ryml_std.hpp>
 #include <set>
@@ -14,6 +18,8 @@
 
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
+
+#include "pals_expression.h"
 
 // Underlying object for YAMLTreeHandle. Contains the parsed YAML tree and the
 // string buffer it was parsed from. Nodes are identied by their index (of type
@@ -608,6 +614,178 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
  */
+// ============================================================
+// EXPRESSION EVALUATION
+// ============================================================
+//
+// After the tree is fully expanded, every scalar value that is a PALS
+// mathematical expression is replaced with its evaluated number (immediate and
+// `expr(...)`-delayed alike, per the standard's evaluation model as applied to
+// the expanded tree). Values that are not expressions -- element/line name
+// references, `kind:` names, booleans, etc. -- fail to evaluate and are left
+// untouched. Expressions containing random()/random_gauss() are deferred
+// (kept as text) so the expanded tree stays reproducible.
+//
+// The math, functions, built-in constants, and particle-data functions
+// (mass_of/charge_of/anomalous_moment_of, from AtomicAndPhysicalConstantsCLib)
+// live in pals_expression.cpp; this layer supplies user constants/variables and
+// walks the tree.
+
+// Keys whose scalar values are names/flags, never expressions. Skipping them
+// avoids a stray collision between such a name and a constant (e.g. an element
+// literally named `pi`).
+static const std::set<std::string>& non_expr_keys() {
+    static const std::set<std::string> keys = {
+        "kind",       "include",     "use",
+        "inherit",    "zero_point",  "to_line",
+        "destination_element", "new_branch", "multipass",
+        "propagate_reference", "name"};
+    return keys;
+}
+
+// Trims surrounding whitespace and, if the whole value is `expr(...)`, unwraps
+// it. `was_expr` reports whether an `expr(...)` wrapper was present.
+static std::string strip_expr_wrapper(const std::string& s, bool& was_expr) {
+    was_expr = false;
+    size_t a = s.find_first_not_of(" \t\r\n");
+    size_t b = s.find_last_not_of(" \t\r\n");
+    if (a == std::string::npos) return "";
+    std::string t = s.substr(a, b - a + 1);
+    const std::string pre = "expr(";
+    if (t.size() > pre.size() && t.compare(0, pre.size(), pre) == 0 &&
+        t.back() == ')') {
+        was_expr = true;
+        return t.substr(pre.size(), t.size() - pre.size() - 1);
+    }
+    return t;
+}
+
+// Shortest decimal string that round-trips back to `v` (so integers stay
+// integer-looking and no precision is lost).
+static std::string format_double(double v) {
+    char buf[64];
+    for (int prec = 1; prec <= 17; ++prec) {
+        std::snprintf(buf, sizeof(buf), "%.*g", prec, v);
+        if (std::strtod(buf, nullptr) == v) return std::string(buf);
+    }
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
+    return std::string(buf);
+}
+
+// Collects user constant/variable definitions (name -> defining expression),
+// in both the full (`kind: constant`/`value:`) and compact
+// (`constants:`/`variables:` lists) forms. First definition of a name wins;
+// the standard requires duplicates to share the same value.
+static void collect_defs(const ryml::Tree& t, size_t node,
+                         std::map<std::string, std::string>& defs) {
+    if (node == ryml::NONE) return;
+
+    // Full form: a named map with `kind: constant|variable` and a `value:`.
+    if (t.is_map(node) && t.has_key(node)) {
+        size_t kind = t.find_child(node, ryml::to_csubstr("kind"));
+        if (kind != ryml::NONE && t.has_val(kind)) {
+            std::string k(t.val(kind).str, t.val(kind).len);
+            if (k == "constant" || k == "variable") {
+                size_t val = t.find_child(node, ryml::to_csubstr("value"));
+                if (val != ryml::NONE && t.has_val(val)) {
+                    defs.emplace(std::string(t.key(node).str, t.key(node).len),
+                                 std::string(t.val(val).str, t.val(val).len));
+                }
+            }
+        }
+    }
+
+    // Compact form: a `constants:`/`variables:` sequence of single-key maps.
+    if (t.has_key(node)) {
+        std::string k(t.key(node).str, t.key(node).len);
+        if ((k == "constants" || k == "variables") && t.is_seq(node)) {
+            for (size_t el = t.first_child(node); el != ryml::NONE;
+                 el = t.next_sibling(el)) {
+                if (!t.is_map(el)) continue;
+                for (size_t kv = t.first_child(el); kv != ryml::NONE;
+                     kv = t.next_sibling(kv)) {
+                    if (t.has_key(kv) && t.has_val(kv))
+                        defs.emplace(
+                            std::string(t.key(kv).str, t.key(kv).len),
+                            std::string(t.val(kv).str, t.val(kv).len));
+                }
+            }
+        }
+    }
+
+    for (size_t c = t.first_child(node); c != ryml::NONE;
+         c = t.next_sibling(c))
+        collect_defs(t, c, defs);
+}
+
+// Replaces every evaluable scalar value in the subtree with its numeric value.
+static void substitute_values(ryml::Tree& t, size_t node,
+                              const pals::SymbolLookup& resolve) {
+    if (node == ryml::NONE) return;
+
+    if (t.has_val(node)) {
+        bool skip = false;
+        if (t.has_key(node)) {
+            std::string k(t.key(node).str, t.key(node).len);
+            skip = non_expr_keys().count(k) != 0;
+        } else {
+            // Bare sequence element: skip beamline `line:` name references.
+            size_t p = t.parent(node);
+            if (p != ryml::NONE && t.has_key(p) &&
+                t.key(p) == ryml::to_csubstr("line"))
+                skip = true;
+        }
+        if (!skip) {
+            bool was_expr = false;
+            std::string body = strip_expr_wrapper(
+                std::string(t.val(node).str, t.val(node).len), was_expr);
+            pals::EvalOutcome r = pals::eval_expression(body, resolve);
+            if (r.ok)
+                t.set_val(node,
+                          t.to_arena(ryml::to_csubstr(format_double(r.value))));
+        }
+    }
+
+    for (size_t c = t.first_child(node); c != ryml::NONE;
+         c = t.next_sibling(c))
+        substitute_values(t, c, resolve);
+}
+
+// Evaluates all expressions in the (already expanded) tree in place.
+static void evaluate_expressions(ryml::Tree& t) {
+    std::map<std::string, std::string> defs;
+    collect_defs(t, t.root_id(), defs);
+
+    // Lazily evaluate user symbols on demand, memoizing results and guarding
+    // against reference cycles. A symbol whose defining expression is itself
+    // unresolvable is reported as unknown.
+    auto cache = std::make_shared<std::map<std::string, double>>();
+    auto active = std::make_shared<std::set<std::string>>();
+    std::shared_ptr<pals::SymbolLookup> resolve =
+        std::make_shared<pals::SymbolLookup>();
+    *resolve = [&defs, cache, active, resolve](const std::string& name,
+                                               double& out) -> bool {
+        auto ci = cache->find(name);
+        if (ci != cache->end()) {
+            out = ci->second;
+            return true;
+        }
+        auto di = defs.find(name);
+        if (di == defs.end()) return false;
+        if (!active->insert(name).second) return false;  // cycle
+        bool was_expr = false;
+        std::string body = strip_expr_wrapper(di->second, was_expr);
+        pals::EvalOutcome r = pals::eval_expression(body, *resolve);
+        active->erase(name);
+        if (!r.ok) return false;
+        (*cache)[name] = r.value;
+        out = r.value;
+        return true;
+    };
+
+    substitute_values(t, t.root_id(), *resolve);
+}
+
 static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
                                                   const char* root_lattice) {
     if (!comb) return nullptr;
@@ -630,6 +808,11 @@ static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
 
     expand(t, lat_node, emap, data->provenance, branches);
+
+    // Final pass: evaluate every mathematical expression in the expanded tree
+    // to a number (immediate and expr()-delayed alike). Node ids are unchanged
+    // -- only scalar text is rewritten -- so provenance stays valid.
+    evaluate_expressions(t);
     return data;
 }
 
@@ -971,6 +1154,17 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
     lat.expanded = make_expanded_from_combined(
         static_cast<ParsedData*>(lat.combined), root_lattice);
     return lat;
+}
+
+YAML_API double evaluate_pals_expression(const char* expr, bool* ok) {
+    if (ok) *ok = false;
+    if (!expr) return 0.0;
+    bool was_expr = false;
+    std::string body = strip_expr_wrapper(expr, was_expr);
+    pals::EvalOutcome r = pals::eval_expression(body, pals::SymbolLookup{});
+    if (!r.ok) return 0.0;
+    if (ok) *ok = true;
+    return r.value;
 }
 
 YAML_API struct correspondence_map build_correspondence_map(

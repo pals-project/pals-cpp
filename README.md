@@ -6,7 +6,29 @@ Pals-cpp is the parser library for PALS accelerator lattice files. It uses rapid
 4. Beamlines in a lattice with a `repeat: count` will have their contents repeated `count` times in the lattice.
 5. Elements in a lattice defined outside of it will have their definitions brought it.
 6. Fork elements will create new branches in the lattice to their destination branch. 
+7. Mathematical expressions are evaluated to numbers (see below).
 
+## Expression Evaluation
+As a final step of expansion, every scalar value in the `expanded` tree that is a
+PALS mathematical expression is replaced with its numeric value. This covers the
+full PALS expression grammar — arithmetic (`+ - * / ^`), parentheses, the
+[built-in constants](https://github.com/pals-project/pals) (`pi`, `c_light`,
+`r_electron`, …), the math functions (`sqrt`, `log`, `sin`, `floor`, `modulo`, …),
+and user-defined constants and variables (both the `kind: constant`/`value:` and
+the compact `constants:`/`variables:` forms, resolved in dependency order). Both
+immediate expressions and `expr(...)`-delayed expressions are evaluated to a
+number in the expanded tree. Values that are not expressions — element/line name
+references, `kind:` names, booleans — are left untouched, and expressions
+containing `random()`/`random_gauss()` are left as text so the expanded tree stays
+reproducible. The `combined` and `original` trees always retain the original
+expression text.
+
+The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of`, and
+the physical values behind the named constants, are provided by
+[AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
+(a C++ mirror of [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl)),
+fetched automatically by CMake. A single expression can also be evaluated on its
+own via `evaluate_pals_expression()`.
 
 ## Usage
 First, to build, run the following in the root directory:  
