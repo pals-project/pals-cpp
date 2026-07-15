@@ -295,9 +295,9 @@ class Parser {
 }  // namespace
 
 bool builtin_constant(const std::string& name, double& out) {
-  // Physical values come from AtomicAndPhysicalConstantsCLib (AAPC, CODATA
+  // Physical values come from AtomicAndPhysicalConstantsCLib (APC, CODATA
   // 2022) so PALS shares the ecosystem's numbers. k_boltzmann and
-  // classical_radius_factor are derived from AAPC quantities (AAPC does not
+  // classical_radius_factor are derived from APC quantities (APC does not
   // export them directly); pi is exact.
   if (name == "pi") { out = kPi; return true; }
   if (name == "c_light") { out = apc::C_LIGHT; return true; }
