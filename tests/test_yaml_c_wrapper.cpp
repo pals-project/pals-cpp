@@ -1125,7 +1125,7 @@ TEST_CASE("evaluate_pals_expression: functions", "[expr]") {
 TEST_CASE("evaluate_pals_expression: built-in constants", "[expr]") {
     REQUIRE(close(eval_ok("pi"), 3.14159265358979323846));
     REQUIRE(eval_ok("c_light") == 2.99792458e8);
-    // classical_radius_factor and k_boltzmann are derived from AAPC quantities.
+    // classical_radius_factor and k_boltzmann are derived from APC quantities.
     REQUIRE(close(eval_ok("classical_radius_factor"),
                   eval_ok("r_electron") * eval_ok("mass_of(\"electron\")")));
 }

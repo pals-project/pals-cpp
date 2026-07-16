@@ -15,13 +15,20 @@ full PALS expression grammar — arithmetic (`+ - * / ^`), parentheses, the
 [built-in constants](https://github.com/pals-project/pals) (`pi`, `c_light`,
 `r_electron`, …), the math functions (`sqrt`, `log`, `sin`, `floor`, `modulo`, …),
 and user-defined constants and variables (both the `kind: constant`/`value:` and
-the compact `constants:`/`variables:` forms, resolved in dependency order). Both
-immediate expressions and `expr(...)`-delayed expressions are evaluated to a
+the compact `constants:`/`variables:` forms — the compact form may be written as
+a sequence of single-key maps or as a plain map — resolved in dependency order).
+Both immediate expressions and `expr(...)`-delayed expressions are evaluated to a
 number in the expanded tree. Values that are not expressions — element/line name
 references, `kind:` names, booleans — are left untouched, and expressions
 containing `random()`/`random_gauss()` are left as text so the expanded tree stays
 reproducible. The `combined` and `original` trees always retain the original
 expression text.
+
+Operator precedence is standard, with two conventions worth noting: `^` (power)
+is right-associative, so `2^3^2` is `2^(3^2) = 512`; and a unary sign binds
+*looser* than `^`, so `-2^2` is `-(2^2) = -4` while a signed exponent still works
+(`2^-2` is `2^(-2) = 0.25`) — the Fortran/Bmad convention used across the
+ecosystem.
 
 **Controllers.** A `kind: Controller` element bundles expressions that drive
 lattice parameters. Its `variables:` form a controller-scoped symbol table
