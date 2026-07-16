@@ -1386,6 +1386,8 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
               "        b_const: 0.45 * mass_of(species)\n"
               "    - DH1A:\n"
               "        kind: Bend\n"
+              "        ReferenceP:\n"
+              "          species_ref: species\n"
               "        BendP:\n"
               "          e_tot: 1.1 * mass_of(species)\n"
               "    - main_line:\n"
@@ -1413,6 +1415,13 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     REQUIRE(close(num_val(lat.expanded,
                           get_child_by_key(lat.expanded, bendp, "e_tot")),
                   1.1 * m_3he));
+
+    // A bare identifier naming the species constant (`species_ref: species`) is
+    // replaced by its species-name string in the expanded tree.
+    YAMLNodeId refp = get_child_by_key(lat.expanded, dh1a, "ReferenceP");
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, refp, "species_ref"),
+                   "#3He"));
 
     // The species constant itself stays as its (string) species name.
     REQUIRE(val_eq(lat.expanded,

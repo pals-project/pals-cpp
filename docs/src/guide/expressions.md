@@ -98,6 +98,17 @@ and every expression refer to it:
     b_const: 0.45 * mass_of(species) # resolves species -> "#3He"
 ```
 
+Such a species-valued constant may also be referenced **directly** wherever a
+species name is expected: a bare identifier used as a parameter value is
+replaced by the constant's species string in the expanded tree.
+
+```yaml
+- begin:
+    kind: BeginningEle
+    ReferenceP:
+      species_ref: species          # -> "#3He" in `expanded`
+```
+
 ## User constants and variables
 
 A lattice can define its own constants and variables and refer to them by name

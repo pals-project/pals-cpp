@@ -870,9 +870,17 @@ static void substitute_values(ryml::Tree& t, size_t node,
             std::string body = strip_expr_wrapper(
                 std::string(t.val(node).str, t.val(node).len), was_expr);
             pals::EvalOutcome r = pals::eval_expression(body, resolve, species);
+            std::string sp;
             if (r.ok) {
                 t.set_val(node,
                           t.to_arena(ryml::to_csubstr(format_double(r.value))));
+            } else if (!r.deferred && species && species(body, sp)) {
+                // A bare identifier that names a species-valued constant or
+                // variable (e.g. `species_ref: species` with `species: "#3He"`)
+                // is replaced by its species-name string. Double-quoted so a
+                // leading `#` survives YAML's comment rule on re-emit.
+                t.set_val(node, t.to_arena(ryml::to_csubstr(sp)));
+                t.set_val_style(node, ryml::VAL_DQUO);
             } else if (!r.deferred && looks_like_expression(body, was_expr)) {
                 std::string loc = short_location(t, node);
                 std::string msg = "could not evaluate expression";
