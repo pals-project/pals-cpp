@@ -1138,18 +1138,22 @@ TEST_CASE("evaluate_pals_expression: particle-data functions from libapc",
     REQUIRE(eval_ok("charge_of('electron')") == -1.0);
     REQUIRE(eval_ok("charge_of(\"anti-proton\")") == -1.0);
     REQUIRE(close(eval_ok("2 * mass_of(\"electron\")"), 2 * 510998.95069000003));
-    // A bare isotope is the neutral atom; the ionised form carries the charge.
-    REQUIRE(eval_ok("charge_of(\"3He\")") == 0.0);
+    // A mass number must carry a leading '#' (e.g. "#3He"). The bare atom is
+    // neutral; the ionised form carries the charge.
+    REQUIRE(eval_ok("charge_of(\"#3He\")") == 0.0);
     REQUIRE(eval_ok("charge_of(\"helion\")") == 2.0);
-    // The `#` isotope form is unaffected by YAML's comment rule once quoted.
-    REQUIRE(close(eval_ok("mass_of(\"#3He\")"), eval_ok("mass_of(\"3He\")")));
+    REQUIRE(close(eval_ok("mass_of(\"#3He\")"), 2809413524.398952));
 
     // An unquoted species name is an error.
     bool ok = true;
     evaluate_pals_expression("mass_of(electron)", &ok);
     REQUIRE_FALSE(ok);
     ok = true;
-    evaluate_pals_expression("charge_of(3He)", &ok);
+    evaluate_pals_expression("charge_of(#3He)", &ok);
+    REQUIRE_FALSE(ok);
+    // A mass number without the '#' prefix is an error, even when quoted.
+    ok = true;
+    evaluate_pals_expression("mass_of(\"3He\")", &ok);
     REQUIRE_FALSE(ok);
 }
 
