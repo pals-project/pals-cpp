@@ -36,8 +36,9 @@ struct ParseError {};
 
 class Parser {
  public:
-  Parser(const std::string& s, const SymbolLookup& lookup)
-      : s_(s), lookup_(lookup) {}
+  Parser(const std::string& s, const SymbolLookup& lookup,
+         const SpeciesLookup& species)
+      : s_(s), lookup_(lookup), species_(species) {}
 
   double parse() {
     double v = expr();
@@ -50,6 +51,7 @@ class Parser {
  private:
   const std::string& s_;
   const SymbolLookup& lookup_;
+  const SpeciesLookup& species_;
   size_t pos_ = 0;
   bool deferred_ = false;
 
@@ -177,8 +179,9 @@ class Parser {
     return s_.substr(start, pos_ - start);
   }
 
-  // Reads a raw species-name argument up to the matching ')'. The opening '('
-  // must already be consumed.
+  // Reads the raw, whitespace-trimmed argument text up to the matching ')'. The
+  // opening '(' must already be consumed. No quote handling — the caller
+  // decides whether it is a quoted literal or a symbol.
   std::string read_raw_arg() {
     int depth = 1;
     std::string out;
@@ -198,19 +201,14 @@ class Parser {
     if (depth != 0) throw ParseError{};
     size_t a = out.find_first_not_of(" \t");
     size_t b = out.find_last_not_of(" \t");
-    std::string arg = (a == std::string::npos) ? "" : out.substr(a, b - a + 1);
-    // A species name must always be quoted (single or double), e.g.
-    // mass_of("#3He"); an unquoted name is an error. Strip the quotes before
-    // handing the name to AtomicAndPhysicalConstantsCLib.
-    if (arg.size() < 2 || (arg.front() != '"' && arg.front() != '\'') ||
-        arg.back() != arg.front())
-      throw ParseError{};
-    std::string name = arg.substr(1, arg.size() - 2);
+    return (a == std::string::npos) ? "" : out.substr(a, b - a + 1);
+  }
 
-    // A mass number must be written with a leading '#', e.g. "#3He" not "3He"
-    // (matching AtomicAndPhysicalConstants.jl). The mass number, when present,
-    // leads the name (after an optional "anti-" prefix), so a leading ASCII
-    // digit signals a missing '#'.
+  // Enforces the leading-'#' rule for mass numbers: a mass number must be
+  // written "#3He", not "3He" (matching AtomicAndPhysicalConstants.jl). The
+  // mass number, when present, leads the name (after an optional "anti-"
+  // prefix), so a leading ASCII digit signals a missing '#'.
+  static void check_mass_number(const std::string& name) {
     std::string core = name;
     for (const char* pre : {"anti-", "Anti-", "anti", "Anti"}) {
       if (core.rfind(pre, 0) == 0) {
@@ -220,6 +218,24 @@ class Parser {
     }
     if (!core.empty() && std::isdigit(static_cast<unsigned char>(core.front())))
       throw ParseError{};
+  }
+
+  // Reads the species-name argument of a particle-data function. It is either a
+  // quoted literal (mass_of("#3He")) or a bare identifier that resolves through
+  // the species symbol table to a species string (mass_of(species), where
+  // `species: "#3He"`). The opening '(' must already be consumed.
+  std::string read_species_arg() {
+    std::string arg = read_raw_arg();
+    std::string name;
+    if (arg.size() >= 2 && (arg.front() == '"' || arg.front() == '\'') &&
+        arg.back() == arg.front()) {
+      name = arg.substr(1, arg.size() - 2);  // quoted literal
+    } else if (!species_ || !species_(arg, name)) {
+      // Not quoted and not a known species symbol: an unquoted literal name is
+      // an error, and an unknown symbol cannot be resolved.
+      throw ParseError{};
+    }
+    check_mass_number(name);
     return name;
   }
 
@@ -251,9 +267,10 @@ class Parser {
   }
 
   double call(const std::string& fn) {
-    // Particle-data functions take a bare species name, not an expression.
+    // Particle-data functions take a species name (quoted literal or a symbol
+    // that resolves to one), not a numeric expression.
     if (fn == "mass_of" || fn == "charge_of" || fn == "anomalous_moment_of") {
-      std::string sp = read_raw_arg();
+      std::string sp = read_species_arg();
       try {
         if (fn == "mass_of") return apc::mass_of(sp);
         if (fn == "charge_of") return apc::charge_of(sp);
@@ -343,10 +360,11 @@ bool builtin_constant(const std::string& name, double& out) {
   return false;
 }
 
-EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup) {
+EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup,
+                            const SpeciesLookup& species) {
   EvalOutcome r;
   try {
-    Parser p(text, lookup);
+    Parser p(text, lookup, species);
     double v = p.parse();
     if (p.deferred()) {
       r.deferred = true;

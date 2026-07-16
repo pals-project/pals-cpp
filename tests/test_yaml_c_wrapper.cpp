@@ -1373,6 +1373,61 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     rm_tmp(path);
 }
 
+TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
+          "[expr][lattices]") {
+    // A particle-data function may take a symbol whose value is a species name
+    // (`mass_of(species)` where `species: "#3He"`), not only a quoted literal.
+    const char* path = "tmp_speciesconst.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - constants:\n"
+              "        species: \"#3He\"\n"
+              "        b_const: 0.45 * mass_of(species)\n"
+              "    - DH1A:\n"
+              "        kind: Bend\n"
+              "        BendP:\n"
+              "          e_tot: 1.1 * mass_of(species)\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - DH1A\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    const double m_3he = 2809413524.398952;  // mass_of("#3He"), CODATA 2022
+
+    YAMLNodeId consts = facility_param(lat.expanded, "constants");
+    REQUIRE(close(num_val(lat.expanded,
+                          get_child_by_key(lat.expanded, consts, "b_const")),
+                  0.45 * m_3he));
+
+    YAMLNodeId dh1a = facility_param(lat.expanded, "DH1A");
+    YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
+    REQUIRE(close(num_val(lat.expanded,
+                          get_child_by_key(lat.expanded, bendp, "e_tot")),
+                  1.1 * m_3he));
+
+    // The species constant itself stays as its (string) species name.
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, consts, "species"), "#3He"));
+
+    // No spurious problems.
+    REQUIRE(lat.problems.count == 0);
+    free_lattice_problems(lat.problems);
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
 TEST_CASE("parse_and_expand_PALS reports expansion problems",
           "[expr][lattices][problems]") {
     // Every silent failure of expansion/evaluation is surfaced in the

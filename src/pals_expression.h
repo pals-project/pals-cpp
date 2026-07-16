@@ -39,10 +39,21 @@ struct EvalOutcome {
 // resolved inside the evaluator and need not be provided here.
 using SymbolLookup = std::function<bool(const std::string& name, double& out)>;
 
+// Looks up a user-defined *species-name* symbol by name (a constant/variable
+// whose value is a species string, e.g. `species: "#3He"`). Returns true and
+// sets `out` to the species name if the name is known. Lets the particle-data
+// functions accept a symbol, e.g. `mass_of(species)`, not only a quoted
+// literal `mass_of("#3He")`. An empty std::function means no such symbols.
+using SpeciesLookup =
+    std::function<bool(const std::string& name, std::string& out)>;
+
 // Evaluates `text` as a PALS mathematical expression. A leading `expr(...)`
 // wrapper, if present, must be stripped by the caller. `lookup` resolves user
-// symbols; an empty std::function is fine when none are available.
-EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup);
+// symbols; an empty std::function is fine when none are available. `species`
+// resolves a bare identifier passed to a particle-data function to a species
+// name; an empty std::function restricts those functions to quoted literals.
+EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup,
+                            const SpeciesLookup& species = {});
 
 // If `name` is a built-in PALS constant, sets `out` to its value and returns
 // true; otherwise returns false.

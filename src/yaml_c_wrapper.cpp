@@ -849,6 +849,7 @@ static bool looks_like_expression(const std::string& body, bool was_expr) {
 // `problems`.
 static void substitute_values(ryml::Tree& t, size_t node,
                               const pals::SymbolLookup& resolve,
+                              const pals::SpeciesLookup& species,
                               ProblemList& problems) {
     if (node == ryml::NONE || is_controller(t, node)) return;
 
@@ -868,7 +869,7 @@ static void substitute_values(ryml::Tree& t, size_t node,
             bool was_expr = false;
             std::string body = strip_expr_wrapper(
                 std::string(t.val(node).str, t.val(node).len), was_expr);
-            pals::EvalOutcome r = pals::eval_expression(body, resolve);
+            pals::EvalOutcome r = pals::eval_expression(body, resolve, species);
             if (r.ok) {
                 t.set_val(node,
                           t.to_arena(ryml::to_csubstr(format_double(r.value))));
@@ -884,7 +885,7 @@ static void substitute_values(ryml::Tree& t, size_t node,
 
     for (size_t c = t.first_child(node); c != ryml::NONE;
          c = t.next_sibling(c))
-        substitute_values(t, c, resolve, problems);
+        substitute_values(t, c, resolve, species, problems);
 }
 
 // Collects every `kind: Controller` node in the subtree.
@@ -940,6 +941,7 @@ static void for_each_ctrl_var(const ryml::Tree& t, size_t vars, F&& emit) {
 // per the PALS expansion model the expanded tree carries the computed value.
 static void evaluate_controllers(ryml::Tree& t,
                                  const pals::SymbolLookup& global_resolve,
+                                 const pals::SpeciesLookup& species,
                                  ProblemList& problems) {
     std::vector<size_t> controllers;
     collect_controllers(t, t.root_id(), controllers);
@@ -1002,7 +1004,7 @@ static void evaluate_controllers(ryml::Tree& t,
             pals::SymbolLookup res = make_resolver(v.ctrl);
             bool was_expr = false;
             std::string body = strip_expr_wrapper(v.text, was_expr);
-            pals::EvalOutcome r = pals::eval_expression(body, res);
+            pals::EvalOutcome r = pals::eval_expression(body, res, species);
             if (r.ok) {
                 locals[v.ctrl][v.bare] = r.value;
                 qualified[v.qname] = r.value;
@@ -1040,7 +1042,7 @@ static void evaluate_controllers(ryml::Tree& t,
             bool was_expr = false;
             std::string body = strip_expr_wrapper(
                 std::string(t.val(enode).str, t.val(enode).len), was_expr);
-            pals::EvalOutcome r = pals::eval_expression(body, res);
+            pals::EvalOutcome r = pals::eval_expression(body, res, species);
             if (r.ok)
                 t.set_val(enode,
                           t.to_arena(ryml::to_csubstr(format_double(r.value))));
@@ -1085,6 +1087,26 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     std::map<std::string, size_t> emap;
     make_ele_map(emap, t, t.root_id());
 
+    // Resolves a symbol whose value is a species-name string (e.g.
+    // `species: "#3He"`), so a particle-data function may take it by name:
+    // `mass_of(species)`. The stored value is returned verbatim (trimmed, with
+    // any surrounding quotes stripped); the expression evaluator validates it.
+    pals::SpeciesLookup species = [&defs](const std::string& name,
+                                          std::string& out) -> bool {
+        auto di = defs.find(name);
+        if (di == defs.end()) return false;
+        std::string v = di->second;
+        size_t a = v.find_first_not_of(" \t\r\n");
+        size_t b = v.find_last_not_of(" \t\r\n");
+        if (a == std::string::npos) return false;
+        v = v.substr(a, b - a + 1);
+        if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') &&
+            v.back() == v.front())
+            v = v.substr(1, v.size() - 2);
+        out = v;
+        return true;
+    };
+
     // Lazily evaluate user symbols on demand, memoizing results and guarding
     // against reference cycles. A symbol whose defining expression is itself
     // unresolvable is reported as unknown.
@@ -1092,7 +1114,7 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     auto active = std::make_shared<std::set<std::string>>();
     std::shared_ptr<pals::SymbolLookup> resolve =
         std::make_shared<pals::SymbolLookup>();
-    *resolve = [&defs, &t, &emap, cache, active, resolve](
+    *resolve = [&defs, &t, &emap, cache, active, resolve, species](
                    const std::string& name, double& out) -> bool {
         auto ci = cache->find(name);
         if (ci != cache->end()) {
@@ -1114,7 +1136,7 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
         if (!active->insert(name).second) return false;  // cycle
         bool was_expr = false;
         body = strip_expr_wrapper(body, was_expr);
-        pals::EvalOutcome r = pals::eval_expression(body, *resolve);
+        pals::EvalOutcome r = pals::eval_expression(body, *resolve, species);
         active->erase(name);
         if (!r.ok) return false;
         (*cache)[name] = r.value;
@@ -1124,8 +1146,8 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
 
     // Controllers first (controller-scoped symbol tables), then the generic
     // pass over the rest of the tree (which skips controller subtrees).
-    evaluate_controllers(t, *resolve, problems);
-    substitute_values(t, t.root_id(), *resolve, problems);
+    evaluate_controllers(t, *resolve, species, problems);
+    substitute_values(t, t.root_id(), *resolve, species, problems);
 }
 
 static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
