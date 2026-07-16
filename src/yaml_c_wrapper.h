@@ -25,6 +25,18 @@ typedef size_t YAMLNodeId;
 // Pass as the index argument to add_* functions to append instead of inserting
 #define END ((size_t)-1)
 
+// --- STRING LIST ---
+//
+// A flat, owning list of C strings. Used to return the human-readable problems
+// encountered while building the `expanded` tree (undefined lattice, dangling
+// element/line references, undefined `inherit`/`repeat`/`Fork` targets,
+// expressions that could not be evaluated, ...). Free with
+// free_lattice_problems().
+struct string_list {
+    char** items;
+    size_t count;
+};
+
 // struct lattices uses std::map so it must be C++ only
 #ifdef __cplusplus
 #include <map>
@@ -34,6 +46,8 @@ struct lattices {
     YAMLTreeHandle combined;  // Tree with all "include" directives resolved and
                               // spliced inline
     YAMLTreeHandle expanded;  // Tree with the selected lattice fully expanded
+    struct string_list problems;  // Problems found while building `expanded`;
+                                  // free with free_lattice_problems()
 };
 #endif
 
@@ -94,9 +108,26 @@ extern "C" {
  *           - `expanded`: tree with the selected lattice fully expanded —
  * scalars substituted, repeats unrolled, inherits merged, and forks resolved.
  *         All three handles must be freed individually with delete_tree().
+ *
+ *         The returned struct also carries `problems`: an owning list of
+ *         human-readable messages for every issue met while building the
+ *         `expanded` tree (undefined lattice, dangling element/line references,
+ *         undefined `inherit`/`repeat`/`Fork` targets, and expressions that
+ *         could not be evaluated). It is empty when expansion was clean. The
+ *         caller owns it and must release it with free_lattice_problems(). The
+ *         library does not print — the caller decides whether to report.
  */
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
+
+/**
+ * Frees the string array owned by the `problems` list of a `lattices` value.
+ * Passing a list with a NULL `items` pointer (e.g. when there were no problems)
+ * is safe and has no effect.
+ *
+ * @param problems The `lattices::problems` list to free (passed by value).
+ */
+YAML_API void free_lattice_problems(struct string_list problems);
 
 /**
  * Evaluates a single PALS mathematical expression to a double.

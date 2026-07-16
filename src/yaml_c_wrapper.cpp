@@ -208,10 +208,40 @@ static void make_ele_map(std::map<std::string, size_t>& emap,
         make_ele_map(emap, t, c);
 }
 
+// A list of human-readable problems found while building the expanded tree
+// (undefined lattice, dangling references, undefined inherit/repeat/fork
+// targets, un-evaluable expressions, ...). Returned to the caller so it can
+// decide whether to print, save, or ignore them.
+using ProblemList = std::vector<std::string>;
+
+// Append a problem, skipping exact duplicates. Expansion copies a definition
+// into every use, so the same underlying issue can be reached many times; the
+// shallow locations used below keep those copies collapsing to one message.
+static void add_problem(ProblemList& problems, const std::string& msg) {
+    for (const std::string& p : problems)
+        if (p == msg) return;
+    problems.push_back(msg);
+}
+
+// A short "group.param" (or just "param") location for a value node, for use in
+// problem messages. Deliberately shallow so the identical parameter reached
+// through several expansion copies yields one message.
+static std::string short_location(const ryml::Tree& t, size_t node) {
+    std::string key =
+        t.has_key(node) ? std::string(t.key(node).str, t.key(node).len) : "";
+    size_t p = t.parent(node);
+    std::string pk = (p != ryml::NONE && t.has_key(p))
+                         ? std::string(t.key(p).str, t.key(p).len)
+                         : "";
+    if (!pk.empty() && !key.empty()) return pk + "." + key;
+    return key;
+}
+
 // Forward declaration — handle_fork calls expand, expand calls handle_fork
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
-                   std::map<size_t, size_t>& prov, size_t branches = ryml::NONE);
+                   std::map<size_t, size_t>& prov, ProblemList& problems,
+                   size_t branches = ryml::NONE);
 
 // Helper: get a string value of a keyed child, returns "" if not found
 static std::string child_val_str(const ryml::Tree& t, size_t parent,
@@ -248,16 +278,33 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     new bracnh.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
-                        std::map<size_t, size_t>& prov) {
-    if (branches == ryml::NONE) return;
+                        std::map<size_t, size_t>& prov, ProblemList& problems) {
+    std::string fork_name = t.has_key(fork_node)
+                                ? std::string(t.key(fork_node).str,
+                                              t.key(fork_node).len)
+                                : "<fork>";
+    if (branches == ryml::NONE) {
+        add_problem(problems, "Fork element '" + fork_name +
+                                  "': no branches to fork into");
+        return;
+    }
 
     size_t forkp = t.find_child(fork_node, ryml::to_csubstr("ForkP"));
-    if (forkp == ryml::NONE || !t.is_map(forkp)) return;
+    if (forkp == ryml::NONE || !t.is_map(forkp)) {
+        add_problem(problems,
+                    "Fork element '" + fork_name + "': missing ForkP");
+        return;
+    }
 
     std::string to_line = child_val_str(t, forkp, "to_line");
     std::string to_element = child_val_str(t, forkp, "destination_element");
     std::string branch_name = child_val_str(t, forkp, "new_branch");
-    if (to_line.empty() || to_element.empty() || branch_name.empty()) return;
+    if (to_line.empty() || to_element.empty() || branch_name.empty()) {
+        add_problem(problems, "Fork element '" + fork_name +
+                                  "': ForkP is missing a required field "
+                                  "(to_line, destination_element, new_branch)");
+        return;
+    }
 
     // Check whether to_line already exists as a branch (by its original element
     // name)
@@ -285,16 +332,29 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         // Rename from original element name to branch_name
         t.set_key(branch_node, t.to_arena(ryml::to_csubstr(branch_name)));
         // Expand the new branch so its scalars and inherits are resolved
-        expand(t, branch_node, emap, prov, branches);
+        expand(t, branch_node, emap, prov, problems, branches);
     }
 
-    if (branch_node == ryml::NONE) return;
+    if (branch_node == ryml::NONE) {
+        add_problem(problems, "Fork element '" + fork_name + "': to_line '" +
+                                  to_line + "' is not defined");
+        return;
+    }
 
     // Find to_element within the new branch's line
     size_t line = t.find_child(branch_node, ryml::to_csubstr("line"));
-    if (line == ryml::NONE || !t.is_seq(line)) return;
+    if (line == ryml::NONE || !t.is_seq(line)) {
+        add_problem(problems, "Fork element '" + fork_name + "': to_line '" +
+                                  to_line + "' has no line to fork into");
+        return;
+    }
     size_t target = find_in_line(t, line, to_element);
-    if (target == ryml::NONE) return;
+    if (target == ryml::NONE) {
+        add_problem(problems, "Fork element '" + fork_name +
+                                  "': destination_element '" + to_element +
+                                  "' not found in '" + to_line + "'");
+        return;
+    }
 
     // Add fork_pointer: <node id of target as string>
     ensure_capacity(t);
@@ -314,7 +374,8 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
  */
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
-                   std::map<size_t, size_t>& prov, size_t branches) {
+                   std::map<size_t, size_t>& prov, ProblemList& problems,
+                   size_t branches) {
     if (node == ryml::NONE) return;
 
     // Sequence — handle 'repeat'
@@ -332,14 +393,24 @@ static void expand(ryml::Tree& t, size_t node,
                         t.find_child(entry, ryml::to_csubstr("repeat"));
                     if (repeat_id != ryml::NONE && t.has_val(repeat_id)) {
                         int count = 0;
+                        std::string cnt_txt(t.val(repeat_id).str,
+                                            t.val(repeat_id).len);
                         try {
-                            count = std::stoi(std::string(
-                                t.val(repeat_id).str, t.val(repeat_id).len));
+                            count = std::stoi(cnt_txt);
                         } catch (...) {
+                            add_problem(problems, "repeat: invalid count '" +
+                                                      cnt_txt + "' for '" +
+                                                      std::string(
+                                                          t.key(entry).str,
+                                                          t.key(entry).len) +
+                                                      "'");
                         }
                         std::string target(t.key(entry).str, t.key(entry).len);
                         // check if the beamline to be repeated has been defined
                         // in the file
+                        if (!emap.count(target))
+                            add_problem(problems, "repeat: beamline '" + target +
+                                                      "' is not defined");
                         if (emap.count(target)) {
                             size_t def = emap[target];
                             size_t line_id =
@@ -376,7 +447,7 @@ static void expand(ryml::Tree& t, size_t node,
                     }
                 }
             }
-            expand(t, child, emap, prov, branches);
+            expand(t, child, emap, prov, problems, branches);
             child = next;
         }
         return;
@@ -391,7 +462,17 @@ static void expand(ryml::Tree& t, size_t node,
             ensure_capacity(t, 2);
             t.change_type(node, ryml::MAP);
             duplicate_tracked(t, def, node, ryml::NONE, prov);
-            expand(t, node, emap, prov, branches);
+            expand(t, node, emap, prov, problems, branches);
+        } else {
+            // A bare entry in a `line:` or `branches:` sequence names an element
+            // or beamline; if it is not defined, the reference is dangling.
+            size_t p = t.parent(node);
+            std::string pk = (p != ryml::NONE && t.has_key(p))
+                                 ? std::string(t.key(p).str, t.key(p).len)
+                                 : "";
+            if (pk == "line" || pk == "branches")
+                add_problem(problems, "reference to undefined element or line '" +
+                                          name + "'");
         }
         return;
     }
@@ -406,6 +487,9 @@ static void expand(ryml::Tree& t, size_t node,
                 ensure_capacity(t, t.num_children(emap[name]) + 1);
                 duplicate_children_no_rep_tracked(t, emap[name], node,
                                                   ryml::NONE, prov);
+            } else {
+                add_problem(problems,
+                            "inherit: '" + name + "' is not defined");
             }
         }
 
@@ -415,14 +499,14 @@ static void expand(ryml::Tree& t, size_t node,
         if (kind == "Lattice") {
             node_branches = t.find_child(node, ryml::to_csubstr("branches"));
         } else if (kind == "Fork") {
-            handle_fork(t, node, branches, emap, prov);
+            handle_fork(t, node, branches, emap, prov, problems);
         }
 
         size_t original_size = t.num_children(node);
         size_t c = t.first_child(node);
         for (size_t i = 0; i < original_size && c != ryml::NONE;
              i++, c = t.next_sibling(c))
-            expand(t, c, emap, prov, node_branches);
+            expand(t, c, emap, prov, problems, node_branches);
     }
 }
 
@@ -743,11 +827,29 @@ static void collect_defs(const ryml::Tree& t, size_t node,
         collect_defs(t, c, defs);
 }
 
+// True if a scalar was *meant* to be an expression — it carries an arithmetic
+// operator, grouping, an element-parameter reference (`>`), or an explicit
+// `expr(...)` wrapper — as opposed to a plain name, label, or boolean. Used to
+// decide whether a value that failed to evaluate is worth reporting: a bare
+// word that does not resolve is almost always a name, not a broken expression.
+// (`-` is excluded so a hyphenated string is not mistaken for a subtraction.)
+static bool looks_like_expression(const std::string& body, bool was_expr) {
+    if (was_expr) return true;
+    for (char c : body)
+        if (c == '+' || c == '*' || c == '/' || c == '^' || c == '(' ||
+            c == ')' || c == '>')
+            return true;
+    return false;
+}
+
 // Replaces every evaluable scalar value in the subtree with its numeric value.
 // Controller subtrees are skipped: their variables and control expressions use
 // a controller-scoped symbol table and are handled by evaluate_controllers.
+// A value that looks like an expression but cannot be evaluated is recorded in
+// `problems`.
 static void substitute_values(ryml::Tree& t, size_t node,
-                              const pals::SymbolLookup& resolve) {
+                              const pals::SymbolLookup& resolve,
+                              ProblemList& problems) {
     if (node == ryml::NONE || is_controller(t, node)) return;
 
     if (t.has_val(node)) {
@@ -767,15 +869,22 @@ static void substitute_values(ryml::Tree& t, size_t node,
             std::string body = strip_expr_wrapper(
                 std::string(t.val(node).str, t.val(node).len), was_expr);
             pals::EvalOutcome r = pals::eval_expression(body, resolve);
-            if (r.ok)
+            if (r.ok) {
                 t.set_val(node,
                           t.to_arena(ryml::to_csubstr(format_double(r.value))));
+            } else if (!r.deferred && looks_like_expression(body, was_expr)) {
+                std::string loc = short_location(t, node);
+                std::string msg = "could not evaluate expression";
+                if (!loc.empty()) msg += " for " + loc;
+                msg += ": " + body;
+                add_problem(problems, msg);
+            }
         }
     }
 
     for (size_t c = t.first_child(node); c != ryml::NONE;
          c = t.next_sibling(c))
-        substitute_values(t, c, resolve);
+        substitute_values(t, c, resolve, problems);
 }
 
 // Collects every `kind: Controller` node in the subtree.
@@ -830,7 +939,8 @@ static void for_each_ctrl_var(const ryml::Tree& t, size_t vars, F&& emit) {
 // the control entry. Controller expressions are "delayed" in the standard, but
 // per the PALS expansion model the expanded tree carries the computed value.
 static void evaluate_controllers(ryml::Tree& t,
-                                 const pals::SymbolLookup& global_resolve) {
+                                 const pals::SymbolLookup& global_resolve,
+                                 ProblemList& problems) {
     std::vector<size_t> controllers;
     collect_controllers(t, t.root_id(), controllers);
     if (controllers.empty()) return;
@@ -907,6 +1017,14 @@ static void evaluate_controllers(ryml::Tree& t,
         if (!changed) break;
     }
 
+    // Any variable still unresolved is a genuine problem (unknown symbol or a
+    // dependency cycle); random()-deferred ones were marked done above.
+    for (const CtrlVar& v : vars)
+        if (!v.done)
+            add_problem(problems, "controller '" + names[v.ctrl] +
+                                      "' variable '" + v.bare +
+                                      "': could not evaluate '" + v.text + "'");
+
     // Compute each control `expression` with its controller's table and store
     // the value back in the control entry.
     for (size_t ci = 0; ci < controllers.size(); ++ci) {
@@ -926,6 +1044,10 @@ static void evaluate_controllers(ryml::Tree& t,
             if (r.ok)
                 t.set_val(enode,
                           t.to_arena(ryml::to_csubstr(format_double(r.value))));
+            else if (!r.deferred)
+                add_problem(problems, "controller '" + names[ci] +
+                                          "' control expression could not be "
+                                          "evaluated: " + body);
         }
     }
 }
@@ -952,8 +1074,9 @@ static size_t resolve_ele_param_ref(const ryml::Tree& t,
     return node;
 }
 
-// Evaluates all expressions in the (already expanded) tree in place.
-static void evaluate_expressions(ryml::Tree& t) {
+// Evaluates all expressions in the (already expanded) tree in place. Records
+// any that could not be evaluated in `problems`.
+static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     std::map<std::string, std::string> defs;
     collect_defs(t, t.root_id(), defs);
 
@@ -1001,12 +1124,13 @@ static void evaluate_expressions(ryml::Tree& t) {
 
     // Controllers first (controller-scoped symbol tables), then the generic
     // pass over the rest of the tree (which skips controller subtrees).
-    evaluate_controllers(t, *resolve);
-    substitute_values(t, t.root_id(), *resolve);
+    evaluate_controllers(t, *resolve, problems);
+    substitute_values(t, t.root_id(), *resolve, problems);
 }
 
 static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
-                                                  const char* root_lattice) {
+                                                  const char* root_lattice,
+                                                  ProblemList& problems) {
     if (!comb) return nullptr;
     ParsedData* data = new ParsedData();
     ryml::Tree& t = data->tree;
@@ -1023,15 +1147,20 @@ static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
 
     std::string name_str = root_lattice ? root_lattice : "";
     size_t lat_node = find_lattice(t, name_str);
-    if (lat_node == ryml::NONE) return data;
+    if (lat_node == ryml::NONE) {
+        add_problem(problems, name_str.empty()
+                                  ? "no lattice found to expand"
+                                  : "lattice '" + name_str + "' not found");
+        return data;
+    }
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
 
-    expand(t, lat_node, emap, data->provenance, branches);
+    expand(t, lat_node, emap, data->provenance, problems, branches);
 
     // Final pass: evaluate every mathematical expression in the expanded tree
     // to a number (immediate and expr()-delayed alike). Node ids are unchanged
     // -- only scalar text is rewritten -- so provenance stays valid.
-    evaluate_expressions(t);
+    evaluate_expressions(t, problems);
     return data;
 }
 
@@ -1370,9 +1499,27 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
     lat.original = make_original(filename);
     lat.combined = make_combined_from_original(
         static_cast<ParsedData*>(lat.original), filename);
+    ProblemList problems;
     lat.expanded = make_expanded_from_combined(
-        static_cast<ParsedData*>(lat.combined), root_lattice);
+        static_cast<ParsedData*>(lat.combined), root_lattice, problems);
+
+    // Hand the problem list to the caller as an owning C string array (freed
+    // with free_lattice_problems). The library never prints — the caller
+    // decides whether to report, save, or ignore.
+    lat.problems.count = problems.size();
+    lat.problems.items =
+        problems.empty() ? nullptr : new char*[problems.size()];
+    for (size_t i = 0; i < problems.size(); ++i) {
+        lat.problems.items[i] = new char[problems[i].size() + 1];
+        std::memcpy(lat.problems.items[i], problems[i].c_str(),
+                    problems[i].size() + 1);
+    }
     return lat;
+}
+
+YAML_API void free_lattice_problems(struct string_list problems) {
+    for (size_t i = 0; i < problems.count; ++i) delete[] problems.items[i];
+    delete[] problems.items;
 }
 
 YAML_API double evaluate_pals_expression(const char* expr, bool* ok) {
