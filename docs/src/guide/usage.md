@@ -33,6 +33,11 @@ char* s = tree_to_string(lat.expanded);
 std::puts(s);
 yaml_free_string(s);
 
+// Report any problems met while expanding (see below), then free everything.
+for (size_t i = 0; i < lat.problems.count; ++i)
+    std::fprintf(stderr, "  - %s\n", lat.problems.items[i]);
+free_lattice_problems(lat.problems);
+
 delete_tree(lat.original);
 delete_tree(lat.combined);
 delete_tree(lat.expanded);
@@ -41,6 +46,19 @@ delete_tree(lat.expanded);
 The second argument names the lattice to expand. Pass `nullptr` (or an empty
 string) to expand the lattice named by the last `use` statement, or — if there
 is none — the last lattice defined in the file.
+
+### Problems found during expansion
+
+Expansion does not abort on a recoverable problem — a `line` reference to an
+undefined element, a missing `inherit`/`repeat`/`Fork` target, or an expression
+that cannot be evaluated (an unknown constant, a dangling element‑parameter
+reference, a cycle). Instead it leaves the offending value as text and appends a
+human‑readable message to `lat.problems`, an owning `string_list`. The list is
+empty when expansion was clean. The library never prints — the caller decides
+whether to report, save, or ignore the messages — and must release the list with
+`free_lattice_problems`. Only values that look like expressions (an operator, a
+parenthesis, a `>` reference, or an explicit `expr(...)`) are flagged when they
+fail to evaluate, so plain names and labels are not mistaken for broken math.
 
 ## Navigating and editing trees
 

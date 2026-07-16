@@ -1363,6 +1363,98 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
         num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge_int2")),
         0.02 * 0.1));
 
+    // A clean lattice reports no problems.
+    REQUIRE(lat.problems.count == 0);
+    free_lattice_problems(lat.problems);  // safe on an empty list
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
+TEST_CASE("parse_and_expand_PALS reports expansion problems",
+          "[expr][lattices][problems]") {
+    // Every silent failure of expansion/evaluation is surfaced in the
+    // `problems` list: dangling line references, undefined inherit/repeat
+    // targets, and expressions that cannot be evaluated.
+    const char* path = "tmp_problems.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - constants:\n"
+              "        a_const: 0.3 * undefined_thing\n"
+              "    - thingB:\n"
+              "        kind: Sextupole\n"
+              "        MagneticMultipoleP:\n"
+              "          Kn2L: 0.1\n"
+              "    - DH1A:\n"
+              "        kind: Bend\n"
+              "        BendP:\n"
+              "          edge_int2: 0.02 * thingB>MagneticMultipoleP.NotThere\n"
+              "          e1: 3 * missing_const\n"
+              "    - ghost_child:\n"
+              "        kind: Bend\n"
+              "        inherit: ghost_ancestor\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - DH1A\n"
+              "          - ghost_child\n"
+              "          - NoSuchElement\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    // Collect the messages so the assertions do not depend on their order.
+    std::vector<std::string> msgs;
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        msgs.emplace_back(lat.problems.items[i]);
+
+    auto has = [&](const std::string& needle) {
+        for (const std::string& m : msgs)
+            if (m.find(needle) != std::string::npos) return true;
+        return false;
+    };
+
+    REQUIRE(has("reference to undefined element or line 'NoSuchElement'"));
+    REQUIRE(has("inherit: 'ghost_ancestor' is not defined"));
+    REQUIRE(has("could not evaluate expression for constants.a_const"));
+    REQUIRE(has("could not evaluate expression for BendP.edge_int2"));
+    REQUIRE(has("could not evaluate expression for BendP.e1"));
+
+    // Exactly those five: plain names (`kind: Bend`, the line references that
+    // DO resolve) are not reported, and duplicate copies made by expansion
+    // collapse to one message each.
+    REQUIRE(lat.problems.count == 5);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
+TEST_CASE("parse_and_expand_PALS reports a missing lattice",
+          "[lattices][problems]") {
+    const char* path = "tmp_nolattice.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - thingB:\n"
+              "        kind: Sextupole\n"
+              "        length: 0.3\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, "not_here");
+    REQUIRE(lat.problems.count == 1);
+    REQUIRE(std::string(lat.problems.items[0]) == "lattice 'not_here' not found");
+
+    free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
