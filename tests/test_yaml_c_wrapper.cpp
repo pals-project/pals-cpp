@@ -1325,6 +1325,50 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     rm_tmp(path);
 }
 
+TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
+          "[expr][lattices]") {
+    // An expression may reference another element's parameter with the
+    // `element>group.sub. ... .param` syntax; it resolves to that parameter's
+    // value (evaluated as an expression in turn).
+    const char* path = "tmp_eleparamref.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - thingB:\n"
+              "        kind: Sextupole\n"
+              "        length: 0.3\n"
+              "        MagneticMultipoleP:\n"
+              "          Kn2L: 0.1\n"
+              "    - DH1A:\n"
+              "        kind: Bend\n"
+              "        length: 0.2\n"
+              "        BendP:\n"
+              "          edge_int2: 0.02 * thingB>MagneticMultipoleP.Kn2L\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - DH1A\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    YAMLNodeId dh1a = facility_param(lat.expanded, "DH1A");
+    YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
+    REQUIRE(close(
+        num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge_int2")),
+        0.02 * 0.1));
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    rm_tmp(path);
+}
+
 TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
           "[expr][lattices][controller]") {
     const char* path = "tmp_controller.pals.yaml";

@@ -631,6 +631,13 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 // live in pals_expression.cpp; this layer supplies user constants/variables and
 // walks the tree.
 
+// Defined in the NAME MATCHING section below; reused here to resolve
+// element-parameter references (`element>group.sub. ... .param`) that appear
+// inside expressions.
+static std::vector<std::string> split_dots(const std::string& s);
+static size_t resolve_param_path(const ryml::Tree& t, size_t ele,
+                                 const std::vector<std::string>& path);
+
 // Keys whose scalar values are names/flags, never expressions. Skipping them
 // avoids a stray collision between such a name and a constant (e.g. an element
 // literally named `pi`).
@@ -923,10 +930,37 @@ static void evaluate_controllers(ryml::Tree& t,
     }
 }
 
+// Resolves an element-parameter reference `element>group.sub. ... .param` to
+// the scalar value node it names, or NONE. Only the exact single-element form
+// is supported (a value expression references one specific parameter; pattern
+// matching and branch/lattice qualifiers are not permitted here, per the
+// standard). `emap` maps element names to their definition maps.
+static size_t resolve_ele_param_ref(const ryml::Tree& t,
+                                    const std::map<std::string, size_t>& emap,
+                                    const std::string& ref) {
+    size_t gt = ref.find('>');
+    if (gt == std::string::npos) return ryml::NONE;
+    std::string elem = ref.substr(0, gt);
+    std::string rest = ref.substr(gt + 1);
+    // Reject empty parts and any remaining '>' (e.g. `branch>>ele>...`).
+    if (elem.empty() || rest.empty() || rest.find('>') != std::string::npos)
+        return ryml::NONE;
+    auto it = emap.find(elem);
+    if (it == emap.end()) return ryml::NONE;
+    size_t node = resolve_param_path(t, it->second, split_dots(rest));
+    if (node == ryml::NONE || !t.has_val(node)) return ryml::NONE;
+    return node;
+}
+
 // Evaluates all expressions in the (already expanded) tree in place.
 static void evaluate_expressions(ryml::Tree& t) {
     std::map<std::string, std::string> defs;
     collect_defs(t, t.root_id(), defs);
+
+    // Element name -> definition map, so expressions may reference another
+    // element's parameter via `element>group. ... .param`.
+    std::map<std::string, size_t> emap;
+    make_ele_map(emap, t, t.root_id());
 
     // Lazily evaluate user symbols on demand, memoizing results and guarding
     // against reference cycles. A symbol whose defining expression is itself
@@ -935,18 +969,28 @@ static void evaluate_expressions(ryml::Tree& t) {
     auto active = std::make_shared<std::set<std::string>>();
     std::shared_ptr<pals::SymbolLookup> resolve =
         std::make_shared<pals::SymbolLookup>();
-    *resolve = [&defs, cache, active, resolve](const std::string& name,
-                                               double& out) -> bool {
+    *resolve = [&defs, &t, &emap, cache, active, resolve](
+                   const std::string& name, double& out) -> bool {
         auto ci = cache->find(name);
         if (ci != cache->end()) {
             out = ci->second;
             return true;
         }
-        auto di = defs.find(name);
-        if (di == defs.end()) return false;
+        // An element-parameter reference (`element>group. ... .param`) resolves
+        // to that parameter's value, evaluated as an expression in turn.
+        std::string body;
+        if (name.find('>') != std::string::npos) {
+            size_t vn = resolve_ele_param_ref(t, emap, name);
+            if (vn == ryml::NONE) return false;
+            body = std::string(t.val(vn).str, t.val(vn).len);
+        } else {
+            auto di = defs.find(name);
+            if (di == defs.end()) return false;
+            body = di->second;
+        }
         if (!active->insert(name).second) return false;  // cycle
         bool was_expr = false;
-        std::string body = strip_expr_wrapper(di->second, was_expr);
+        body = strip_expr_wrapper(body, was_expr);
         pals::EvalOutcome r = pals::eval_expression(body, *resolve);
         active->erase(name);
         if (!r.ok) return false;
