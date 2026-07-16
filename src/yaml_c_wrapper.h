@@ -106,7 +106,7 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
  * the math functions (sqrt, log, sin, floor, modulo, ...), and the
  * particle-data functions mass_of / charge_of / anomalous_moment_of (backed by
  * AtomicAndPhysicalConstantsCLib), whose species-name argument must be quoted,
- * e.g. mass_of("3He"). A leading `expr(...)` wrapper is accepted and unwrapped.
+ * e.g. mass_of("#3He"). A leading `expr(...)` wrapper is accepted and unwrapped.
  *
  * This entry point evaluates a standalone string: user-defined constants and
  * variables are NOT in scope (use parse_and_expand_PALS() for whole-lattice

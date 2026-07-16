@@ -41,7 +41,8 @@ value written into the control entry. The `parameter` target specs and
 `control_type` are names and are left untouched.
 
 The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of` take
-a quoted species name (e.g. `mass_of("3He")`); an unquoted name is an error. These
+a quoted species name (e.g. `mass_of("#3He")`); an unquoted name is an error. A
+mass number must carry a leading `#` (`"#3He"`, not `"3He"`). These
 functions and the physical values behind the named constants are provided by
 [AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
 (a C++ mirror of [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl)),

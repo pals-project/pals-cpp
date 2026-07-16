@@ -10,7 +10,7 @@
  *   primary := number | name | name '(' args ')' | '(' expr ')'
  *
  * The particle functions mass_of / charge_of / anomalous_moment_of take a
- * quoted species name (e.g. `mass_of("3He")`), not a numeric sub-expression, so
+ * quoted species name (e.g. `mass_of("#3He")`), not a numeric sub-expression, so
  * their argument is read as raw text and passed to
  * AtomicAndPhysicalConstantsCLib. An unquoted species name is an error.
  */
@@ -195,7 +195,22 @@ class Parser {
     if (arg.size() < 2 || (arg.front() != '"' && arg.front() != '\'') ||
         arg.back() != arg.front())
       throw ParseError{};
-    return arg.substr(1, arg.size() - 2);
+    std::string name = arg.substr(1, arg.size() - 2);
+
+    // A mass number must be written with a leading '#', e.g. "#3He" not "3He"
+    // (matching AtomicAndPhysicalConstants.jl). The mass number, when present,
+    // leads the name (after an optional "anti-" prefix), so a leading ASCII
+    // digit signals a missing '#'.
+    std::string core = name;
+    for (const char* pre : {"anti-", "Anti-", "anti", "Anti"}) {
+      if (core.rfind(pre, 0) == 0) {
+        core.erase(0, std::string(pre).size());
+        break;
+      }
+    }
+    if (!core.empty() && std::isdigit(static_cast<unsigned char>(core.front())))
+      throw ParseError{};
+    return name;
   }
 
   double name() {
