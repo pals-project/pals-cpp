@@ -111,6 +111,28 @@ Definitions are resolved in dependency order, so a later value may reference an
 earlier one (`a_var` uses `a_const` above). A reference that cannot be resolved,
 or a genuine cycle, leaves the value as text rather than aborting the expansion.
 
+## Element-parameter references
+
+An expression may also reference another element's parameter by name, using the
+`element>group.sub. ... .param` syntax (the same parameter path used elsewhere in
+the standard). It resolves to that parameter's value, itself evaluated as an
+expression:
+
+```yaml
+- thingB:
+    kind: Sextupole
+    MagneticMultipoleP:
+      Kn2L: 0.1
+- DH1A:
+    kind: Bend
+    BendP:
+      edge_int2: 0.02 * thingB>MagneticMultipoleP.Kn2L   # → 0.002
+```
+
+The reference names one specific element (an exact name — pattern matching is
+not used in a value expression) and its full parameter path. As with any other
+reference, one that cannot be resolved leaves the value as text.
+
 ## Controllers
 
 A `Controller` element bundles expressions that drive lattice parameters. Its
