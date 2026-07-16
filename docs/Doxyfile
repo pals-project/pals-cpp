@@ -1,0 +1,38 @@
+# Doxygen configuration for the pals-cpp documentation site.
+#
+# This produces *XML only*: the narrative site is built by Sphinx (MyST + Furo)
+# and the C/C++ API is pulled in from this XML by the Breathe extension. See
+# docs/build.py. Run from the docs/ directory:  doxygen Doxyfile
+#
+# Unset options take Doxygen's defaults.
+
+PROJECT_NAME           = "pals-cpp"
+PROJECT_BRIEF          = "A C++ parser for the PALS accelerator-lattice language"
+
+# Document the public headers (the C API and the expression evaluator).
+INPUT                  = ../src/yaml_c_wrapper.h ../src/pals_expression.h
+FILE_PATTERNS          = *.h *.hpp
+RECURSIVE              = NO
+
+# Emit XML for Breathe; no HTML/LaTeX (Sphinx renders the site).
+OUTPUT_DIRECTORY       = doxygen
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+
+# Show every declaration in the headers, documented or not.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+JAVADOC_AUTOBRIEF      = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+# Expand the YAML_API export macro away so the declarations parse cleanly.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = YAML_API= __cplusplus
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO

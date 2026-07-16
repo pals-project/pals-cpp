@@ -44,4 +44,7 @@ alocal    # Scratch directory
 *.dwo
 
 lattice_files/expand.pals.yaml
-docs/html/
+
+# Documentation build artifacts
+docs/build/
+docs/doxygen/
