@@ -423,26 +423,34 @@ static void expand(ryml::Tree& t, size_t node,
                     size_t repeat_id =
                         t.find_child(entry, ryml::to_csubstr("repeat"));
                     if (repeat_id != ryml::NONE && t.has_val(repeat_id)) {
-                        int count = 0;
                         std::string cnt_txt(t.val(repeat_id).str,
                                             t.val(repeat_id).len);
+                        std::string target(t.key(entry).str, t.key(entry).len);
+
+                        // stoi stops at the first character it cannot use and
+                        // reports how far it got, so require the whole value to
+                        // be consumed: "3x" is a typo, not a count of 3. A
+                        // negative count is meaningless too. Both land on
+                        // count < 0 and are reported the same way.
+                        int count = -1;
                         try {
-                            count = std::stoi(cnt_txt);
+                            size_t used = 0;
+                            count = std::stoi(cnt_txt, &used);
+                            if (used != cnt_txt.size()) count = -1;
                         } catch (...) {
+                            count = -1;
+                        }
+
+                        if (count < 0) {
                             add_problem(problems, "repeat: invalid count '" +
                                                       cnt_txt + "' for '" +
-                                                      std::string(
-                                                          t.key(entry).str,
-                                                          t.key(entry).len) +
-                                                      "'");
-                        }
-                        std::string target(t.key(entry).str, t.key(entry).len);
-                        // check if the beamline to be repeated has been defined
-                        // in the file
-                        if (!emap.count(target))
+                                                      target + "'");
+                        } else if (!emap.count(target)) {
+                            // check if the beamline to be repeated has been
+                            // defined in the file
                             add_problem(problems, "repeat: beamline '" + target +
                                                       "' is not defined");
-                        if (emap.count(target)) {
+                        } else {
                             size_t def = emap[target];
                             size_t line_id =
                                 t.find_child(def, ryml::to_csubstr("line"));
@@ -475,6 +483,13 @@ static void expand(ryml::Tree& t, size_t node,
                             child = next;
                             continue;
                         }
+                        // Either problem path falls through to leave the entry
+                        // exactly as written. Only a repeat we fully understood
+                        // removes it: dropping an entry on the strength of a
+                        // count we could not read would delete part of the
+                        // lattice, leaving a plausible-looking `line: []` that
+                        // is only explained by a problem the caller may not
+                        // check.
                     }
                 }
             }

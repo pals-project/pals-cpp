@@ -1821,6 +1821,63 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     rm_tmp(path);
 }
 
+TEST_CASE("repeat with an unusable count keeps the entry",
+          "[lattices][problems]") {
+    // A repeat count that cannot be read is reported *and* left alone. It used
+    // to be reported and then unrolled zero times, which removed the entry: the
+    // lattice came back with an empty `line`, silently missing a beamline.
+    auto counts_rejected = [](const char* count) {
+        const char* path = "tmp_repeat_bad.pals.yaml";
+        std::string doc = std::string(
+            "PALS:\n"
+            "  facility:\n"
+            "    - d1:\n"
+            "        kind: Drift\n"
+            "        length: 2.0\n"
+            "    - cell:\n"
+            "        kind: BeamLine\n"
+            "        line:\n"
+            "          - d1\n"
+            "    - main_line:\n"
+            "        kind: BeamLine\n"
+            "        line:\n"
+            "          - cell:\n"
+            "              repeat: ") + count + "\n" +
+            "    - lat1:\n"
+            "        kind: Lattice\n"
+            "        branches:\n"
+            "          - main_line\n"
+            "    - use: \"lat1\"\n";
+        write_tmp(path, doc.c_str());
+
+        struct lattices lat = parse_and_expand_PALS(path, nullptr);
+        REQUIRE(lat.expanded != nullptr);
+
+        bool reported = false;
+        for (size_t i = 0; i < lat.problems.count; ++i)
+            if (std::string(lat.problems.items[i])
+                    .find("repeat: invalid count") != std::string::npos)
+                reported = true;
+
+        // The `line` under main_line must still hold the cell entry rather than
+        // having been emptied.
+        YAMLNodeId line = find_by_key(lat.expanded, "line");
+        bool kept = line != YAML_NULL_ID && get_size(lat.expanded, line) > 0;
+
+        free_lattice_problems(lat.problems);
+        delete_tree(lat.original);
+        delete_tree(lat.combined);
+        delete_tree(lat.expanded);
+        delete_tree(lat.leftover);
+        rm_tmp(path);
+        return reported && kept;
+    };
+
+    REQUIRE(counts_rejected("bogus"));  // not a number at all
+    REQUIRE(counts_rejected("3x"));     // stoi would stop early and return 3
+    REQUIRE(counts_rejected("-1"));     // parses, but meaningless
+}
+
 TEST_CASE("parse_and_expand_PALS reports a missing lattice",
           "[lattices][problems]") {
     const char* path = "tmp_nolattice.pals.yaml";
