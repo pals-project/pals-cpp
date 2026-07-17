@@ -22,8 +22,11 @@ typedef size_t YAMLNodeId;
 // ryml uses (size_t)-1 to represent "not found" or "invalid"
 #define YAML_NULL_ID ((size_t)-1)
 
-// Pass as the index argument to add_* functions to append instead of inserting
-#define END ((size_t)-1)
+// Pass as the index argument to add_* functions to append instead of inserting.
+// Spelled YAML_END rather than END because this is a public header: an
+// unprefixed END would clobber any enumerator, variable or macro of that
+// name in every translation unit that includes us.
+#define YAML_END YAML_NULL_ID
 
 // --- STRING LIST ---
 //
@@ -37,9 +40,11 @@ struct string_list {
     size_t count;
 };
 
-// struct lattices uses std::map so it must be C++ only
-#ifdef __cplusplus
-#include <map>
+// --- LATTICES ---
+//
+// The four trees parse_and_expand_PALS() produces, plus the problems found on
+// the way. Plain C: the handles are opaque pointers, so this is usable from any
+// language that can read the rest of this header.
 struct lattices {
     YAMLTreeHandle original;  // Raw tree mapping each file (including includes)
                               // to its unparsed contents
@@ -56,7 +61,6 @@ struct lattices {
     struct string_list problems;  // Problems found while building `expanded`;
                                   // free with free_lattice_problems()
 };
-#endif
 
 // --- CORRESPONDENCE MAP ---
 //
@@ -433,7 +437,8 @@ YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node);
  * @param parent Node ID of the parent MAP or sequence.
  * @param key    Key string for MAP parents. Pass NULL for sequence elements.
  * @param value  Null-terminated scalar value string.
- * @param index  Insertion position among existing children. Pass END to append.
+ * @param index  Insertion position among existing children. Pass YAML_END
+ * to append.
  * @return Node ID of the newly created child, or YAML_NULL_ID on failure.
  */
 YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
@@ -447,7 +452,8 @@ YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
  * @param parent Node ID of the parent MAP or sequence.
  * @param key    Key string when parent is a MAP. Pass NULL for sequence
  * elements.
- * @param index  Insertion position among existing children. Pass END to append.
+ * @param index  Insertion position among existing children. Pass YAML_END
+ * to append.
  * @return Node ID of the newly created MAP child, or YAML_NULL_ID on failure.
  */
 YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
@@ -460,7 +466,8 @@ YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
  * @param parent Node ID of the parent MAP or sequence.
  * @param key    Key string when parent is a MAP. Pass NULL for sequence
  * elements.
- * @param index  Insertion position among existing children. Pass END to append.
+ * @param index  Insertion position among existing children. Pass YAML_END
+ * to append.
  * @return Node ID of the newly created sequence child, or YAML_NULL_ID on
  * failure.
  */
@@ -522,7 +529,7 @@ YAML_API void deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
  * @param src_tree Handle to the source tree (may be the same as dst_tree).
  * @param src_node Node ID in src_tree whose children are copied.
  * @param index    Insertion position among dst_node's existing children.
- *                 Pass END to append after all existing children, or 0 to
+ *                 Pass YAML_END to append after all existing children, or 0 to
  *                 prepend before all existing children.
  *                 If either handle is NULL or either node is YAML_NULL_ID,
  *                 this call is a no-op.
@@ -565,7 +572,8 @@ YAML_API char* tree_to_string(YAMLTreeHandle tree);
 YAML_API bool write_file(YAMLTreeHandle tree, const char* filename);
 
 /**
- * Frees a string returned by get_node_key(), as_string(), or yaml_to_string().
+ * Frees a string returned by get_node_key(), as_string(), node_to_string() or
+ * tree_to_string(). These are every char*-returning function in this header.
  *
  * Passing NULL is safe and has no effect.
  *

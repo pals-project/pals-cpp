@@ -44,10 +44,10 @@ static void ensure_capacity(ryml::Tree& t, size_t needed = 1) {
     if (t.size() + needed >= t.capacity()) t.reserve(t.capacity() + 64);
 }
 
-// Append or insert a blank child. index=END means append.
+// Append or insert a blank child. index=YAML_END means append.
 static size_t add_child_at(ryml::Tree& t, size_t parent, size_t index) {
     ensure_capacity(t);
-    if (index == END) return t.append_child(parent);
+    if (index == YAML_END) return t.append_child(parent);
     size_t num = t.num_children(parent);
     if (index > num) index = num;
     size_t after = (index > 0) ? t.child(parent, index - 1) : ryml::NONE;
@@ -1989,7 +1989,7 @@ YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
     ryml::Tree& dt = GET_TREE(dst_tree);
     const ryml::Tree& st = GET_TREE(src_tree);
     size_t after;
-    if (index == END)
+    if (index == YAML_END)
         after = dt.last_child(dst_node);
     else if (index == 0)
         after = ryml::NONE;

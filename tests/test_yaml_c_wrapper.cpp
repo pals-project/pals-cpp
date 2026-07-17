@@ -272,7 +272,7 @@ TEST_CASE("add_scalar appends a keyed scalar to a MAP", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
 
-    YAMLNodeId node = add_scalar(tree, root, "lang", "C++", END);
+    YAMLNodeId node = add_scalar(tree, root, "lang", "C++", YAML_END);
     REQUIRE(node != YAML_NULL_ID);
     REQUIRE(val_eq(tree, get_child_by_key(tree, root, "lang"), "C++"));
 
@@ -282,10 +282,10 @@ TEST_CASE("add_scalar appends a keyed scalar to a MAP", "[modification]") {
 TEST_CASE("add_scalar appends a keyless scalar to a sequence", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    YAMLNodeId seq = add_sequence(tree, root, "items", END);
+    YAMLNodeId seq = add_sequence(tree, root, "items", YAML_END);
 
-    add_scalar(tree, seq, nullptr, "x", END);
-    add_scalar(tree, seq, nullptr, "y", END);
+    add_scalar(tree, seq, nullptr, "x", YAML_END);
+    add_scalar(tree, seq, nullptr, "y", YAML_END);
 
     REQUIRE(get_size(tree, seq) == 2);
     REQUIRE(val_eq(tree, get_child_by_index(tree, seq, 0), "x"));
@@ -297,8 +297,8 @@ TEST_CASE("add_scalar appends a keyless scalar to a sequence", "[modification]")
 TEST_CASE("add_scalar inserts at a specific index", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    add_scalar(tree, root, "first",  "a", END);
-    add_scalar(tree, root, "third",  "c", END);
+    add_scalar(tree, root, "first",  "a", YAML_END);
+    add_scalar(tree, root, "third",  "c", YAML_END);
     add_scalar(tree, root, "second", "b", 1);   // insert between first and third
 
     char* k0 = get_node_key(tree, get_child_by_index(tree, root, 0));
@@ -318,7 +318,7 @@ TEST_CASE("add_scalar inserts at a specific index", "[modification]") {
 TEST_CASE("add_map creates an empty MAP child", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    YAMLNodeId child = add_map(tree, root, "nested", END);
+    YAMLNodeId child = add_map(tree, root, "nested", YAML_END);
 
     REQUIRE(child != YAML_NULL_ID);
     REQUIRE(is_map(tree, child));
@@ -330,7 +330,7 @@ TEST_CASE("add_map creates an empty MAP child", "[modification]") {
 TEST_CASE("add_sequence creates an empty sequence child", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    YAMLNodeId seq = add_sequence(tree, root, "list", END);
+    YAMLNodeId seq = add_sequence(tree, root, "list", YAML_END);
 
     REQUIRE(seq != YAML_NULL_ID);
     REQUIRE(is_sequence(tree, seq));
@@ -342,11 +342,12 @@ TEST_CASE("add_sequence creates an empty sequence child", "[modification]") {
 TEST_CASE("add_map inside a sequence creates an anonymous MAP element", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    YAMLNodeId seq  = add_sequence(tree, root, "records", END);
-    YAMLNodeId elem = add_map(tree, seq, nullptr, END);   // seq element has no key
+    YAMLNodeId seq  = add_sequence(tree, root, "records", YAML_END);
+    // seq element has no key
+    YAMLNodeId elem = add_map(tree, seq, nullptr, YAML_END);
 
     REQUIRE(is_map(tree, elem));
-    add_scalar(tree, elem, "id", "1", END);
+    add_scalar(tree, elem, "id", "1", YAML_END);
     REQUIRE(val_eq(tree, get_child_by_key(tree, elem, "id"), "1"));
 
     delete_tree(tree);
@@ -354,7 +355,7 @@ TEST_CASE("add_map inside a sequence creates an anonymous MAP element", "[modifi
 
 TEST_CASE("add_scalar returns YAML_NULL_ID for a null parent", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
-    REQUIRE(add_scalar(tree, YAML_NULL_ID, "k", "v", END) == YAML_NULL_ID);
+    REQUIRE(add_scalar(tree, YAML_NULL_ID, "k", "v", YAML_END) == YAML_NULL_ID);
     delete_tree(tree);
 }
 
@@ -365,7 +366,7 @@ TEST_CASE("add_scalar returns YAML_NULL_ID for a null parent", "[modification]")
 TEST_CASE("set_scalar updates an existing scalar value", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root  = get_root(tree);
-    YAMLNodeId child = add_scalar(tree, root, "key", "initial", END);
+    YAMLNodeId child = add_scalar(tree, root, "key", "initial", YAML_END);
 
     set_scalar(tree, child, "updated");
     REQUIRE(val_eq(tree, child, "updated"));
@@ -382,7 +383,7 @@ TEST_CASE("set_scalar on YAML_NULL_ID does not crash", "[modification]") {
 TEST_CASE("set_node_key renames a MAP child", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root  = get_root(tree);
-    YAMLNodeId child = add_scalar(tree, root, "old", "val", END);
+    YAMLNodeId child = add_scalar(tree, root, "old", "val", YAML_END);
 
     set_node_key(tree, child, "new");
 
@@ -405,8 +406,8 @@ TEST_CASE("set_node_key on YAML_NULL_ID does not crash", "[modification]") {
 TEST_CASE("remove_node removes a child from a MAP", "[modification]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    add_scalar(tree, root, "keep",   "yes", END);
-    add_scalar(tree, root, "remove", "no",  END);
+    add_scalar(tree, root, "keep",   "yes", YAML_END);
+    add_scalar(tree, root, "remove", "no",  YAML_END);
 
     YAMLNodeId to_remove = get_child_by_key(tree, root, "remove");
     remove_node(tree, root, to_remove);
@@ -470,10 +471,10 @@ TEST_CASE("deep_copy_children appends children to dst", "[copy]") {
     YAMLNodeId dst_root = get_root(dst);
 
     // Pre-populate dst with one entry
-    add_scalar(dst, dst_root, "existing", "yes", END);
+    add_scalar(dst, dst_root, "existing", "yes", YAML_END);
     REQUIRE(get_size(dst, dst_root) == 1);
 
-    deep_copy_children(dst, dst_root, src, get_root(src), END);
+    deep_copy_children(dst, dst_root, src, get_root(src), YAML_END);
 
     // Should now have original + 3 copied children
     REQUIRE(get_size(dst, dst_root) == 4);
@@ -487,7 +488,7 @@ TEST_CASE("deep_copy_children appends children to dst", "[copy]") {
 TEST_CASE("deep_copy_children inserts at index 0 (prepend)", "[copy]") {
     YAMLTreeHandle src = parse_string("new: value");
     YAMLTreeHandle dst = create_empty_tree();
-    add_scalar(dst, get_root(dst), "existing", "old", END);
+    add_scalar(dst, get_root(dst), "existing", "old", YAML_END);
 
     deep_copy_children(dst, get_root(dst), src, get_root(src), 0);
 
@@ -507,7 +508,7 @@ TEST_CASE("deep_copy_children inserts at index 0 (prepend)", "[copy]") {
 TEST_CASE("node_to_string emits valid YAML containing expected keys", "[emitting]") {
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    add_scalar(tree, root, "greeting", "hello", END);
+    add_scalar(tree, root, "greeting", "hello", YAML_END);
 
     char* str = node_to_string(tree, root);
     REQUIRE(str != nullptr);
@@ -539,8 +540,8 @@ TEST_CASE("write_file writes a tree that can be read back", "[emitting][file]") 
     const char* path = "tmp_write.yaml";
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
-    add_scalar(tree, root, "written", "true", END);
-    add_scalar(tree, root, "count",   "7",    END);
+    add_scalar(tree, root, "written", "true", YAML_END);
+    add_scalar(tree, root, "count",   "7",    YAML_END);
 
     REQUIRE(write_file(tree, path));
     delete_tree(tree);
@@ -574,12 +575,12 @@ TEST_CASE("Nested structure survives a write/read round-trip", "[round_trip]") {
     // Build: { server: { host: localhost, port: 8080 }, tags: [web, api] }
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root   = get_root(tree);
-    YAMLNodeId server = add_map(tree, root, "server", END);
-    add_scalar(tree, server, "host", "localhost", END);
-    add_scalar(tree, server, "port", "8080",      END);
-    YAMLNodeId tags = add_sequence(tree, root, "tags", END);
-    add_scalar(tree, tags, nullptr, "web", END);
-    add_scalar(tree, tags, nullptr, "api", END);
+    YAMLNodeId server = add_map(tree, root, "server", YAML_END);
+    add_scalar(tree, server, "host", "localhost", YAML_END);
+    add_scalar(tree, server, "port", "8080",      YAML_END);
+    YAMLNodeId tags = add_sequence(tree, root, "tags", YAML_END);
+    add_scalar(tree, tags, nullptr, "web", YAML_END);
+    add_scalar(tree, tags, nullptr, "api", YAML_END);
 
     REQUIRE(write_file(tree, path));
     delete_tree(tree);
@@ -993,7 +994,7 @@ TEST_CASE("Map keys keep their file order through a parse/emit round-trip",
 TEST_CASE("add_scalar inserts at the requested position", "[key_order]") {
     YAMLTreeHandle tree = parse_string("zulu: 1\nalpha: 2");
     YAMLNodeId root = get_root(tree);
-    add_scalar(tree, root, "omega", "3", END);  // append
+    add_scalar(tree, root, "omega", "3", YAML_END);  // append
     add_scalar(tree, root, "first", "0", 0);    // prepend
 
     const std::vector<std::string> expected = {"first", "zulu", "alpha", "omega"};
