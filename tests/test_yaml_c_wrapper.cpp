@@ -629,14 +629,113 @@ TEST_CASE("Cloning via deep_copy_node produces an independent copy", "[copy]") {
 // parse_and_expand_PALS (smoke test — requires the example lattice files)
 // ============================================================
 
-TEST_CASE("parse_and_expand_PALS returns three non-null handles", "[lattices]") {
+// Helper: navigate root -> PALS -> facility for a given tree.
+static YAMLNodeId facility_of(YAMLTreeHandle t) {
+    YAMLNodeId pals = get_child_by_key(t, get_root(t), "PALS");
+    return get_child_by_key(t, pals, "facility");
+}
+
+TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
     REQUIRE(lat.original != nullptr);
     REQUIRE(lat.combined != nullptr);
     REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.leftover != nullptr);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+// The expanded tree holds the root lattice and nothing else: no PALS/facility
+// wrapper, and only the one entry.
+TEST_CASE("expanded holds only the root lattice", "[lattices]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    YAMLNodeId root = get_root(lat.expanded);
+
+    REQUIRE(is_map(lat.expanded, root));
+    REQUIRE(get_size(lat.expanded, root) == 1);
+    REQUIRE(get_child_by_key(lat.expanded, root, "PALS") == YAML_NULL_ID);
+
+    YAMLNodeId entry = get_child_by_index(lat.expanded, root, 0);
+    char* key = get_node_key(lat.expanded, entry);
+    REQUIRE(std::string(key) == "lat1");
+    yaml_free_string(key);
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, entry, "kind"),
+                   "Lattice"));
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    free_lattice_problems(lat.problems);
+}
+
+// Everything else stays behind, under its PALS/facility scaffolding — including
+// the lattice that was not expanded.
+TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    YAMLNodeId fac = facility_of(lat.leftover);
+    REQUIRE(fac != YAML_NULL_ID);
+
+    bool saw_lat1 = false, saw_lat2 = false, saw_thingB = false;
+    for (size_t i = 0; i < get_size(lat.leftover, fac); i++) {
+        YAMLNodeId item = get_child_by_index(lat.leftover, fac, i);
+        if (get_size(lat.leftover, item) != 1) continue;
+        char* key = get_node_key(lat.leftover,
+                                 get_child_by_index(lat.leftover, item, 0));
+        std::string k(key ? key : "");
+        yaml_free_string(key);
+        if (k == "lat1") saw_lat1 = true;
+        if (k == "lat2") saw_lat2 = true;
+        if (k == "thingB") saw_thingB = true;
+    }
+
+    REQUIRE_FALSE(saw_lat1);  // moved to expanded
+    REQUIRE(saw_lat2);        // a non-root Lattice is leftover like anything else
+    REQUIRE(saw_thingB);      // element definitions stay put
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    free_lattice_problems(lat.problems);
+}
+
+// handle_fork writes the raw node id of the fork's destination element. That id
+// is assigned before the lattice is cut out into its own tree, so it must be
+// translated to survive the renumbering.
+TEST_CASE("fork_pointer resolves inside the expanded tree", "[lattices]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+
+    // Find the fork_pointer scalar anywhere in the expanded tree.
+    YAMLNodeId fp = YAML_NULL_ID;
+    std::vector<YAMLNodeId> stack{get_root(lat.expanded)};
+    while (!stack.empty()) {
+        YAMLNodeId n = stack.back();
+        stack.pop_back();
+        char* key = get_node_key(lat.expanded, n);
+        if (key && std::string(key) == "fork_pointer") fp = n;
+        yaml_free_string(key);
+        for (size_t i = 0; i < get_size(lat.expanded, n); i++)
+            stack.push_back(get_child_by_index(lat.expanded, n, i));
+    }
+    REQUIRE(fp != YAML_NULL_ID);
+
+    char* val = as_string(lat.expanded, fp);
+    YAMLNodeId target = (YAMLNodeId)std::stoull(val);
+    yaml_free_string(val);
+
+    // It names the fork's destination_element in the branch expansion created.
+    char* dest = as_string(lat.expanded, target);
+    REQUIRE(std::string(dest) == "dump_begin");
+    yaml_free_string(dest);
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    free_lattice_problems(lat.problems);
 }
 
 // ============================================================
@@ -644,28 +743,28 @@ TEST_CASE("parse_and_expand_PALS returns three non-null handles", "[lattices]") 
 // ============================================================
 
 TEST_CASE("build_correspondence_map is empty for null handles", "[correspondence]") {
-    struct correspondence_map m = build_correspondence_map(nullptr, nullptr, nullptr);
+    struct correspondence_map m = build_correspondence_map(nullptr, nullptr, nullptr, nullptr);
     REQUIRE(m.count == 0);
     REQUIRE(m.links == nullptr);
     free_correspondence_map(m);  // must not crash
 }
 
-TEST_CASE("build_correspondence_map links the three tree roots", "[correspondence]") {
+TEST_CASE("build_correspondence_map links the document roots", "[correspondence]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
     struct correspondence_map m =
-        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+        build_correspondence_map(lat.original, lat.combined, lat.expanded,
+                                 lat.leftover);
 
     REQUIRE(m.count > 0);
 
-    // One link is emitted per expanded node, so the count matches the number
-    // of nodes reachable from the expanded root.
-    YAMLNodeId exp_root = get_root(lat.expanded);
+    // leftover is what still carries the document root, so that is the node
+    // corresponding to the combined root. (The expanded root is synthesised to
+    // hold the lattice entry and has no counterpart — see below.)
+    YAMLNodeId left_root = get_root(lat.leftover);
 
-    // Find the link for the expanded root and verify it points at the combined
-    // root and at the top-level file's entry in the original tree.
     bool found_root = false;
     for (size_t i = 0; i < m.count; i++) {
-        if (m.links[i].expanded == exp_root) {
+        if (m.links[i].leftover == left_root) {
             found_root = true;
             REQUIRE(m.links[i].combined == get_root(lat.combined));
             // The original tree's first child is the top-level file's contents.
@@ -674,8 +773,9 @@ TEST_CASE("build_correspondence_map links the three tree roots", "[correspondenc
             REQUIRE(is_map(lat.combined, m.links[i].combined));
             REQUIRE(is_map(lat.original, m.links[i].original));
         }
-        // Every emitted link has a valid expanded node.
-        REQUIRE(m.links[i].expanded != YAML_NULL_ID);
+        // A link names a node in exactly one of the two derived trees.
+        REQUIRE((m.links[i].expanded == YAML_NULL_ID) !=
+                (m.links[i].leftover == YAML_NULL_ID));
     }
     REQUIRE(found_root);
 
@@ -683,18 +783,46 @@ TEST_CASE("build_correspondence_map links the three tree roots", "[correspondenc
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
 }
 
-// Helper: navigate root -> PALS -> facility for a given tree.
-static YAMLNodeId facility_of(YAMLTreeHandle t) {
-    YAMLNodeId pals = get_child_by_key(t, get_root(t), "PALS");
-    return get_child_by_key(t, pals, "facility");
+// A definition that expansion substituted into the lattice is a copy: the
+// definition still stands in leftover, so the same combined node reaches both
+// trees.
+TEST_CASE("build_correspondence_map ties the two trees through combined",
+          "[correspondence]") {
+    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    struct correspondence_map m =
+        build_correspondence_map(lat.original, lat.combined, lat.expanded,
+                                 lat.leftover);
+
+    // inj_line is defined at facility level and used by lat1's branches, so it
+    // is expanded into lat1 while its definition stays in leftover.
+    std::map<YAMLNodeId, int> sides;  // combined id -> bitmask of trees reached
+    for (size_t i = 0; i < m.count; i++) {
+        if (m.links[i].combined == YAML_NULL_ID) continue;
+        sides[m.links[i].combined] |=
+            (m.links[i].expanded != YAML_NULL_ID) ? 1 : 2;
+    }
+
+    bool found_both = false;
+    for (const auto& kv : sides)
+        if (kv.second == 3) found_both = true;
+    REQUIRE(found_both);
+
+    free_correspondence_map(m);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    free_lattice_problems(lat.problems);
 }
 
 TEST_CASE("build_correspondence_map connects a node across trees by value",
           "[correspondence]") {
-    // A constant that lives outside the expanded lattice appears, unchanged,
-    // in all three trees; the map must connect the three copies.
+    // A constant that lives outside the expanded lattice is not part of it, so
+    // it lands in leftover; the map must still connect it back to combined and
+    // original.
     const char* path = "tmp_corr.pals.yaml";
     write_tmp(path,
               "PALS:\n"
@@ -716,20 +844,21 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     struct correspondence_map m =
-        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+        build_correspondence_map(lat.original, lat.combined, lat.expanded,
+                                 lat.leftover);
 
-    // Locate a_const in the expanded tree: facility[0] -> constants -> a_const.
-    YAMLNodeId e_const = get_child_by_index(lat.expanded, facility_of(lat.expanded), 0);
-    YAMLNodeId e_a_const =
-        get_child_by_key(lat.expanded,
-                         get_child_by_key(lat.expanded, e_const, "constants"),
+    // Locate a_const in the leftover tree: facility[0] -> constants -> a_const.
+    YAMLNodeId l_const = get_child_by_index(lat.leftover, facility_of(lat.leftover), 0);
+    YAMLNodeId l_a_const =
+        get_child_by_key(lat.leftover,
+                         get_child_by_key(lat.leftover, l_const, "constants"),
                          "a_const");
-    REQUIRE(e_a_const != YAML_NULL_ID);
-    // The expanded tree has its expressions evaluated, so this constant now
-    // holds a number; the combined/original copies (checked below) still carry
-    // the original expression text.
+    REQUIRE(l_a_const != YAML_NULL_ID);
+    // Expressions are evaluated across the whole document before it is split, so
+    // this constant holds a number in leftover too; the combined/original copies
+    // (checked below) still carry the original expression text.
     {
-        char* s = as_string(lat.expanded, e_a_const);
+        char* s = as_string(lat.leftover, l_a_const);
         REQUIRE(s != nullptr);
         double got = std::strtod(s, nullptr);
         yaml_free_string(s);
@@ -742,8 +871,9 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     // Find its link and follow it to the combined and original copies.
     bool found = false;
     for (size_t i = 0; i < m.count; i++) {
-        if (m.links[i].expanded != e_a_const) continue;
+        if (m.links[i].leftover != l_a_const) continue;
         found = true;
+        REQUIRE(m.links[i].expanded == YAML_NULL_ID);
         REQUIRE(m.links[i].combined != YAML_NULL_ID);
         REQUIRE(m.links[i].original != YAML_NULL_ID);
         REQUIRE(val_eq(lat.combined, m.links[i].combined, "0.3 * r_electron"));
@@ -755,6 +885,7 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -786,7 +917,8 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     struct correspondence_map m =
-        build_correspondence_map(lat.original, lat.combined, lat.expanded);
+        build_correspondence_map(lat.original, lat.combined, lat.expanded,
+                                 lat.leftover);
 
     // Unrolling `repeat: 3` over a one-element cell produces three keyless `d1`
     // scalars in the expanded line, all copied from the same combined source.
@@ -794,6 +926,8 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     // nodes point to; a single source must account for at least three copies.
     std::map<YAMLNodeId, int> combined_hits;
     for (size_t i = 0; i < m.count; i++) {
+        // Skip the leftover half of the map: those ids index a different tree.
+        if (m.links[i].expanded == YAML_NULL_ID) continue;
         if (!is_scalar(lat.expanded, m.links[i].expanded)) continue;
         if (!val_eq(lat.expanded, m.links[i].expanded, "d1")) continue;
         REQUIRE(m.links[i].combined != YAML_NULL_ID);  // has a source
@@ -807,6 +941,7 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -904,10 +1039,9 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     REQUIRE(key_eq(lat.combined, c_line, "main_line"));
     REQUIRE(keys_of(lat.combined, c_line) == expected);
 
-    // In the expanded tree the line is inlined under lat1's `branches`.
-    YAMLNodeId lat1 = get_child_by_index(
-        lat.expanded,
-        get_child_by_index(lat.expanded, facility_of(lat.expanded), 2), 0);
+    // The expanded tree is rooted at the lattice entry itself, and the line is
+    // inlined under its `branches`.
+    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
     REQUIRE(key_eq(lat.expanded, lat1, "lat1"));
     YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
     YAMLNodeId e_line = get_child_by_index(
@@ -928,6 +1062,7 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1332,6 +1467,23 @@ static double num_val(YAMLTreeHandle t, YAMLNodeId n) {
     return v;
 }
 
+// The first node keyed `key` anywhere in `t`, found depth-first. Used to reach
+// an element that expansion inlined into the lattice, wherever it ended up.
+static YAMLNodeId find_by_key(YAMLTreeHandle t, const char* key) {
+    std::vector<YAMLNodeId> stack{get_root(t)};
+    while (!stack.empty()) {
+        YAMLNodeId n = stack.back();
+        stack.pop_back();
+        char* k = get_node_key(t, n);
+        bool hit = k && std::string(k) == key;
+        yaml_free_string(k);
+        if (hit) return n;
+        for (size_t i = 0; i < get_size(t, n); i++)
+            stack.push_back(get_child_by_index(t, n, i));
+    }
+    return YAML_NULL_ID;
+}
+
 TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
           "[expr][lattices]") {
     const char* path = "tmp_expr.pals.yaml";
@@ -1365,7 +1517,9 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
 
     const double a_var = 3.75e7 / (2.99792458e8 * 2.99792458e8);
 
-    YAMLNodeId cleo = facility_param(lat.expanded, "cleo");
+    // `cleo` is referenced by main_line, so expansion inlines its definition
+    // into the lattice; this is the copy inside the expanded tree.
+    YAMLNodeId cleo = find_by_key(lat.expanded, "cleo");
     REQUIRE(cleo != YAML_NULL_ID);
 
     // Immediate expression using a user variable.
@@ -1381,13 +1535,17 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     YAMLNodeId kn2 = get_child_by_key(lat.expanded, mmp, "Kn2");
     REQUIRE(val_eq(lat.expanded, kn2, "0.01 + 0.003*random_gauss()"));
 
-    // Full-form constant defined via a particle function.
-    YAMLNodeId m_e = facility_param(lat.expanded, "m_e");
-    YAMLNodeId m_e_val = get_child_by_key(lat.expanded, m_e, "value");
-    REQUIRE(close(num_val(lat.expanded, m_e_val), 510998.95069000003));
+    // Expressions are evaluated before the document is split, so a definition
+    // that stayed behind is evaluated in leftover just the same. `m_e` is not
+    // referenced by the lattice, so leftover is the only place it exists.
+    YAMLNodeId m_e = facility_param(lat.leftover, "m_e");
+    REQUIRE(m_e != YAML_NULL_ID);
+    YAMLNodeId m_e_val = get_child_by_key(lat.leftover, m_e, "value");
+    REQUIRE(close(num_val(lat.leftover, m_e_val), 510998.95069000003));
+    REQUIRE(find_by_key(lat.expanded, "m_e") == YAML_NULL_ID);
 
-    // The combined tree keeps the original expression text (only `expanded`
-    // is evaluated).
+    // The combined tree keeps the original expression text (evaluation happens
+    // downstream of it).
     YAMLNodeId c_cleo = facility_param(lat.combined, "cleo");
     YAMLNodeId c_len = get_child_by_key(lat.combined, c_cleo, "length");
     REQUIRE(val_eq(lat.combined, c_len, "0.1*log(abs(b_var))"));
@@ -1395,6 +1553,7 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1431,19 +1590,23 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
 
     const double a_const = 0.3 * evaluate_pals_expression("r_electron", nullptr);
 
-    YAMLNodeId consts = facility_param(lat.expanded, "constants");
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, consts, "a_const")),
+    // constants/variables blocks are not part of the lattice, so they are
+    // leftover — evaluated all the same.
+    YAMLNodeId consts = facility_param(lat.leftover, "constants");
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, consts, "a_const")),
                   a_const));
 
     // a_var references the map-form constant a_const defined above it.
-    YAMLNodeId vars = facility_param(lat.expanded, "variables");
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, vars, "a_var")),
+    YAMLNodeId vars = facility_param(lat.leftover, "variables");
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, vars, "a_var")),
                   a_const * a_const));
 
-    // An element parameter may reference the map-form definitions too.
-    YAMLNodeId d1 = facility_param(lat.expanded, "d1");
+    // An element parameter may reference the map-form definitions too; this is
+    // d1 as inlined into the expanded lattice.
+    YAMLNodeId d1 = find_by_key(lat.expanded, "d1");
+    REQUIRE(d1 != YAML_NULL_ID);
     REQUIRE(close(num_val(lat.expanded, get_child_by_key(lat.expanded, d1,
                                                          "length")),
                   a_const + 0.45));
@@ -1451,6 +1614,7 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1486,7 +1650,8 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(lat.expanded != nullptr);
 
-    YAMLNodeId dh1a = facility_param(lat.expanded, "DH1A");
+    YAMLNodeId dh1a = find_by_key(lat.expanded, "DH1A");
+    REQUIRE(dh1a != YAML_NULL_ID);
     YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
     REQUIRE(close(
         num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge_int2")),
@@ -1499,6 +1664,7 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1534,12 +1700,13 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
 
     const double m_3he = 2809413528.3197904;  // mass_of("#3He"), CODATA 2022
 
-    YAMLNodeId consts = facility_param(lat.expanded, "constants");
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, consts, "b_const")),
+    YAMLNodeId consts = facility_param(lat.leftover, "constants");
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, consts, "b_const")),
                   0.45 * m_3he));
 
-    YAMLNodeId dh1a = facility_param(lat.expanded, "DH1A");
+    YAMLNodeId dh1a = find_by_key(lat.expanded, "DH1A");
+    REQUIRE(dh1a != YAML_NULL_ID);
     YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
     REQUIRE(close(num_val(lat.expanded,
                           get_child_by_key(lat.expanded, bendp, "e_tot")),
@@ -1553,8 +1720,8 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
                    "#3He"));
 
     // The species constant itself stays as its (string) species name.
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, consts, "species"), "#3He"));
+    REQUIRE(val_eq(lat.leftover,
+                   get_child_by_key(lat.leftover, consts, "species"), "#3He"));
 
     // No spurious problems.
     REQUIRE(lat.problems.count == 0);
@@ -1563,6 +1730,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1630,6 +1798,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1647,10 +1816,18 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
     REQUIRE(lat.problems.count == 1);
     REQUIRE(std::string(lat.problems.items[0]) == "lattice 'not_here' not found");
 
+    // With no lattice to expand, expanded is an empty map and the whole document
+    // is leftover — both handles are still valid.
+    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.leftover != nullptr);
+    REQUIRE(get_size(lat.expanded, get_root(lat.expanded)) == 0);
+    REQUIRE(facility_of(lat.leftover) != YAML_NULL_ID);
+
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }
 
@@ -1696,53 +1873,55 @@ TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.leftover != nullptr);
 
     const double cur1 = 0.023;
     const double cur2 = cur1 / 2.99792458e8;
 
+    // Controllers are facility-level, so they are leftover rather than part
+    // of the lattice; their expressions are evaluated all the same.
     // Controller variables are evaluated with the controller's own symbol
     // table: cur2 references the earlier variable cur1 and the constant c_light.
-    YAMLNodeId ps27 = facility_param(lat.expanded, "ps27");
+    YAMLNodeId ps27 = facility_param(lat.leftover, "ps27");
     REQUIRE(ps27 != YAML_NULL_ID);
-    YAMLNodeId vars = get_child_by_key(lat.expanded, ps27, "variables");
-    REQUIRE(close(num_val(lat.expanded, get_child_by_key(lat.expanded, vars,
+    YAMLNodeId vars = get_child_by_key(lat.leftover, ps27, "variables");
+    REQUIRE(close(num_val(lat.leftover, get_child_by_key(lat.leftover, vars,
                                                          "cur2")),
                   cur2));
 
     // Each control `expression` is computed and its value stored in place.
-    YAMLNodeId controls = get_child_by_key(lat.expanded, ps27, "controls");
-    YAMLNodeId c0 = get_child_by_index(lat.expanded, controls, 0);
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, c0, "expression")),
+    YAMLNodeId controls = get_child_by_key(lat.leftover, ps27, "controls");
+    YAMLNodeId c0 = get_child_by_index(lat.leftover, controls, 0);
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, c0, "expression")),
                   0.075 * std::sin(cur1) + 0.3 * cur2));
     // Control expressions may reference lattice constants (my_const = 2).
-    YAMLNodeId c1 = get_child_by_index(lat.expanded, controls, 1);
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, c1, "expression")),
+    YAMLNodeId c1 = get_child_by_index(lat.leftover, controls, 1);
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, c1, "expression")),
                   cur1 * 2.0));
     // random_gauss() stays deferred, exactly as elsewhere.
-    YAMLNodeId c2 = get_child_by_index(lat.expanded, controls, 2);
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, c2, "expression"),
+    YAMLNodeId c2 = get_child_by_index(lat.leftover, controls, 2);
+    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, c2, "expression"),
                    "0.01 + random_gauss()"));
 
     // The `parameter` target spec and `control_type` are names, left untouched.
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, c0, "parameter"),
+    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, c0, "parameter"),
                    "Qa.*>MagneticMultipoleP.Ks2L"));
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, ps27, "control_type"),
+    REQUIRE(val_eq(lat.leftover,
+                   get_child_by_key(lat.leftover, ps27, "control_type"),
                    "ABSOLUTE"));
 
     // A second controller may reference the first's variables via `name>var`.
-    YAMLNodeId chrom = facility_param(lat.expanded, "chrom_a");
-    YAMLNodeId cvars = get_child_by_key(lat.expanded, chrom, "variables");
-    REQUIRE(close(num_val(lat.expanded, get_child_by_key(lat.expanded, cvars,
+    YAMLNodeId chrom = facility_param(lat.leftover, "chrom_a");
+    YAMLNodeId cvars = get_child_by_key(lat.leftover, chrom, "variables");
+    REQUIRE(close(num_val(lat.leftover, get_child_by_key(lat.leftover, cvars,
                                                          "derived")),
                   cur1 * 2.0));
-    YAMLNodeId ccontrols = get_child_by_key(lat.expanded, chrom, "controls");
-    YAMLNodeId cc0 = get_child_by_index(lat.expanded, ccontrols, 0);
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, cc0, "expression")),
+    YAMLNodeId ccontrols = get_child_by_key(lat.leftover, chrom, "controls");
+    YAMLNodeId cc0 = get_child_by_index(lat.leftover, ccontrols, 0);
+    REQUIRE(close(num_val(lat.leftover,
+                          get_child_by_key(lat.leftover, cc0, "expression")),
                   5.62 * 0.4 + 0.02 * 0.4 * 0.4));
 
     // The combined tree keeps the original controller expression text.
@@ -1756,5 +1935,6 @@ TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
     rm_tmp(path);
 }

@@ -38,6 +38,9 @@ int main(int argc, char* argv[]) {
     std::cout << tree_to_string(lat.combined) << std::endl << "\n\n";
 
     std::cout << "========== Printing expanded lattice ==========" << std::endl;
-    std::cout << tree_to_string(lat.expanded) << std::endl;
+    std::cout << tree_to_string(lat.expanded) << std::endl << "\n\n";
+
+    std::cout << "========== Printing leftover ==========" << std::endl;
+    std::cout << tree_to_string(lat.leftover) << std::endl;
     return 0;
 }

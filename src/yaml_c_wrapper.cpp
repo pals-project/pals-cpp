@@ -26,11 +26,11 @@
 // size_t within its tree.
 //
 // `provenance` links this tree back to the one it was derived from in the
-// original->combined->expanded chain: it maps a node id in *this* tree to the
-// node id in the *source* tree it was copied from. It is empty for trees that
-// are not derived from another (e.g. `original`). For `combined` it maps
-// combined ids -> original ids; for `expanded` it maps expanded ids ->
-// combined ids.
+// original -> combined -> (expanded, leftover) chain: it maps a node id in
+// *this* tree to the node id in the *source* tree it was copied from. It is
+// empty for trees that are not derived from another (e.g. `original`). For
+// `combined` it maps combined ids -> original ids; for `expanded` and
+// `leftover` alike it maps their ids -> combined ids.
 struct ParsedData {
     ryml::Tree tree;
     std::string buffer;
@@ -98,14 +98,18 @@ static void deep_copy_recursive(ryml::Tree& dst_t, size_t dst_node,
 //
 // These mirror the plain copy/duplicate routines but record, for every node
 // they create, which source node it came from. The recorded map (`prov`) is
-// what lets build_correspondence_map() link a node across the three trees.
+// what lets build_correspondence_map() link a node across the four trees.
 
 // Cross-tree deep copy (like deep_copy_recursive) that records
 // prov[dst_node] = src_node for every copied node. The destination root keeps
-// no key even if src_node has one (a tree root cannot be keyed).
-static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
-                              const ryml::Tree& src_t, size_t src_node,
-                              std::map<size_t, size_t>& prov) {
+// no key even if src_node has one (a tree root cannot be keyed). `skip` names a
+// source node to leave out along with its descendants (ryml::NONE copies
+// everything); it is how the leftover tree is built as the document minus the
+// lattice that went into the expanded tree.
+static void deep_copy_tracked_except(ryml::Tree& dst_t, size_t dst_node,
+                                     const ryml::Tree& src_t, size_t src_node,
+                                     size_t skip,
+                                     std::map<size_t, size_t>& prov) {
     prov[dst_node] = src_node;
 
     // Copy type flags (MAP, SEQ, VAL, KEY). A tree root cannot carry a key, so
@@ -123,7 +127,7 @@ static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
     std::vector<size_t> src_children;
     for (size_t c = src_t.first_child(src_node); c != ryml::NONE;
          c = src_t.next_sibling(c))
-        src_children.push_back(c);
+        if (c != skip) src_children.push_back(c);
 
     std::vector<size_t> dst_children;
     for (size_t i = 0; i < src_children.size(); i++) {
@@ -131,7 +135,34 @@ static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
         dst_children.push_back(dst_t.append_child(dst_node));
     }
     for (size_t i = 0; i < src_children.size(); i++)
-        deep_copy_tracked(dst_t, dst_children[i], src_t, src_children[i], prov);
+        deep_copy_tracked_except(dst_t, dst_children[i], src_t, src_children[i],
+                                 skip, prov);
+}
+
+static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
+                              const ryml::Tree& src_t, size_t src_node,
+                              std::map<size_t, size_t>& prov) {
+    deep_copy_tracked_except(dst_t, dst_node, src_t, src_node, ryml::NONE, prov);
+}
+
+// Rewrite `prov` (ids -> ids in some intermediate tree) so that it points at
+// whatever that intermediate tree was itself derived from, using its own
+// provenance. This is what lets `expanded` and `leftover` be cut out of the
+// temporary work tree and still record provenance straight back to `combined`:
+// the work tree is discarded, so links through it would dangle. Nodes with no
+// entry in `via` (created during expansion, e.g. `fork_pointer`) have no source
+// and drop out.
+static void chain_prov(std::map<size_t, size_t>& prov,
+                       const std::map<size_t, size_t>& via) {
+    for (auto it = prov.begin(); it != prov.end();) {
+        auto up = via.find(it->second);
+        if (up == via.end()) {
+            it = prov.erase(it);
+        } else {
+            it->second = up->second;
+            ++it;
+        }
+    }
 }
 
 // Remove every entry for `node` and its descendants from `prov`. Call this
@@ -1158,40 +1189,133 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     substitute_values(t, t.root_id(), *resolve, species, problems);
 }
 
-static YAMLTreeHandle make_expanded_from_combined(ParsedData* comb,
-                                                  const char* root_lattice,
-                                                  ProblemList& problems) {
-    if (!comb) return nullptr;
-    ParsedData* data = new ParsedData();
-    ryml::Tree& t = data->tree;
+// Rewrite the `fork_pointer` scalars of a freshly split-out tree. handle_fork
+// stores the raw node id of the fork's destination element, but it runs while
+// expansion is still on the work tree; cutting the lattice out into its own tree
+// renumbers every node, so each pointer has to be translated to the id its
+// target now carries. `from_work` maps work ids to ids in `t`. A pointer whose
+// target did not come across (it should always be inside the lattice) is left
+// alone and reported.
+static void remap_fork_pointers(ryml::Tree& t, size_t node,
+                                const std::map<size_t, size_t>& from_work,
+                                ProblemList& problems) {
+    if (node == ryml::NONE) return;
+
+    if (t.has_key(node) && t.key(node) == ryml::to_csubstr("fork_pointer") &&
+        t.has_val(node)) {
+        std::string old(t.val(node).str, t.val(node).len);
+        size_t target = 0;
+        try {
+            target = static_cast<size_t>(std::stoull(old));
+        } catch (...) {
+            return;
+        }
+        auto it = from_work.find(target);
+        if (it == from_work.end()) {
+            add_problem(problems,
+                        "fork_pointer target is outside the expanded lattice");
+            return;
+        }
+        std::string id_str = std::to_string(it->second);
+        t.set_val(node, t.to_arena(ryml::to_csubstr(id_str)));
+    }
+
+    for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
+        remap_fork_pointers(t, c, from_work, problems);
+}
+
+// Builds the `expanded` and `leftover` trees from `combined`.
+//
+// Expansion has to run on the whole document at once — the lattice pulls in
+// element and beamline definitions from the rest of the file — so it happens on
+// a single throwaway work tree, which is then cut in two: `expanded` takes the
+// root lattice and nothing else, `leftover` takes everything the lattice left
+// behind. Both record provenance straight back to `combined`, so the work tree
+// can be discarded.
+static void make_expanded_and_leftover(ParsedData* comb,
+                                       const char* root_lattice,
+                                       ProblemList& problems,
+                                       YAMLTreeHandle& expanded_out,
+                                       YAMLTreeHandle& leftover_out) {
+    expanded_out = nullptr;
+    leftover_out = nullptr;
+    if (!comb) return;
+
+    ParsedData work;
+    ryml::Tree& t = work.tree;
     t.reserve(t.capacity() + comb->tree.capacity() + 10000);
     t.reserve_arena(t.arena_capacity() + comb->tree.arena_capacity() + 100000);
 
-    // Start expanded as a full copy of combined, recording expanded->combined
-    // provenance for every node.
+    // Start from a full copy of combined, recording work->combined provenance
+    // for every node.
     deep_copy_tracked(t, t.root_id(), comb->tree, comb->tree.root_id(),
-                      data->provenance);
+                      work.provenance);
 
     std::map<std::string, size_t> emap;
     make_ele_map(emap, t, t.root_id());
 
     std::string name_str = root_lattice ? root_lattice : "";
     size_t lat_node = find_lattice(t, name_str);
+
+    // `skip` is the node the leftover tree must not copy: the lattice, together
+    // with the facility list entry wrapping it, so leftover is not left holding
+    // an empty entry. A lattice that is not a lone entry under a wrapper (e.g.
+    // one keyed directly into a map) is skipped on its own.
+    size_t skip = ryml::NONE;
+
     if (lat_node == ryml::NONE) {
         add_problem(problems, name_str.empty()
                                   ? "no lattice found to expand"
                                   : "lattice '" + name_str + "' not found");
-        return data;
+    } else {
+        size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+        expand(t, lat_node, emap, work.provenance, problems, branches);
+
+        // Evaluate every mathematical expression to a number (immediate and
+        // expr()-delayed alike). Node ids are unchanged -- only scalar text is
+        // rewritten -- so provenance stays valid.
+        evaluate_expressions(t, problems);
+
+        size_t wrapper = t.parent(lat_node);
+        skip = (wrapper != ryml::NONE && !t.is_root(wrapper) &&
+                t.num_children(wrapper) == 1)
+                   ? wrapper
+                   : lat_node;
     }
-    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
 
-    expand(t, lat_node, emap, data->provenance, problems, branches);
+    // expanded: a map holding just the lattice entry, keyed by its name. The
+    // root is synthesised (a ryml root cannot itself carry a key), so it has no
+    // counterpart in combined and no provenance entry. When no lattice was
+    // found the tree stays an empty map.
+    ParsedData* exp = new ParsedData();
+    exp->tree.reserve(exp->tree.capacity() + t.capacity() + 16);
+    exp->tree.reserve_arena(exp->tree.arena_capacity() + t.arena_capacity());
+    exp->tree.ref(exp->tree.root_id()) |= ryml::MAP;
+    if (lat_node != ryml::NONE) {
+        ensure_capacity(exp->tree);
+        size_t entry = exp->tree.append_child(exp->tree.root_id());
+        deep_copy_tracked(exp->tree, entry, t, lat_node, exp->provenance);
 
-    // Final pass: evaluate every mathematical expression in the expanded tree
-    // to a number (immediate and expr()-delayed alike). Node ids are unchanged
-    // -- only scalar text is rewritten -- so provenance stays valid.
-    evaluate_expressions(t, problems);
-    return data;
+        // Before provenance is chained up to combined it still reads
+        // expanded->work, which inverts into exactly the renaming the fork
+        // pointers need.
+        std::map<size_t, size_t> from_work;
+        for (const auto& kv : exp->provenance) from_work[kv.second] = kv.first;
+        remap_fork_pointers(exp->tree, exp->tree.root_id(), from_work, problems);
+
+        chain_prov(exp->provenance, work.provenance);
+    }
+
+    // leftover: the whole document minus what went to expanded.
+    ParsedData* left = new ParsedData();
+    left->tree.reserve(left->tree.capacity() + t.capacity() + 16);
+    left->tree.reserve_arena(left->tree.arena_capacity() + t.arena_capacity());
+    deep_copy_tracked_except(left->tree, left->tree.root_id(), t, t.root_id(),
+                             skip, left->provenance);
+    chain_prov(left->provenance, work.provenance);
+
+    expanded_out = exp;
+    leftover_out = left;
 }
 
 /**
@@ -1525,13 +1649,15 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice) {
     struct lattices lat = {};
     // Built as a derivation chain so provenance can be recorded at each step:
-    //   original --(splice includes)--> combined --(expand)--> expanded
+    //   original --(splice includes)--> combined --(expand, split)--> expanded
+    //                                                              \-> leftover
     lat.original = make_original(filename);
     lat.combined = make_combined_from_original(
         static_cast<ParsedData*>(lat.original), filename);
     ProblemList problems;
-    lat.expanded = make_expanded_from_combined(
-        static_cast<ParsedData*>(lat.combined), root_lattice, problems);
+    make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
+                               root_lattice, problems, lat.expanded,
+                               lat.leftover);
 
     // Hand the problem list to the caller as an owning C string array (freed
     // with free_lattice_problems). The library never prints — the caller
@@ -1564,43 +1690,55 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok) {
 }
 
 YAML_API struct correspondence_map build_correspondence_map(
-    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded) {
-    (void)original;  // provenance is stored in combined & expanded
+    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded,
+    YAMLTreeHandle leftover) {
+    (void)original;  // provenance is stored in combined, expanded & leftover
     struct correspondence_map out = {nullptr, 0};
-    if (!combined || !expanded) return out;
+    if (!combined || (!expanded && !leftover)) return out;
 
     ParsedData* comb = static_cast<ParsedData*>(combined);
-    ParsedData* exp = static_cast<ParsedData*>(expanded);
-    const std::map<size_t, size_t>& e2c = exp->provenance;   // expanded->combined
     const std::map<size_t, size_t>& c2o = comb->provenance;  // combined->original
-    ryml::Tree& et = exp->tree;
 
-    // Emit one link per node of the expanded tree, walking it from the root so
-    // that exactly the live nodes are visited.
     std::vector<struct node_link> links;
-    std::vector<size_t> stack;
-    if (et.root_id() != ryml::NONE) stack.push_back(et.root_id());
-    while (!stack.empty()) {
-        size_t n = stack.back();
-        stack.pop_back();
 
-        struct node_link link;
-        link.expanded = n;
-        auto ec = e2c.find(n);
-        if (ec != e2c.end()) {
-            link.combined = ec->second;
-            auto co = c2o.find(ec->second);
-            link.original = (co != c2o.end()) ? co->second : YAML_NULL_ID;
-        } else {
-            link.combined = YAML_NULL_ID;
-            link.original = YAML_NULL_ID;
+    // Emit one link per node of a derived tree, walking it from the root so that
+    // exactly the live nodes are visited. Expansion splits the document in two,
+    // so a link names a node in one derived tree and YAML_NULL_ID in the other;
+    // the shared combined id is what ties the two sides together.
+    auto walk = [&](YAMLTreeHandle handle, bool is_leftover) {
+        if (!handle) return;
+        ParsedData* pd = static_cast<ParsedData*>(handle);
+        const std::map<size_t, size_t>& d2c = pd->provenance;  // derived->combined
+        ryml::Tree& dt = pd->tree;
+
+        std::vector<size_t> stack;
+        if (dt.root_id() != ryml::NONE) stack.push_back(dt.root_id());
+        while (!stack.empty()) {
+            size_t n = stack.back();
+            stack.pop_back();
+
+            struct node_link link;
+            link.expanded = is_leftover ? YAML_NULL_ID : n;
+            link.leftover = is_leftover ? n : YAML_NULL_ID;
+            auto dc = d2c.find(n);
+            if (dc != d2c.end()) {
+                link.combined = dc->second;
+                auto co = c2o.find(dc->second);
+                link.original = (co != c2o.end()) ? co->second : YAML_NULL_ID;
+            } else {
+                link.combined = YAML_NULL_ID;
+                link.original = YAML_NULL_ID;
+            }
+            links.push_back(link);
+
+            for (size_t c = dt.first_child(n); c != ryml::NONE;
+                 c = dt.next_sibling(c))
+                stack.push_back(c);
         }
-        links.push_back(link);
+    };
 
-        for (size_t c = et.first_child(n); c != ryml::NONE;
-             c = et.next_sibling(c))
-            stack.push_back(c);
-    }
+    walk(expanded, false);
+    walk(leftover, true);
 
     out.count = links.size();
     if (out.count > 0) {

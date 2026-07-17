@@ -45,7 +45,14 @@ struct lattices {
                               // to its unparsed contents
     YAMLTreeHandle combined;  // Tree with all "include" directives resolved and
                               // spliced inline
-    YAMLTreeHandle expanded;  // Tree with the selected lattice fully expanded
+    YAMLTreeHandle expanded;  // The expanded root lattice, and nothing else: a
+                              // map holding the single `name: {kind: Lattice,
+                              // ...}` entry, without the PALS/facility
+                              // scaffolding it was defined under
+    YAMLTreeHandle leftover;  // Everything the expanded tree does not carry —
+                              // the whole PALS/facility document minus the root
+                              // lattice, so element/beamline definitions, `use`
+                              // statements, constants and any non-root Lattice
     struct string_list problems;  // Problems found while building `expanded`;
                                   // free with free_lattice_problems()
 };
@@ -53,25 +60,32 @@ struct lattices {
 
 // --- CORRESPONDENCE MAP ---
 //
-// Links a node across the three representations produced by
-// parse_and_expand_PALS(). The three trees are built as a derivation chain
-// (original -> combined -> expanded), and provenance is recorded at every copy,
-// so each link records which node in each tree a single logical entity maps to.
+// Links a node across the representations produced by parse_and_expand_PALS().
+// The trees are built as a derivation chain (original -> combined -> expanded
+// and leftover), and provenance is recorded at every copy, so each link records
+// which node in each tree a single logical entity maps to.
 //
-// The mapping is functional per link: one expanded node maps to at most one
-// combined node, which maps to at most one original node. Because expansion can
-// duplicate nodes (scalar substitution, `repeat`, `inherit`, forks), a single
-// combined/original node may appear in several links — one per expanded copy.
-// A field is YAML_NULL_ID when no corresponding node exists (e.g. the
+// The mapping is functional per link: one expanded (or leftover) node maps to at
+// most one combined node, which maps to at most one original node. Because
+// expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
+// forks), a single combined/original node may appear in several links — one per
+// copy. A field is YAML_NULL_ID when no corresponding node exists (e.g. the
 // `fork_pointer` scalars synthesised during expansion have no original source).
+//
+// Expansion splits the document, so a link carries either an `expanded` id or a
+// `leftover` id, never both; the two are tied together through the `combined`
+// id they share. A definition that was substituted into the lattice therefore
+// yields links on both sides: one for the copy in `expanded`, one for the
+// definition still standing in `leftover`.
 struct node_link {
     YAMLNodeId original;
     YAMLNodeId combined;
     YAMLNodeId expanded;
+    YAMLNodeId leftover;
 };
 
-// A flat list of node_links. One link is emitted per node of the expanded tree.
-// Free with free_correspondence_map().
+// A flat list of node_links. One link is emitted per node of the expanded tree
+// and one per node of the leftover tree. Free with free_correspondence_map().
 struct correspondence_map {
     struct node_link* links;
     size_t count;
@@ -92,7 +106,7 @@ extern "C" {
 #endif
 
 /**
- * Builds and returns all three representations of a lattice file.
+ * Builds and returns all four representations of a lattice file.
  *
  * @param filename     Path to the top-level YAML lattice file.
  * @param root_lattice Name of the lattice to expand. If NULL or empty:
@@ -100,14 +114,20 @@ extern "C" {
  * statement, or
  *                       - expands the last lattice defined in the file if no
  * "use" is present.
- * @return A `lattices` struct containing three handles:
+ * @return A `lattices` struct containing four handles:
  *           - `original`: raw tree mapping each file (including includes) to
  * its unparsed contents.
  *           - `combined`: tree with all "include" directives resolved and
  * spliced inline.
- *           - `expanded`: tree with the selected lattice fully expanded —
- * scalars substituted, repeats unrolled, inherits merged, and forks resolved.
- *         All three handles must be freed individually with delete_tree().
+ *           - `expanded`: the selected lattice fully expanded — scalars
+ * substituted, repeats unrolled, inherits merged, and forks resolved — and
+ * nothing else. Rooted at a map holding the single `name: {kind: Lattice, ...}`
+ * entry, stripped of the PALS/facility scaffolding it was defined under.
+ *           - `leftover`: the rest of the document, keeping its PALS/facility
+ * scaffolding: element and beamline definitions, `use` statements, constants,
+ * and any Lattice that was not the one expanded. Definitions substituted into
+ * the lattice are copies, so they appear in both trees.
+ *         All four handles must be freed individually with delete_tree().
  *
  *         The returned struct also carries `problems`: an owning list of
  *         human-readable messages for every issue met while building the
@@ -153,28 +173,32 @@ YAML_API void free_lattice_problems(struct string_list problems);
 YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
 
 /**
- * Builds the node correspondence between the three trees of a `lattices` value.
+ * Builds the node correspondence between the four trees of a `lattices` value.
  *
  * Returns a flat list containing one `node_link` per node of the `expanded`
- * tree. Each link gives the corresponding `combined` and `original` node ids
- * (or YAML_NULL_ID where none exists). Grouping the links by shared combined /
- * original ids recovers, for any node in any of the three trees, the set of
- * nodes it corresponds to in the other two.
+ * tree and one per node of the `leftover` tree. Each link gives the
+ * corresponding `combined` and `original` node ids (or YAML_NULL_ID where none
+ * exists). Grouping the links by shared combined / original ids recovers, for
+ * any node in any of the four trees, the set of nodes it corresponds to in the
+ * others.
  *
- * The three handles must come from the same parse_and_expand_PALS() call — the
+ * The handles must come from the same parse_and_expand_PALS() call — the
  * provenance recorded during that call is what makes the mapping exact. The
  * `original` handle is accepted for API symmetry; the mapping is derived from
- * the provenance stored in `combined` and `expanded`.
+ * the provenance stored in `combined`, `expanded` and `leftover`.
  *
  * @param original Handle to the `original` tree.
  * @param combined Handle to the `combined` tree.
  * @param expanded Handle to the `expanded` tree.
+ * @param leftover Handle to the `leftover` tree. May be NULL, in which case only
+ *                 the expanded tree is walked.
  * @return A correspondence_map. The caller must free it with
  *         free_correspondence_map(). `links` is NULL and `count` is 0 if
- *         `combined` or `expanded` is NULL.
+ *         `combined` is NULL, or if both `expanded` and `leftover` are NULL.
  */
 YAML_API struct correspondence_map build_correspondence_map(
-    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded);
+    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded,
+    YAMLTreeHandle leftover);
 
 /**
  * Frees the link array owned by a correspondence_map. Passing a map with a NULL
