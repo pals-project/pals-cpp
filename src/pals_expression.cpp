@@ -2,12 +2,17 @@
  * @file pals_expression.cpp
  * @brief Recursive-descent evaluator for PALS mathematical expressions.
  *
- * Grammar (standard precedence; `^` is right-associative):
+ * Grammar (`^` is right-associative):
  *   expr    := term (('+' | '-') term)*
- *   term    := power (('*' | '/') power)*
- *   power   := unary ('^' power)?
- *   unary   := ('+' | '-') unary | primary
+ *   term    := unary (('*' | '/') unary)*
+ *   unary   := ('+' | '-') unary | power
+ *   power   := primary ('^' unary)?
  *   primary := number | name | name '(' args ')' | '(' expr ')'
+ *
+ * Note that `unary` sits above `power` rather than below it, so a leading sign
+ * binds looser than `^` while the exponent may itself be signed: -2^2 == -4 and
+ * 2^-1 == 0.5. This is the Fortran/Bmad convention the rest of the ecosystem
+ * uses, and it differs from C-family languages where unary minus binds tighter.
  *
  * The particle functions mass_of / charge_of / anomalous_moment_of take a
  * quoted species name (e.g. `mass_of("#3He")`), not a numeric sub-expression, so
@@ -338,14 +343,20 @@ class Parser {
 
 bool builtin_constant(const std::string& name, double& out) {
   // Physical values come from AtomicAndPhysicalConstantsCLib (APC, CODATA
-  // 2022) so PALS shares the ecosystem's numbers. k_boltzmann and
-  // classical_radius_factor are derived from APC quantities (APC does not
-  // export them directly); pi is exact.
+  // 2022) so PALS shares the ecosystem's numbers; pi is exact.
+  //
+  // classical_radius_factor is the one deliberate exception: apc::
+  // CLASSICAL_RADIUS_FACTOR is r_e*m_e with the mass in MeV, while APC's own
+  // M_ELECTRON is in eV, so the exported constant is 1e6 larger than the value
+  // PALS wants. Deriving it here from APC's own r_electron and M_ELECTRON keeps
+  // it in eV*m and matches Bmad's e^2/(4*pi*eps_0) = 1.44e-9 eV*m. Do not
+  // "simplify" this to apc::CLASSICAL_RADIUS_FACTOR without resolving the units
+  // question upstream first — it would silently introduce a factor of 1e6.
   if (name == "pi") { out = kPi; return true; }
   if (name == "c_light") { out = apc::C_LIGHT; return true; }
   if (name == "h_planck") { out = apc::H_PLANCK; return true; }
   if (name == "hbar") { out = apc::H_BAR; return true; }
-  if (name == "k_boltzmann") { out = 1.380649e-23 / apc::J_PER_EV; return true; }  // eV/K
+  if (name == "k_boltzmann") { out = apc::K_BOLTZMANN; return true; }  // eV/K
   if (name == "r_electron") { out = apc::R_ELECTRON; return true; }
   if (name == "r_proton") { out = apc::R_PROTON; return true; }
   if (name == "e_charge") { out = apc::E_CHARGE; return true; }

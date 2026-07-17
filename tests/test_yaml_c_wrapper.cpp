@@ -1351,9 +1351,17 @@ static double eval_ok(const char* expr) {
     return v;
 }
 
-// True if two doubles agree to a relative/absolute tolerance.
+// True if two doubles agree to a relative/absolute tolerance. The max(1.0, ...)
+// floors the tolerance at 1e-9 absolute, which keeps comparisons against zero
+// workable but makes this useless for values much smaller than 1e-9 — every
+// such comparison passes. Use close_rel for those.
 static bool close(double got, double want) {
     return std::fabs(got - want) <= 1e-9 * std::max(1.0, std::fabs(want));
+}
+
+// Purely relative comparison, for quantities whose magnitude is far from 1.
+static bool close_rel(double got, double want) {
+    return std::fabs(got - want) <= 1e-9 * std::fabs(want);
 }
 
 TEST_CASE("evaluate_pals_expression: arithmetic and precedence", "[expr]") {
@@ -1362,8 +1370,8 @@ TEST_CASE("evaluate_pals_expression: arithmetic and precedence", "[expr]") {
     REQUIRE(eval_ok("2 ^ 3 ^ 2") == 512.0);   // right-associative
     REQUIRE(eval_ok("-2 ^ 2") == -4.0);        // unary minus looser than ^
     REQUIRE(eval_ok("2 ^ -2") == 0.25);
-    REQUIRE(close(eval_ok("3.75e7 / c_light^2"),
-                  3.75e7 / (2.99792458e8 * 2.99792458e8)));
+    REQUIRE(close_rel(eval_ok("3.75e7 / c_light^2"),
+                      3.75e7 / (2.99792458e8 * 2.99792458e8)));
 }
 
 TEST_CASE("evaluate_pals_expression: functions", "[expr]") {
@@ -1383,15 +1391,25 @@ TEST_CASE("evaluate_pals_expression: functions", "[expr]") {
 TEST_CASE("evaluate_pals_expression: built-in constants", "[expr]") {
     REQUIRE(close(eval_ok("pi"), 3.14159265358979323846));
     REQUIRE(eval_ok("c_light") == 2.99792458e8);
-    // classical_radius_factor and k_boltzmann are derived from APC quantities.
-    REQUIRE(close(eval_ok("classical_radius_factor"),
-                  eval_ok("r_electron") * eval_ok("mass_of(\"electron\")")));
+    // Value of apc::K_BOLTZMANN, in eV/K.
+    REQUIRE(eval_ok("k_boltzmann") == 8.617333262e-5);
+
+    // classical_radius_factor is derived rather than taken from APC, because
+    // apc::CLASSICAL_RADIUS_FACTOR is 1e6 larger (its mass is in MeV while
+    // apc::M_ELECTRON is in eV). Pin the exponent explicitly: the relation
+    // below holds under either convention, so on its own it would not notice a
+    // switch to the APC constant silently rescaling every lattice using it.
+    REQUIRE(close_rel(eval_ok("classical_radius_factor"),
+                      eval_ok("r_electron") *
+                          eval_ok("mass_of(\"electron\")")));
+    REQUIRE(close_rel(eval_ok("classical_radius_factor"),
+                      1.4399645468825422e-9));
 
     // epsilon_0 and mu_0 are in the PALS standard's eV units — 1/(eV*m) and
     // eV*sec^2/m respectively, not the SI F/m and N/A^2. In these units the
     // identity eps_0 * mu_0 * c^2 == 1 holds, which pins both values at once.
     REQUIRE(close(eval_ok("epsilon_0"), 5.5263493618e7));
-    REQUIRE(close(eval_ok("mu_0"), 2.013354537e-25));
+    REQUIRE(close_rel(eval_ok("mu_0"), 2.013354537e-25));
     REQUIRE(close(eval_ok("epsilon_0 * mu_0 * c_light^2"), 1.0));
 }
 
