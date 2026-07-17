@@ -359,6 +359,47 @@ TEST_CASE("add_scalar returns YAML_NULL_ID for a null parent", "[modification]")
     delete_tree(tree);
 }
 
+TEST_CASE("a NULL tree handle is rejected, not dereferenced", "[api]") {
+    // Every entry point already refused a null *node*; a null *tree* used to
+    // walk straight into a dereference. Callers across an FFI boundary get
+    // handles from functions that can fail, so this is a reachable mistake and
+    // should be an error return rather than a crash.
+    YAMLTreeHandle t = nullptr;
+
+    REQUIRE(get_root(t) == YAML_NULL_ID);
+    REQUIRE(get_parent(t, 0) == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(t, 0, "k") == YAML_NULL_ID);
+    REQUIRE(get_child_by_index(t, 0, 0) == YAML_NULL_ID);
+    REQUIRE(get_size(t, 0) == 0);
+    REQUIRE(get_node_key(t, 0) == nullptr);
+    REQUIRE(is_map(t, 0) == false);
+    REQUIRE(is_sequence(t, 0) == false);
+    REQUIRE(is_scalar(t, 0) == false);
+    REQUIRE(as_string(t, 0) == nullptr);
+    REQUIRE(add_scalar(t, 0, "k", "v", YAML_END) == YAML_NULL_ID);
+    REQUIRE(add_map(t, 0, "k", YAML_END) == YAML_NULL_ID);
+    REQUIRE(add_sequence(t, 0, "k", YAML_END) == YAML_NULL_ID);
+    REQUIRE(node_to_string(t, 0) == nullptr);
+    REQUIRE(tree_to_string(t) == nullptr);
+    REQUIRE(write_file(t, "should_not_be_created.yaml") == false);
+
+    // Void returns: these just have to not crash.
+    remove_node(t, 0, 0);
+    set_scalar(t, 0, "v");
+    set_node_key(t, 0, "k");
+    deep_copy_node(t, 0, t, 0);
+    deep_copy_children(t, 0, t, 0, YAML_END);
+    delete_tree(t);  // delete on nullptr is a no-op
+
+    // A null key/value/filename is refused the same way.
+    YAMLTreeHandle real = create_empty_tree();
+    REQUIRE(get_child_by_key(real, get_root(real), nullptr) == YAML_NULL_ID);
+    REQUIRE(add_scalar(real, get_root(real), "k", nullptr, YAML_END) ==
+            YAML_NULL_ID);
+    REQUIRE(write_file(real, nullptr) == false);
+    delete_tree(real);
+}
+
 // ============================================================
 // MODIFICATION — set_scalar, set_node_key
 // ============================================================
