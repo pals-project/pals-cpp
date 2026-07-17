@@ -45,10 +45,13 @@ set(PCRE2_STATIC_PIC ON CACHE BOOL "" FORCE)
 # (mass_of / charge_of / anomalous_moment_of) and the named physical constants
 # used by the PALS expression evaluator. Its values mirror
 # AtomicAndPhysicalConstants.jl so the whole ecosystem shares one set of numbers.
+# Pinned to a tag, not main: the reference values in the tests are tied to a
+# specific APC release, so an upstream push must not silently change them here.
+# apc's version tracks the APC release it mirrors (v0.11.1 = APC v0.11.1).
 FetchContent_Declare(
   apc
   GIT_REPOSITORY https://github.com/pals-project/AtomicAndPhysicalConstantsCLib.git
-  GIT_TAG main
+  GIT_TAG v0.11.1
 )
 set(APC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 

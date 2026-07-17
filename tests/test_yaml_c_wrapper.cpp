@@ -1250,6 +1250,13 @@ TEST_CASE("evaluate_pals_expression: built-in constants", "[expr]") {
     // classical_radius_factor and k_boltzmann are derived from APC quantities.
     REQUIRE(close(eval_ok("classical_radius_factor"),
                   eval_ok("r_electron") * eval_ok("mass_of(\"electron\")")));
+
+    // epsilon_0 and mu_0 are in the PALS standard's eV units — 1/(eV*m) and
+    // eV*sec^2/m respectively, not the SI F/m and N/A^2. In these units the
+    // identity eps_0 * mu_0 * c^2 == 1 holds, which pins both values at once.
+    REQUIRE(close(eval_ok("epsilon_0"), 5.5263493618e7));
+    REQUIRE(close(eval_ok("mu_0"), 2.013354537e-25));
+    REQUIRE(close(eval_ok("epsilon_0 * mu_0 * c_light^2"), 1.0));
 }
 
 TEST_CASE("evaluate_pals_expression: particle-data functions from libapc",
@@ -1264,7 +1271,7 @@ TEST_CASE("evaluate_pals_expression: particle-data functions from libapc",
     // neutral; the ionised form carries the charge.
     REQUIRE(eval_ok("charge_of(\"#3He\")") == 0.0);
     REQUIRE(eval_ok("charge_of(\"helion\")") == 2.0);
-    REQUIRE(close(eval_ok("mass_of(\"#3He\")"), 2809413524.398952));
+    REQUIRE(close(eval_ok("mass_of(\"#3He\")"), 2809413528.3197904));
 
     // An unquoted species name is an error.
     bool ok = true;
@@ -1525,7 +1532,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(lat.expanded != nullptr);
 
-    const double m_3he = 2809413524.398952;  // mass_of("#3He"), CODATA 2022
+    const double m_3he = 2809413528.3197904;  // mass_of("#3He"), CODATA 2022
 
     YAMLNodeId consts = facility_param(lat.expanded, "constants");
     REQUIRE(close(num_val(lat.expanded,
