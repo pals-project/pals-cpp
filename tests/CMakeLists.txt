@@ -10,5 +10,5 @@ target_link_libraries(tests
 )
 
 include(Catch)
-Catch_discover_tests(tests)
+catch_discover_tests(tests)
 target_compile_features(tests PRIVATE cxx_std_17)

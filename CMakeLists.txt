@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
 project(YAMLWrapper)
 
+# Default to Release when no build type is given. This is not just about
+# optimization: an empty build type leaves NDEBUG undefined, and c4core (vendored
+# by rapidyaml) then compiles a debugbreak path calling __builtin_debugtrap,
+# which is clang-only and fails to build under GCC. Multi-config generators
+# ignore CMAKE_BUILD_TYPE, so skip them rather than set a variable they discard.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
+               STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN YES)
 
@@ -14,7 +25,7 @@ include(FetchContent)
 FetchContent_Declare(
   rapidyaml
   GIT_REPOSITORY https://github.com/biojppm/rapidyaml.git
-  GIT_TAG v0.11.1 
+  GIT_TAG v0.11.1
   GIT_SHALLOW FALSE
 )
 
@@ -60,8 +71,6 @@ FetchContent_MakeAvailable(Catch2)
 FetchContent_MakeAvailable(pcre2)
 FetchContent_MakeAvailable(apc)
 
-add_subdirectory(tests)
-
 file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
      DESTINATION ${CMAKE_BINARY_DIR}/lattice_files/)
 
@@ -75,3 +84,6 @@ target_link_libraries(example_rw yaml_c_wrapper ryml)
 
 add_executable(print_lattices examples/print_lattices.cpp)
 target_link_libraries(print_lattices yaml_c_wrapper ryml)
+
+# Must come after yaml_c_wrapper is defined: tests/CMakeLists.txt links it.
+add_subdirectory(tests)
