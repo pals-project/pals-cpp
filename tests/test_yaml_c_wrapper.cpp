@@ -1082,14 +1082,18 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     REQUIRE(keys_of(lat.combined, c_line) == expected);
 
     // The expanded tree is rooted at the lattice entry itself, and the line is
-    // inlined under its `branches`.
+    // inlined under its `branches`. Inlining it made it a branch, which drops
+    // the `kind: BeamLine` it had as a definition; the surviving keys keep the
+    // order they were written in.
+    const std::vector<std::string> expected_branch = {"multipass", "length",
+                                                      "zero_point", "line"};
     YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
     REQUIRE(key_eq(lat.expanded, lat1, "lat1"));
     YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
     YAMLNodeId e_line = get_child_by_index(
         lat.expanded, get_child_by_index(lat.expanded, branches, 0), 0);
     REQUIRE(key_eq(lat.expanded, e_line, "main_line"));
-    REQUIRE(keys_of(lat.expanded, e_line) == expected);
+    REQUIRE(keys_of(lat.expanded, e_line) == expected_branch);
 
     // Merging `inherit: thingB` brings the parent's keys in ahead of the
     // child's own, rather than sorting the merged result.
@@ -1542,6 +1546,108 @@ static YAMLNodeId find_by_key(YAMLTreeHandle t, const char* key) {
             stack.push_back(get_child_by_index(t, n, i));
     }
     return YAML_NULL_ID;
+}
+
+TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
+    // The three routes a branch gets its contents by, in one file: `main` by
+    // name substitution, `alt` by `inherit`, and `to_dump` built by a Fork out
+    // of `dump_line`. Each copies a BeamLine definition in, and none of the
+    // copies may keep the definition's kind.
+    const char* path = "tmp_branch_kind.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - q1:\n"
+              "        kind: Quadrupole\n"
+              "        length: 0.5\n"
+              "    - dump_begin:\n"
+              "        kind: Marker\n"
+              "    - sub:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - q1\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        periodic: false\n"
+              "        line:\n"
+              "          - sub\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "                destination_element: dump_begin\n"
+              "                new_branch: to_dump\n"
+              "    - main:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - q1\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main\n"
+              "          - alt:\n"
+              "              inherit: ring\n"
+              "              periodic: true\n"
+              "    - use: lat1\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
+    REQUIRE(get_size(lat.expanded, branches) == 3);
+
+    // The lattice itself is not a branch and keeps its kind.
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, lat1, "kind"),
+                   "Lattice"));
+
+    const char* names[] = {"main", "alt", "to_dump"};
+    for (size_t i = 0; i < 3; i++) {
+        YAMLNodeId branch = get_child_by_index(
+            lat.expanded, get_child_by_index(lat.expanded, branches, i), 0);
+        REQUIRE(key_eq(lat.expanded, branch, names[i]));
+        REQUIRE(get_child_by_key(lat.expanded, branch, "kind") == YAML_NULL_ID);
+        REQUIRE(get_child_by_key(lat.expanded, branch, "line") != YAML_NULL_ID);
+    }
+
+    // A branch keeps the components that are its own. `periodic: true` also
+    // survives the merge of `ring`'s `periodic: false`, as the branch setting
+    // overrides the root BeamLine's.
+    YAMLNodeId alt = get_child_by_index(
+        lat.expanded, get_child_by_index(lat.expanded, branches, 1), 0);
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, alt, "inherit"),
+                   "ring"));
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, alt, "periodic"),
+                   "true"));
+
+    // Only branches lose the kind: `sub` sits inside a `line:`, where it is
+    // still a BeamLine.
+    YAMLNodeId sub = get_child_by_index(
+        lat.expanded,
+        get_child_by_index(lat.expanded,
+                           get_child_by_key(lat.expanded, alt, "line"), 0),
+        0);
+    REQUIRE(key_eq(lat.expanded, sub, "sub"));
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, sub, "kind"),
+                   "BeamLine"));
+
+    // Expansion copies a definition rather than moving it, and the definition
+    // left standing in leftover is a BeamLine still.
+    YAMLNodeId l_main = facility_param(lat.leftover, "main");
+    REQUIRE(l_main != YAML_NULL_ID);
+    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, l_main, "kind"),
+                   "BeamLine"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",

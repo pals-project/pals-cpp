@@ -126,7 +126,10 @@ extern "C" {
  *           - `expanded`: the selected lattice fully expanded — scalars
  * substituted, repeats unrolled, inherits merged, and forks resolved — and
  * nothing else. Rooted at a map holding the single `name: {kind: Lattice, ...}`
- * entry, stripped of the PALS/facility scaffolding it was defined under.
+ * entry, stripped of the PALS/facility scaffolding it was defined under. Its
+ * `branches` entries are branches, not the BeamLines they were built from, and
+ * so carry no `kind`; a BeamLine nested in a `line:` is a sub-line and keeps
+ * its own.
  *           - `leftover`: the rest of the document, keeping its PALS/facility
  * scaffolding: element and beamline definitions, `use` statements, constants,
  * and any Lattice that was not the one expanded. Definitions substituted into

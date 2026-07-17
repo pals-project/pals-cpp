@@ -557,6 +557,43 @@ static void expand(ryml::Tree& t, size_t node,
 }
 
 /**
+ * Drop `kind: BeamLine` from every branch of the expanded lattice `lat_node`.
+ *
+ * A `branches:` entry is a branch, not a BeamLine. It is instantiated from a
+ * root BeamLine, and a branch carries no `kind` of its own -- its only optional
+ * components are `inherit` and `periodic`. Every route a branch reaches its
+ * contents by copies that root BeamLine's definition in wholesale, and so drags
+ * the definition's `kind: BeamLine` along: name substitution of a bare
+ * `- this_line`, an explicit `inherit: that_ring`, and a Fork building a new
+ * branch out of its `to_line`. Rather than special-case each route, strip the
+ * key once here, after expansion has produced every branch.
+ *
+ * Only branches are stripped. A sub-line nested in a `line:` is still a
+ * BeamLine and keeps its kind.
+ */
+static void strip_branch_kinds(ryml::Tree& t, size_t lat_node,
+                               std::map<size_t, size_t>& prov) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        // Both the written form (`- name: {...}`) and a substituted bare name
+        // land as a map wrapping the single keyed branch node.
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch)) continue;
+        // Anything other than BeamLine is a branch built from a definition that
+        // is not a beamline at all. That is a mistake in the file, and leaving
+        // the kind in place keeps the evidence of it visible.
+        if (child_val_str(t, branch, "kind") != "BeamLine") continue;
+        size_t kind = t.find_child(branch, ryml::to_csubstr("kind"));
+        erase_prov_subtree(t, kind, prov);
+        t.remove(kind);
+    }
+}
+
+/**
  * Recursive helper for make_combined_from_original. Starting from `node` in the
  * combined tree `t`, replace every "include: filename" element with the
  * contents of that file, sourced from the already-parsed `original` tree so
@@ -1285,6 +1322,10 @@ static void make_expanded_and_leftover(ParsedData* comb,
     } else {
         size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
         expand(t, lat_node, emap, work.provenance, problems, branches);
+
+        // Runs after expand, not inside it: a Fork appends branches as it goes,
+        // so only once expand has returned does `branches` hold them all.
+        strip_branch_kinds(t, lat_node, work.provenance);
 
         // Evaluate every mathematical expression to a number (immediate and
         // expr()-delayed alike). Node ids are unchanged -- only scalar text is
