@@ -20,9 +20,10 @@ tests. Put lattice files under `lattice_files/`.
 ## Expanding a lattice
 
 `parse_and_expand_PALS` reads a lattice file, resolves its includes, expands the
-selected lattice, and returns a `lattices` struct with three independent views —
-`original`, `combined`, and `expanded` (see [What it does](../index.md)). Each is
-a `YAMLTreeHandle` and must be freed with `delete_tree`.
+selected lattice, and returns a `lattices` struct with four independent views —
+`original`, `combined`, `expanded`, and `leftover` (see
+[What it does](../index.md)). Each is a `YAMLTreeHandle` and must be freed with
+`delete_tree`.
 
 ```cpp
 #include "yaml_c_wrapper.h"
@@ -41,6 +42,7 @@ free_lattice_problems(lat.problems);
 delete_tree(lat.original);
 delete_tree(lat.combined);
 delete_tree(lat.expanded);
+delete_tree(lat.leftover);
 ```
 
 The second argument names the lattice to expand. Pass `nullptr` (or an empty
@@ -72,7 +74,7 @@ and `deep_copy_children`. Serialize with `node_to_string` / `tree_to_string`, or
 
 Two more entry points build on the expanded tree:
 
-- `build_correspondence_map` links a node across the three views (their
+- `build_correspondence_map` links a node across the four views (their
   provenance is recorded as the trees are derived from one another).
 - `match_names` finds every named construct that a PALS *Name Matching* string
   refers to.
@@ -88,7 +90,7 @@ The `examples/` directory contains runnable programs:
   ./example_rw
   ```
 
-- **`examples/print_lattices`** — expand a lattice and print all three views. It
+- **`examples/print_lattices`** — expand a lattice and print all four views. It
   takes a file name and an optional `-lat <name>` flag:
 
   ```console

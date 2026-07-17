@@ -25,17 +25,22 @@ api
 
 ## What it does
 
-Lattice expansion follows the PALS specification and produces three views of a
+Lattice expansion follows the PALS specification and produces four views of a
 document:
 
 1. **`original`** — the raw tree mapping each file (including `include`d files)
    to its unparsed contents.
 2. **`combined`** — the tree with every `include` directive resolved and spliced
    inline.
-3. **`expanded`** — the selected lattice fully expanded: elements substituted
-   with their definitions, `repeat`ed beamlines unrolled, `inherit`ed ancestors
-   merged, forks resolved, and every mathematical expression evaluated to a
-   number.
+3. **`expanded`** — the selected lattice fully expanded, and nothing else:
+   elements substituted with their definitions, `repeat`ed beamlines unrolled,
+   `inherit`ed ancestors merged, forks resolved, and every mathematical
+   expression evaluated to a number. It is rooted at the lattice entry itself,
+   without the `PALS`/`facility` scaffolding it was defined under.
+4. **`leftover`** — everything the expanded tree does not carry, keeping that
+   scaffolding: element and beamline definitions, `use` statements, constants,
+   controllers, and any lattice that was not the one expanded. A definition
+   substituted into the lattice is copied, so it appears in both views.
 
 See [Building and using the library](guide/usage.md) to get started,
 [Evaluating expressions](guide/expressions.md) for the expression grammar and
