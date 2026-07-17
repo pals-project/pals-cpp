@@ -44,10 +44,10 @@ static void ensure_capacity(ryml::Tree& t, size_t needed = 1) {
     if (t.size() + needed >= t.capacity()) t.reserve(t.capacity() + 64);
 }
 
-// Append or insert a blank child. index=END means append.
+// Append or insert a blank child. index=YAML_END means append.
 static size_t add_child_at(ryml::Tree& t, size_t parent, size_t index) {
     ensure_capacity(t);
-    if (index == END) return t.append_child(parent);
+    if (index == YAML_END) return t.append_child(parent);
     size_t num = t.num_children(parent);
     if (index > num) index = num;
     size_t after = (index > 0) ? t.child(parent, index - 1) : ryml::NONE;
@@ -423,26 +423,34 @@ static void expand(ryml::Tree& t, size_t node,
                     size_t repeat_id =
                         t.find_child(entry, ryml::to_csubstr("repeat"));
                     if (repeat_id != ryml::NONE && t.has_val(repeat_id)) {
-                        int count = 0;
                         std::string cnt_txt(t.val(repeat_id).str,
                                             t.val(repeat_id).len);
+                        std::string target(t.key(entry).str, t.key(entry).len);
+
+                        // stoi stops at the first character it cannot use and
+                        // reports how far it got, so require the whole value to
+                        // be consumed: "3x" is a typo, not a count of 3. A
+                        // negative count is meaningless too. Both land on
+                        // count < 0 and are reported the same way.
+                        int count = -1;
                         try {
-                            count = std::stoi(cnt_txt);
+                            size_t used = 0;
+                            count = std::stoi(cnt_txt, &used);
+                            if (used != cnt_txt.size()) count = -1;
                         } catch (...) {
+                            count = -1;
+                        }
+
+                        if (count < 0) {
                             add_problem(problems, "repeat: invalid count '" +
                                                       cnt_txt + "' for '" +
-                                                      std::string(
-                                                          t.key(entry).str,
-                                                          t.key(entry).len) +
-                                                      "'");
-                        }
-                        std::string target(t.key(entry).str, t.key(entry).len);
-                        // check if the beamline to be repeated has been defined
-                        // in the file
-                        if (!emap.count(target))
+                                                      target + "'");
+                        } else if (!emap.count(target)) {
+                            // check if the beamline to be repeated has been
+                            // defined in the file
                             add_problem(problems, "repeat: beamline '" + target +
                                                       "' is not defined");
-                        if (emap.count(target)) {
+                        } else {
                             size_t def = emap[target];
                             size_t line_id =
                                 t.find_child(def, ryml::to_csubstr("line"));
@@ -475,6 +483,13 @@ static void expand(ryml::Tree& t, size_t node,
                             child = next;
                             continue;
                         }
+                        // Either problem path falls through to leave the entry
+                        // exactly as written. Only a repeat we fully understood
+                        // removes it: dropping an entry on the strength of a
+                        // count we could not read would delete part of the
+                        // lattice, leaving a plausible-looking `line: []` that
+                        // is only explained by a problem the caller may not
+                        // check.
                     }
                 }
             }
@@ -1832,7 +1847,7 @@ YAML_API void delete_tree(YAMLTreeHandle tree) {
 
 YAML_API void remove_node(YAMLTreeHandle tree, YAMLNodeId parent,
                           YAMLNodeId child) {
-    if (child == YAML_NULL_ID) return;
+    if (!tree || child == YAML_NULL_ID) return;
     GET_TREE(tree).remove(child);
 }
 
@@ -1844,6 +1859,7 @@ YAML_API YAMLNodeId get_root(YAMLTreeHandle tree) {
 }
 
 YAML_API YAMLNodeId get_parent(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (!tree) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     if (node == ryml::NONE || !t.has_parent(node)) return YAML_NULL_ID;
     return t.parent(node);
@@ -1851,7 +1867,7 @@ YAML_API YAMLNodeId get_parent(YAMLTreeHandle tree, YAMLNodeId node) {
 
 YAML_API YAMLNodeId get_child_by_key(YAMLTreeHandle tree, YAMLNodeId parent,
                                      const char* key) {
-    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    if (!tree || !key || parent == YAML_NULL_ID) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     if (!t.is_map(parent)) return YAML_NULL_ID;
     size_t child = t.find_child(parent, ryml::to_csubstr(key));
@@ -1860,6 +1876,7 @@ YAML_API YAMLNodeId get_child_by_key(YAMLTreeHandle tree, YAMLNodeId parent,
 
 YAML_API YAMLNodeId get_child_by_index(YAMLTreeHandle tree, YAMLNodeId parent,
                                        size_t index) {
+    if (!tree || parent == YAML_NULL_ID) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     if (!(t.is_seq(parent) || t.is_map(parent)) ||
         index >= t.num_children(parent))
@@ -1868,12 +1885,12 @@ YAML_API YAMLNodeId get_child_by_index(YAMLTreeHandle tree, YAMLNodeId parent,
 }
 
 YAML_API size_t get_size(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return 0;
+    if (!tree || node == YAML_NULL_ID) return 0;
     return GET_TREE(tree).num_children(node);
 }
 
 YAML_API char* get_node_key(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return nullptr;
+    if (!tree || node == YAML_NULL_ID) return nullptr;
     ryml::Tree& t = GET_TREE(tree);
     if (!t.has_key(node)) return nullptr;
     ryml::csubstr k = t.key(node);
@@ -1886,24 +1903,24 @@ YAML_API char* get_node_key(YAMLTreeHandle tree, YAMLNodeId node) {
 // --- TYPE CHECKS ---
 
 YAML_API bool is_map(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return false;
+    if (!tree || node == YAML_NULL_ID) return false;
     return GET_TREE(tree).is_map(node);
 }
 
 YAML_API bool is_sequence(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return false;
+    if (!tree || node == YAML_NULL_ID) return false;
     return GET_TREE(tree).is_seq(node);
 }
 
 YAML_API bool is_scalar(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return false;
+    if (!tree || node == YAML_NULL_ID) return false;
     return GET_TREE(tree).is_val(node);
 }
 
 // --- READING VALUES ---
 
 YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node) {
-    if (node == YAML_NULL_ID) return nullptr;
+    if (!tree || node == YAML_NULL_ID) return nullptr;
     ryml::Tree& t = GET_TREE(tree);
     if (!t.has_val(node)) return nullptr;
     ryml::csubstr v = t.val(node);
@@ -1918,7 +1935,7 @@ YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node) {
 YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
                                const char* key, const char* value,
                                size_t index) {
-    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    if (!tree || !value || parent == YAML_NULL_ID) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     size_t id = add_child_at(t, parent, index);
     if (t.is_map(parent) && key) {
@@ -1933,7 +1950,7 @@ YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
 
 YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
                             const char* key, size_t index) {
-    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    if (!tree || parent == YAML_NULL_ID) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     size_t id = add_child_at(t, parent, index);
     if (t.is_map(parent) && key)
@@ -1945,7 +1962,7 @@ YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
 
 YAML_API YAMLNodeId add_sequence(YAMLTreeHandle tree, YAMLNodeId parent,
                                  const char* key, size_t index) {
-    if (parent == YAML_NULL_ID) return YAML_NULL_ID;
+    if (!tree || parent == YAML_NULL_ID) return YAML_NULL_ID;
     ryml::Tree& t = GET_TREE(tree);
     size_t id = add_child_at(t, parent, index);
     if (t.is_map(parent) && key)
@@ -1957,7 +1974,7 @@ YAML_API YAMLNodeId add_sequence(YAMLTreeHandle tree, YAMLNodeId parent,
 
 YAML_API void set_scalar(YAMLTreeHandle tree, YAMLNodeId node,
                          const char* value) {
-    if (node == YAML_NULL_ID) return;
+    if (!tree || !value || node == YAML_NULL_ID) return;
     ryml::Tree& t = GET_TREE(tree);
     t.ref(node) |= ryml::VAL;
     t.set_val(node, t.to_arena(ryml::to_csubstr(value)));
@@ -1965,7 +1982,7 @@ YAML_API void set_scalar(YAMLTreeHandle tree, YAMLNodeId node,
 
 YAML_API void set_node_key(YAMLTreeHandle tree, YAMLNodeId node,
                            const char* key) {
-    if (node == YAML_NULL_ID) return;
+    if (!tree || !key || node == YAML_NULL_ID) return;
     ryml::Tree& t = GET_TREE(tree);
     t.ref(node) |= ryml::KEY;
     t.set_key(node, t.to_arena(ryml::to_csubstr(key)));
@@ -1989,7 +2006,7 @@ YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
     ryml::Tree& dt = GET_TREE(dst_tree);
     const ryml::Tree& st = GET_TREE(src_tree);
     size_t after;
-    if (index == END)
+    if (index == YAML_END)
         after = dt.last_child(dst_node);
     else if (index == 0)
         after = ryml::NONE;
@@ -2002,6 +2019,7 @@ YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
 // --- EMITTING & UTILS ---
 
 YAML_API char* node_to_string(YAMLTreeHandle tree, YAMLNodeId node) {
+    if (!tree) return nullptr;
     ryml::Tree& t = GET_TREE(tree);
     if (node == ryml::NONE || node >= t.capacity()) return nullptr;
     std::stringstream ss;
@@ -2017,6 +2035,7 @@ YAML_API char* tree_to_string(YAMLTreeHandle tree) {
 }
 
 YAML_API bool write_file(YAMLTreeHandle tree, const char* filename) {
+    if (!tree || !filename) return false;
     try {
         std::ofstream fout(filename);
         if (!fout) return false;

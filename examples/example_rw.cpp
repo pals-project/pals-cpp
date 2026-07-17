@@ -39,9 +39,9 @@ int main(int argc, char* argv[]) {
 
     // add a new sequence element to the facility containing new_map: {apples: 5}
     std::cout << "Adding a new element '-apples: 5' to facility.\n";
-    YAMLNodeId new_map_entry = add_map(tree, facility, NULL, END);
-    YAMLNodeId map = add_map(tree, new_map_entry, "new_map", END);
-    add_scalar(tree, map, "apples", "5", END);
+    YAMLNodeId new_map_entry = add_map(tree, facility, NULL, YAML_END);
+    YAMLNodeId map = add_map(tree, new_map_entry, "new_map", YAML_END);
+    add_scalar(tree, map, "apples", "5", YAML_END);
 
     // add a new sequence element to the facility containing magnets
     std::cout << "Adding a new element\n"
@@ -49,9 +49,10 @@ int main(int argc, char* argv[]) {
               << "        - magnet1\n"
               << "        - magnet2\n"
               << "to facility.\n\n";
-    YAMLNodeId magnets_entry = add_map(tree, facility, NULL, END);
-    YAMLNodeId sequence = add_sequence(tree, magnets_entry, "magnet_list", END);
-    add_scalar(tree, sequence, NULL, "magnet1", END);
+    YAMLNodeId magnets_entry = add_map(tree, facility, NULL, YAML_END);
+    YAMLNodeId sequence =
+        add_sequence(tree, magnets_entry, "magnet_list", YAML_END);
+    add_scalar(tree, sequence, NULL, "magnet1", YAML_END);
     add_scalar(tree, sequence, NULL, "magnet2", 1);
 
     // writing trees to files
