@@ -262,6 +262,96 @@ YAML_API struct name_matches match_names(YAMLTreeHandle tree,
  */
 YAML_API void free_name_matches(struct name_matches matches);
 
+// --- PARAMETER VALUES ---
+//
+// The three outcomes of get_parameter_value(). PARAM_VALUE_NUMBER also covers
+// the "parameter identified but not set" case, which returns the parameter's
+// default value (0 for every parameter, for now — real per-parameter defaults
+// come later).
+enum param_value_kind {
+    PARAM_VALUE_MISSING = 0,  // the match string did not identify a parameter
+    PARAM_VALUE_NUMBER = 1,   // numeric value, in `number`
+    PARAM_VALUE_STRING = 2,   // non-numeric string value, in `string`
+};
+
+// The result of get_parameter_value(). When `kind` is PARAM_VALUE_STRING,
+// `string` is a heap-allocated null-terminated copy the caller must release
+// with yaml_free_string(); it is NULL for the other two kinds, which need no
+// freeing.
+struct param_value {
+    int kind;       // one of enum param_value_kind
+    double number;  // valid when kind == PARAM_VALUE_NUMBER
+    char* string;   // valid when kind == PARAM_VALUE_STRING; NULL otherwise
+};
+
+/**
+ * Looks up the value of a single lattice parameter named by a PALS
+ * name-matching string.
+ *
+ * `match_string` uses the same syntax as match_names(). It names either an
+ * element parameter (with a `>{group}.{sub}. ... .{param}` path) or, as a bare
+ * name (no lattice/branch/kind qualifier and no path), a constant or variable —
+ * the same constructs match_names() resolves. Run an element-parameter query on
+ * the `expanded` tree of a parse_and_expand_PALS() result, where constants and
+ * variables referenced by a value have already been substituted; constants and
+ * variables themselves live in the facility scaffolding, so look them up in any
+ * view that keeps it — `original`, `combined`, or `leftover` — but not
+ * `expanded`, which drops it (exactly as with match_names()).
+ *
+ * The value is returned as stored; it is NOT evaluated. A plain numeric literal
+ * comes back as a number (PARAM_VALUE_NUMBER); anything else — an expression such
+ * as "0.3 * 5", a species name like "#3He", or any other text — comes back
+ * verbatim as a string (PARAM_VALUE_STRING). Evaluation is the job of lattice
+ * expansion (the `expanded` tree already holds numbers) or
+ * evaluate_pals_expression, not of this accessor.
+ *
+ * Resolution, and the resulting `kind`:
+ *   - Element parameter, set: its stored value — a number, or a string for an
+ *     expression or other non-numeric text.
+ *   - Element parameter, not set: the default value is returned
+ *     (PARAM_VALUE_NUMBER with number 0, for now).
+ *   - Constant or variable (bare name): its stored value, the same way.
+ *   - Nothing is identified: PARAM_VALUE_MISSING. That covers no matching
+ *     element, no matching constant/variable, a bare element name (an element
+ *     has no single scalar value), a path that stops on a whole parameter group,
+ *     and several matches that carry conflicting values. (Matches that agree —
+ *     the same element reused, or several that all take the default — collapse
+ *     to the one shared value.)
+ *
+ * @param tree         Handle to the tree to search.
+ * @param match_string Null-terminated name-matching string.
+ * @return A param_value. If `kind` is PARAM_VALUE_STRING the caller must free
+ *         `string` with yaml_free_string().
+ */
+YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
+                                                const char* match_string);
+
+/**
+ * Looks up a parameter value across the two trees of an expanded lattice that
+ * carry live values: the `expanded` lattice (element parameters, already
+ * evaluated) and the `leftover` facility scaffolding (constants, variables, and
+ * any element/beamline definitions not spliced into the lattice).
+ *
+ * This is the whole-lattice form of get_parameter_value(): the caller passes the
+ * two relevant handles from a parse_and_expand_PALS() result instead of picking a
+ * tree by hand. `expanded` is consulted first; only if it does not identify the
+ * parameter is `leftover` tried. The `original` and `combined` trees are
+ * deliberately not consulted — they hold raw, pre-expansion text, so a value read
+ * from them would be unevaluated and, for reused definitions, duplicated.
+ *
+ * Either handle may be NULL (treated as "no match" for that tree). The value's
+ * `kind`, string ownership, and the number/string/missing rules are exactly
+ * those of get_parameter_value().
+ *
+ * @param expanded     Handle to the `expanded` tree (element parameters).
+ * @param leftover     Handle to the `leftover` tree (constants/variables).
+ * @param match_string Null-terminated name-matching string.
+ * @return A param_value. If `kind` is PARAM_VALUE_STRING the caller must free
+ *         `string` with yaml_free_string().
+ */
+YAML_API struct param_value get_lattice_parameter_value(
+    YAMLTreeHandle expanded, YAMLTreeHandle leftover, const char* match_string);
+
 // --- PARSING & MEMORY ---
 
 /**
