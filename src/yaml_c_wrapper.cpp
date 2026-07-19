@@ -1,6 +1,7 @@
 #include "yaml_c_wrapper.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1589,6 +1590,108 @@ static void free_selector(NameSelector& sel) {
     if (sel.name) pcre2_code_free(sel.name);
 }
 
+// Heap-copy a std::string into a null-terminated C string the caller frees with
+// yaml_free_string() (i.e. allocated with new[], matching that free).
+static char* new_c_string(const std::string& s) {
+    char* result = new char[s.size() + 1];
+    std::memcpy(result, s.c_str(), s.size() + 1);
+    return result;
+}
+
+// Turn a raw scalar value into a param_value, returning it as stored — the value
+// is NOT evaluated. A plain numeric literal (the whole string, bar surrounding
+// whitespace, is a finite number) becomes a number; anything else — an
+// expression like "0.3 * 5", a species name like "#3He", or any other text — is
+// returned verbatim as a string. Evaluation is the job of lattice expansion or
+// evaluate_pals_expression, not of this accessor: on the `expanded` tree values
+// are already numbers, while the raw views keep their expressions.
+static struct param_value value_from_raw(const std::string& raw) {
+    struct param_value v = {PARAM_VALUE_STRING, 0.0, nullptr};
+    const char* s = raw.c_str();
+    char* end = nullptr;
+    double d = std::strtod(s, &end);  // skips leading whitespace itself
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') ++end;
+    if (end != s && *end == '\0' && std::isfinite(d)) {
+        v.kind = PARAM_VALUE_NUMBER;
+        v.number = d;
+    } else {
+        v.string = new_c_string(raw);
+    }
+    return v;
+}
+
+// Resolve one element's parameter into a param_value. `ele` is the element
+// definition map; `path` the dotted parameter path walked from it. A parameter
+// that is not present yields the default (numeric 0 for now); a scalar value is
+// returned as stored (see value_from_raw); a path that stops on a whole
+// parameter group rather than a single value is not a parameter value and yields
+// PARAM_VALUE_MISSING.
+static struct param_value param_value_for_element(
+    const ryml::Tree& t, size_t ele, const std::vector<std::string>& path) {
+    size_t node = resolve_param_path(t, ele, path);
+    if (node == ryml::NONE) {  // element found, parameter unset -> default
+        struct param_value v = {PARAM_VALUE_NUMBER, 0.0, nullptr};
+        return v;
+    }
+    if (!t.has_val(node)) {  // resolved to a group/sequence, not a value
+        struct param_value v = {PARAM_VALUE_MISSING, 0.0, nullptr};
+        return v;
+    }
+    return value_from_raw(std::string(t.val(node).str, t.val(node).len));
+}
+
+// The value of an already-matched node, for a bare-name lookup that resolves to
+// a constant or variable. A compact-form entry (`name: value`) is itself the
+// scalar; a full-form entry (a map with `kind: constant|variable`) carries its
+// value under a `value:` child. Any other node — an element definition or a
+// parameter group — has no single scalar value and yields PARAM_VALUE_MISSING.
+static struct param_value value_of_const_var(const ryml::Tree& t, size_t node) {
+    struct param_value v = {PARAM_VALUE_MISSING, 0.0, nullptr};
+    if (node == ryml::NONE) return v;
+    if (t.has_val(node))  // compact form: the matched node is the value scalar
+        return value_from_raw(std::string(t.val(node).str, t.val(node).len));
+    if (t.is_map(node)) {
+        std::string kind = child_val_str(t, node, "kind");
+        if (kind == "constant" || kind == "variable") {
+            size_t val = t.find_child(node, ryml::to_csubstr("value"));
+            if (val != ryml::NONE && t.has_val(val))
+                return value_from_raw(std::string(t.val(val).str, t.val(val).len));
+        }
+    }
+    return v;
+}
+
+// Whether two param_values carry the same value. Used to collapse several
+// matches into one result: identical values agree, conflicting values leave the
+// parameter unidentified.
+static bool param_value_eq(const struct param_value& a,
+                           const struct param_value& b) {
+    if (a.kind != b.kind) return false;
+    if (a.kind == PARAM_VALUE_NUMBER) return a.number == b.number;
+    if (a.kind == PARAM_VALUE_STRING) return std::strcmp(a.string, b.string) == 0;
+    return true;  // both PARAM_VALUE_MISSING
+}
+
+// Reduce a list of per-match param_values to a single result: the shared value
+// when they all agree (the same element reused, or several that all default),
+// or PARAM_VALUE_MISSING when any two conflict. Consumes `vs`, freeing every
+// owned string except the one handed back.
+static struct param_value reduce_param_values(std::vector<struct param_value>& vs) {
+    struct param_value missing = {PARAM_VALUE_MISSING, 0.0, nullptr};
+    if (vs.empty()) return missing;
+    bool conflict = false;
+    for (size_t i = 1; i < vs.size(); ++i)
+        if (!param_value_eq(vs[0], vs[i])) { conflict = true; break; }
+    if (conflict) {
+        for (struct param_value& v : vs)
+            if (v.string) yaml_free_string(v.string);
+        return missing;
+    }
+    for (size_t i = 1; i < vs.size(); ++i)  // keep vs[0]'s string, free the rest
+        if (vs[i].string) yaml_free_string(vs[i].string);
+    return vs[0];
+}
+
 // True if `re` (null = match any) matches any of `names`.
 static bool any_full_match(pcre2_code* re, const std::vector<std::string>& names) {
     if (!re) return true;
@@ -1674,12 +1777,11 @@ static void collect_const_var(const ryml::Tree& t, size_t named,
 }
 
 // Match a constant/variable name pattern against every constant and variable
-// defined directly under the PALS node or the facility node.
-static void match_const_var(const ryml::Tree& t, pcre2_code* name_re,
-                            std::vector<size_t>& out, std::set<size_t>& seen) {
-    size_t root = t.root_id();
-    if (root == ryml::NONE || !t.is_map(root)) return;
-    size_t pals = t.find_child(root, ryml::to_csubstr("PALS"));
+// defined directly under a single PALS node (or its facility sub-node).
+static void match_const_var_in_pals(const ryml::Tree& t, size_t pals,
+                                    pcre2_code* name_re,
+                                    std::vector<size_t>& out,
+                                    std::set<size_t>& seen) {
     if (pals == ryml::NONE) return;
     for (size_t c = t.first_child(pals); c != ryml::NONE;
          c = t.next_sibling(c)) {
@@ -1693,6 +1795,25 @@ static void match_const_var(const ryml::Tree& t, pcre2_code* name_re,
             collect_const_var(t, c, name_re, out, seen);
         }
     }
+}
+
+// Match constant/variable names across the tree. The PALS node sits at the root
+// in the combined, leftover and expanded views; in the `original` view it is
+// nested one level down under a per-file wrapper keyed by filename, and there
+// may be several (one per included file). Look in both places so a constant is
+// found in whichever tree actually holds it. The `seen` set keeps the root-level
+// PALS node from being scanned twice.
+static void match_const_var(const ryml::Tree& t, pcre2_code* name_re,
+                            std::vector<size_t>& out, std::set<size_t>& seen) {
+    size_t root = t.root_id();
+    if (root == ryml::NONE || !t.is_map(root)) return;
+
+    match_const_var_in_pals(t, t.find_child(root, ryml::to_csubstr("PALS")),
+                            name_re, out, seen);
+    for (size_t c = t.first_child(root); c != ryml::NONE; c = t.next_sibling(c))
+        if (t.is_map(c))
+            match_const_var_in_pals(
+                t, t.find_child(c, ryml::to_csubstr("PALS")), name_re, out, seen);
 }
 
 // ============================================================
@@ -1840,6 +1961,63 @@ YAML_API struct name_matches match_names(YAMLTreeHandle tree,
 
 YAML_API void free_name_matches(struct name_matches matches) {
     delete[] matches.nodes;
+}
+
+YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
+                                                const char* match_string) {
+    struct param_value out = {PARAM_VALUE_MISSING, 0.0, nullptr};
+    if (!tree || !match_string) return out;
+    ryml::Tree& t = GET_TREE(tree);
+
+    NameSelector sel = parse_selector(std::string(match_string));
+    if (!sel.valid) {  // a bad pattern identifies nothing
+        free_selector(sel);
+        return out;
+    }
+
+    std::vector<struct param_value> values;
+
+    if (sel.has_param) {
+        // An element parameter. Find the matching element(s) ignoring the
+        // parameter path — with has_param cleared, match_elements yields the
+        // element definition maps themselves — then walk the path down from
+        // each, so an element that exists but does not set the parameter still
+        // yields its default.
+        std::vector<std::string> path = sel.path;
+        sel.has_param = false;
+        std::vector<size_t> eles;
+        std::set<size_t> seen;
+        match_elements(t, t.root_id(), "", {}, sel, eles, seen);
+        free_selector(sel);
+        if (eles.empty()) return out;  // no such element -> missing
+        for (size_t ele : eles)
+            values.push_back(param_value_for_element(t, ele, path));
+    } else {
+        // No parameter path. A bare name — no lattice/branch/kind qualifier —
+        // resolves to a constant or variable, mirroring match_names. A
+        // qualified name with no path identifies an element, which has no
+        // scalar value, so it stays missing.
+        bool bare = !sel.lattice_present && !sel.branch_present && !sel.has_kind;
+        std::vector<size_t> nodes;
+        std::set<size_t> seen;
+        if (bare) match_const_var(t, sel.name, nodes, seen);
+        free_selector(sel);
+        if (nodes.empty()) return out;  // no such constant/variable -> missing
+        for (size_t node : nodes)
+            values.push_back(value_of_const_var(t, node));
+    }
+
+    return reduce_param_values(values);
+}
+
+YAML_API struct param_value get_lattice_parameter_value(
+    YAMLTreeHandle expanded, YAMLTreeHandle leftover, const char* match_string) {
+    // Element parameters live in the expanded lattice; look there first.
+    struct param_value v = get_parameter_value(expanded, match_string);
+    if (v.kind != PARAM_VALUE_MISSING) return v;
+    // Constants, variables and unused definitions live in the facility
+    // scaffolding kept by the leftover tree.
+    return get_parameter_value(leftover, match_string);
 }
 
 // --- PARSING & MEMORY ---

@@ -72,12 +72,35 @@ and `get_size`; inspect nodes with `is_map`, `is_sequence`, `is_scalar`,
 and `deep_copy_children`. Serialize with `node_to_string` / `tree_to_string`, or
 `write_file`. Every one of these is listed in the [API Reference](../api.md).
 
-Two more entry points build on the expanded tree:
+Three more entry points build on the expanded tree:
 
 - `build_correspondence_map` links a node across the four views (their
   provenance is recorded as the trees are derived from one another).
 - `match_names` finds every named construct that a PALS *Name Matching* string
   refers to.
+- `get_parameter_value` looks up a single parameter value by a *Name Matching*
+  string — an element parameter (with a path) or, as a bare name, a constant or
+  variable. It returns a `param_value` tagged as a number, a string, or missing.
+  The value is returned as stored, **not** evaluated: a plain number comes back as
+  `PARAM_VALUE_NUMBER`, while an expression (e.g. `0.3 * 5`), a species name such
+  as `#3He`, or other text comes back verbatim as a string (evaluating is the job
+  of expansion — the `expanded` tree already holds numbers). An unset element
+  parameter yields its default (`0` for now); and a string that identifies no
+  single value — no matching element/constant/variable, a bare element name, a
+  path stopping on a whole group, or matches that disagree — yields
+  `PARAM_VALUE_MISSING`. When the tag is `PARAM_VALUE_STRING`, free the returned
+  `string` with `yaml_free_string`.
+
+  ```c
+  struct param_value v = get_parameter_value(expanded, "lat1>>>B1a>BendP.e1");
+  if (v.kind == PARAM_VALUE_NUMBER) printf("%g\n", v.number);
+  else if (v.kind == PARAM_VALUE_STRING) { puts(v.string); yaml_free_string(v.string); }
+  ```
+- `get_lattice_parameter_value` is the whole-lattice form: pass the `expanded` and
+  `leftover` handles from one `parse_and_expand_PALS()` result and it looks in
+  `expanded` first (element parameters), then `leftover` (constants, variables,
+  and unused definitions) — never in the raw `original`/`combined` trees. Values
+  therefore come back already evaluated.
 
 ## Examples
 
