@@ -15,94 +15,151 @@
 #define YAML_API __attribute__((visibility("default")))
 #endif
 
+/**
+ * @defgroup parse Parsing & expansion
+ * @brief Read PALS/YAML from disk or memory and expand a lattice into its four
+ *        representations.
+ *
+ * @defgroup correspond Node correspondence
+ * @brief Map a single logical node across the original, combined, expanded and
+ *        leftover trees.
+ *
+ * @defgroup namematch Name matching
+ * @brief Resolve a PALS name-matching string to the nodes it selects.
+ *
+ * @defgroup param Parameter values
+ * @brief Look up the stored value of a single element parameter, constant or
+ *        variable.
+ *
+ * @defgroup expr Expression evaluation
+ * @brief Evaluate a PALS mathematical expression to a number.
+ *
+ * @defgroup nav Navigation & inspection
+ * @brief Walk a tree, read node keys and values, and test node types.
+ *
+ * @defgroup edit Building & editing
+ * @brief Create trees and add, set, copy or remove nodes.
+ *
+ * @defgroup emit Serialization
+ * @brief Emit a node or whole tree back to YAML text or a file.
+ *
+ * @defgroup lifecycle Memory management
+ * @brief Release the handles and strings the API returns.
+ */
+
 // --- CORE TYPES ---
+
+/** Opaque handle to a parsed YAML tree. */
 typedef void* YAMLTreeHandle;
+/** Identifies a node within a tree. */
 typedef size_t YAMLNodeId;
 
-// ryml uses (size_t)-1 to represent "not found" or "invalid"
+/** Sentinel node id meaning "not found" or "invalid" (ryml's `(size_t)-1`). */
 #define YAML_NULL_ID ((size_t)-1)
 
-// Pass as the index argument to add_* functions to append instead of inserting.
-// Spelled YAML_END rather than END because this is a public header: an
-// unprefixed END would clobber any enumerator, variable or macro of that
-// name in every translation unit that includes us.
+/**
+ * Pass as the index argument to the add_* functions to append instead of
+ * inserting.
+ *
+ * Spelled YAML_END rather than END because this is a public header: an
+ * unprefixed END would clobber any enumerator, variable or macro of that name
+ * in every translation unit that includes us.
+ */
 #define YAML_END YAML_NULL_ID
 
-// --- STRING LIST ---
-//
-// A flat, owning list of C strings. Used to return the human-readable problems
-// encountered while building the `expanded` tree (undefined lattice, dangling
-// element/line references, undefined `inherit`/`repeat`/`Fork` targets,
-// expressions that could not be evaluated, ...). Free with
-// free_lattice_problems().
+/**
+ * @brief A flat, owning list of C strings.
+ * @ingroup parse
+ *
+ * Used to return the human-readable problems encountered while building the
+ * `expanded` tree (undefined lattice, dangling element/line references,
+ * undefined `inherit`/`repeat`/`Fork` targets, expressions that could not be
+ * evaluated, ...). Free with free_lattice_problems().
+ */
 struct string_list {
-    char** items;
-    size_t count;
+    char** items;  ///< The strings (owning).
+    size_t count;  ///< Number of strings in @ref items.
 };
 
-// --- LATTICES ---
-//
-// The four trees parse_and_expand_PALS() produces, plus the problems found on
-// the way. Plain C: the handles are opaque pointers, so this is usable from any
-// language that can read the rest of this header.
+/**
+ * @brief The four trees parse_and_expand_PALS() produces, plus the problems
+ *        found on the way.
+ * @ingroup parse
+ *
+ * Plain C: the handles are opaque pointers, so this is usable from any language
+ * that can read the rest of this header.
+ */
 struct lattices {
-    YAMLTreeHandle original;  // Raw tree mapping each file (including includes)
-                              // to its unparsed contents
-    YAMLTreeHandle combined;  // Tree with all "include" directives resolved and
-                              // spliced inline
-    YAMLTreeHandle expanded;  // The expanded root lattice, and nothing else: a
-                              // map holding the single `name: {kind: Lattice,
-                              // ...}` entry, without the PALS/facility
-                              // scaffolding it was defined under
-    YAMLTreeHandle leftover;  // Everything the expanded tree does not carry —
-                              // the whole PALS/facility document minus the root
-                              // lattice, so element/beamline definitions, `use`
-                              // statements, constants and any non-root Lattice
-    struct string_list problems;  // Problems found while building `expanded`;
-                                  // free with free_lattice_problems()
+    YAMLTreeHandle original;  ///< Raw tree mapping each file (including
+                              ///< includes) to its unparsed contents.
+    YAMLTreeHandle combined;  ///< Tree with all "include" directives resolved
+                              ///< and spliced inline.
+    YAMLTreeHandle expanded;  ///< The expanded root lattice, and nothing else:
+                              ///< a map holding the single `name: {kind:
+                              ///< Lattice, ...}` entry, without the
+                              ///< PALS/facility scaffolding it was defined
+                              ///< under.
+    YAMLTreeHandle leftover;  ///< Everything the expanded tree does not carry —
+                              ///< the whole PALS/facility document minus the
+                              ///< root lattice, so element/beamline
+                              ///< definitions, `use` statements, constants and
+                              ///< any non-root Lattice.
+    struct string_list problems;  ///< Problems found while building `expanded`;
+                                  ///< free with free_lattice_problems().
 };
 
-// --- CORRESPONDENCE MAP ---
-//
-// Links a node across the representations produced by parse_and_expand_PALS().
-// The trees are built as a derivation chain (original -> combined -> expanded
-// and leftover), and provenance is recorded at every copy, so each link records
-// which node in each tree a single logical entity maps to.
-//
-// The mapping is functional per link: one expanded (or leftover) node maps to at
-// most one combined node, which maps to at most one original node. Because
-// expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
-// forks), a single combined/original node may appear in several links — one per
-// copy. A field is YAML_NULL_ID when no corresponding node exists (e.g. the
-// `fork_pointer` scalars synthesised during expansion have no original source).
-//
-// Expansion splits the document, so a link carries either an `expanded` id or a
-// `leftover` id, never both; the two are tied together through the `combined`
-// id they share. A definition that was substituted into the lattice therefore
-// yields links on both sides: one for the copy in `expanded`, one for the
-// definition still standing in `leftover`.
+/**
+ * @brief Links a node across the representations produced by
+ *        parse_and_expand_PALS().
+ * @ingroup correspond
+ *
+ * The trees are built as a derivation chain (original -> combined -> expanded
+ * and leftover), and provenance is recorded at every copy, so each link records
+ * which node in each tree a single logical entity maps to.
+ *
+ * The mapping is functional per link: one expanded (or leftover) node maps to at
+ * most one combined node, which maps to at most one original node. Because
+ * expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
+ * forks), a single combined/original node may appear in several links — one per
+ * copy. A field is YAML_NULL_ID when no corresponding node exists (e.g. the
+ * `fork_pointer` scalars synthesised during expansion have no original source).
+ *
+ * Expansion splits the document, so a link carries either an `expanded` id or a
+ * `leftover` id, never both; the two are tied together through the `combined`
+ * id they share. A definition that was substituted into the lattice therefore
+ * yields links on both sides: one for the copy in `expanded`, one for the
+ * definition still standing in `leftover`.
+ */
 struct node_link {
-    YAMLNodeId original;
-    YAMLNodeId combined;
-    YAMLNodeId expanded;
-    YAMLNodeId leftover;
+    YAMLNodeId original;  ///< Node in the `original` tree, or YAML_NULL_ID.
+    YAMLNodeId combined;  ///< Node in the `combined` tree, or YAML_NULL_ID.
+    YAMLNodeId expanded;  ///< Node in the `expanded` tree, or YAML_NULL_ID.
+    YAMLNodeId leftover;  ///< Node in the `leftover` tree, or YAML_NULL_ID.
 };
 
-// A flat list of node_links. One link is emitted per node of the expanded tree
-// and one per node of the leftover tree. Free with free_correspondence_map().
+/**
+ * @brief A flat list of node_links.
+ * @ingroup correspond
+ *
+ * One link is emitted per node of the expanded tree and one per node of the
+ * leftover tree. Free with free_correspondence_map().
+ */
 struct correspondence_map {
-    struct node_link* links;
-    size_t count;
+    struct node_link* links;  ///< The links (owning).
+    size_t count;             ///< Number of links in @ref links.
 };
 
-// --- NAME MATCHING ---
-//
-// A flat list of node ids identifying every named construct that matched a
-// query string. Each id is a node within the single tree that was passed to
-// match_names(). Free with free_name_matches().
+/**
+ * @brief A flat list of node ids identifying every named construct that matched
+ *        a query string.
+ * @ingroup namematch
+ *
+ * Each id is a node within the single tree that was passed to match_names().
+ * Free with free_name_matches().
+ */
 struct name_matches {
-    YAMLNodeId* nodes;
-    size_t count;
+    YAMLNodeId* nodes;  ///< The matched node ids (owning).
+    size_t count;       ///< Number of ids in @ref nodes.
 };
 
 #ifdef __cplusplus
@@ -111,6 +168,7 @@ extern "C" {
 
 /**
  * Builds and returns all four representations of a lattice file.
+ * @ingroup parse
  *
  * @param filename     Path to the top-level YAML lattice file.
  * @param root_lattice Name of the lattice to expand. If NULL or empty:
@@ -152,6 +210,8 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
 
 /**
  * Frees the string array owned by the `problems` list of a `lattices` value.
+ * @ingroup parse
+ *
  * Passing a list with a NULL `items` pointer (e.g. when there were no problems)
  * is safe and has no effect.
  *
@@ -161,6 +221,7 @@ YAML_API void free_lattice_problems(struct string_list problems);
 
 /**
  * Evaluates a single PALS mathematical expression to a double.
+ * @ingroup expr
  *
  * Supports the full PALS expression grammar: arithmetic (+ - * / ^), unary
  * signs, parentheses, the built-in constants (pi, c_light, r_electron, ...),
@@ -184,6 +245,7 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
 
 /**
  * Builds the node correspondence between the four trees of a `lattices` value.
+ * @ingroup correspond
  *
  * Returns a flat list containing one `node_link` per node of the `expanded`
  * tree and one per node of the `leftover` tree. Each link gives the
@@ -213,6 +275,7 @@ YAML_API struct correspondence_map build_correspondence_map(
 /**
  * Frees the link array owned by a correspondence_map. Passing a map with a NULL
  * `links` pointer is safe and has no effect.
+ * @ingroup correspond
  *
  * @param map The map to free (passed by value).
  */
@@ -220,6 +283,7 @@ YAML_API void free_correspondence_map(struct correspondence_map map);
 
 /**
  * Finds every named construct matched by a PALS name-matching string.
+ * @ingroup namematch
  *
  * The string follows the "Name Matching" / "Element Name Matching" syntax:
  *
@@ -260,36 +324,44 @@ YAML_API struct name_matches match_names(YAMLTreeHandle tree,
 /**
  * Frees the node array owned by a name_matches. Passing a value with a NULL
  * `nodes` pointer is safe and has no effect.
+ * @ingroup namematch
  *
  * @param matches The value to free (passed by value).
  */
 YAML_API void free_name_matches(struct name_matches matches);
 
-// --- PARAMETER VALUES ---
-//
-// The three outcomes of get_parameter_value(). PARAM_VALUE_NUMBER also covers
-// the "parameter identified but not set" case, which returns the parameter's
-// default value (0 for every parameter, for now — real per-parameter defaults
-// come later).
+/**
+ * @brief The three outcomes of get_parameter_value().
+ * @ingroup param
+ *
+ * PARAM_VALUE_NUMBER also covers the "parameter identified but not set" case,
+ * which returns the parameter's default value (0 for every parameter, for now —
+ * real per-parameter defaults come later).
+ */
 enum param_value_kind {
-    PARAM_VALUE_MISSING = 0,  // the match string did not identify a parameter
-    PARAM_VALUE_NUMBER = 1,   // numeric value, in `number`
-    PARAM_VALUE_STRING = 2,   // non-numeric string value, in `string`
+    PARAM_VALUE_MISSING = 0,  ///< The match string did not identify a parameter.
+    PARAM_VALUE_NUMBER = 1,   ///< Numeric value, in @ref param_value::number.
+    PARAM_VALUE_STRING = 2,   ///< String value, in @ref param_value::string.
 };
 
-// The result of get_parameter_value(). When `kind` is PARAM_VALUE_STRING,
-// `string` is a heap-allocated null-terminated copy the caller must release
-// with yaml_free_string(); it is NULL for the other two kinds, which need no
-// freeing.
+/**
+ * @brief The result of get_parameter_value().
+ * @ingroup param
+ *
+ * When `kind` is PARAM_VALUE_STRING, `string` is a heap-allocated
+ * null-terminated copy the caller must release with yaml_free_string(); it is
+ * NULL for the other two kinds, which need no freeing.
+ */
 struct param_value {
-    int kind;       // one of enum param_value_kind
-    double number;  // valid when kind == PARAM_VALUE_NUMBER
-    char* string;   // valid when kind == PARAM_VALUE_STRING; NULL otherwise
+    int kind;       ///< One of enum param_value_kind.
+    double number;  ///< Valid when kind == PARAM_VALUE_NUMBER.
+    char* string;   ///< Valid when kind == PARAM_VALUE_STRING; NULL otherwise.
 };
 
 /**
  * Looks up the value of a single lattice parameter named by a PALS
  * name-matching string.
+ * @ingroup param
  *
  * `match_string` uses the same syntax as match_names(). It names either an
  * element parameter (with a `>{group}.{sub}. ... .{param}` path) or, as a bare
@@ -334,6 +406,7 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
  * carry live values: the `expanded` lattice (element parameters, already
  * evaluated) and the `leftover` facility scaffolding (constants, variables, and
  * any element/beamline definitions not spliced into the lattice).
+ * @ingroup param
  *
  * This is the whole-lattice form of get_parameter_value(): the caller passes the
  * two relevant handles from a parse_and_expand_PALS() result instead of picking a
@@ -355,10 +428,9 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
 YAML_API struct param_value get_lattice_parameter_value(
     YAMLTreeHandle expanded, YAMLTreeHandle leftover, const char* match_string);
 
-// --- PARSING & MEMORY ---
-
 /**
  * Parses a YAML file from disk into an opaque tree handle.
+ * @ingroup parse
  *
  * The file is read into an internal buffer and parsed in-place; the buffer
  * is owned by the returned handle and freed by delete_tree().
@@ -371,6 +443,7 @@ YAML_API YAMLTreeHandle parse_file(const char* filename);
 
 /**
  * Parses a YAML string into an opaque tree handle.
+ * @ingroup parse
  *
  * The string is copied into an internal buffer and parsed in-place; the
  * buffer is owned by the returned handle and freed by delete_tree().
@@ -382,6 +455,7 @@ YAML_API YAMLTreeHandle parse_string(const char* yaml_str);
 
 /**
  * Creates an empty tree with a MAP root node.
+ * @ingroup edit
  *
  * Useful as a destination for deep_copy_node() / deep_copy_children(),
  * or for building a tree programmatically via add_map(), add_sequence(),
@@ -394,6 +468,7 @@ YAML_API YAMLTreeHandle create_empty_tree();
 
 /**
  * Frees all memory associated with a tree handle.
+ * @ingroup lifecycle
  *
  * @param tree Handle previously returned by parse_file(), parse_string(),
  *             create_empty_tree(), or parse_and_expand_PALS(). Passing NULL is safe
@@ -403,6 +478,7 @@ YAML_API void delete_tree(YAMLTreeHandle tree);
 
 /**
  * Removes a child node and all its descendants from the tree.
+ * @ingroup edit
  *
  * After removal the child's node ID is invalid and must not be used again.
  * The parent parameter is accepted for API symmetry but is not used
@@ -415,10 +491,9 @@ YAML_API void delete_tree(YAMLTreeHandle tree);
 YAML_API void remove_node(YAMLTreeHandle tree, YAMLNodeId parent,
                           YAMLNodeId child);
 
-// --- TRAVERSAL ---
-
 /**
  * Returns the node ID of the tree's root node.
+ * @ingroup nav
  *
  * @param tree Handle to a parsed or constructed tree.
  * @return Root node ID, or YAML_NULL_ID if tree is NULL.
@@ -427,6 +502,7 @@ YAML_API YAMLNodeId get_root(YAMLTreeHandle tree);
 
 /**
  * Returns the parent of a given node.
+ * @ingroup nav
  *
  * @param tree Handle to the tree containing the node.
  * @param node Node ID whose parent is requested.
@@ -436,6 +512,7 @@ YAML_API YAMLNodeId get_parent(YAMLTreeHandle tree, YAMLNodeId node);
 
 /**
  * Finds a direct child of a MAP node by its key.
+ * @ingroup nav
  *
  * @param tree   Handle to the tree.
  * @param parent Node ID of a MAP node to search.
@@ -448,6 +525,7 @@ YAML_API YAMLNodeId get_child_by_key(YAMLTreeHandle tree, YAMLNodeId parent,
 
 /**
  * Returns the nth child of a MAP or sequence node.
+ * @ingroup nav
  *
  * @param tree   Handle to the tree.
  * @param parent Node ID of a MAP or sequence node.
@@ -460,6 +538,7 @@ YAML_API YAMLNodeId get_child_by_index(YAMLTreeHandle tree, YAMLNodeId parent,
 
 /**
  * Returns the number of direct children of a node.
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID of a MAP or sequence node.
@@ -469,6 +548,7 @@ YAML_API size_t get_size(YAMLTreeHandle tree, YAMLNodeId node);
 
 /**
  * Returns the key of a node as a newly allocated null-terminated string.
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID of a keyed node.
@@ -478,10 +558,9 @@ YAML_API size_t get_size(YAMLTreeHandle tree, YAMLNodeId node);
  */
 YAML_API char* get_node_key(YAMLTreeHandle tree, YAMLNodeId node);
 
-// --- TYPE CHECKS ---
-
 /**
  * Returns true if the node is a MAP (key-value container).
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID to test.
@@ -492,6 +571,7 @@ YAML_API bool is_map(YAMLTreeHandle tree, YAMLNodeId node);
 
 /**
  * Returns true if the node is a sequence (ordered list).
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID to test.
@@ -502,6 +582,7 @@ YAML_API bool is_sequence(YAMLTreeHandle tree, YAMLNodeId node);
 
 /**
  * Returns true if the node is a scalar (plain value, no children).
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID to test.
@@ -510,11 +591,10 @@ YAML_API bool is_sequence(YAMLTreeHandle tree, YAMLNodeId node);
  */
 YAML_API bool is_scalar(YAMLTreeHandle tree, YAMLNodeId node);
 
-// --- READING VALUES ---
-
 /**
  * Returns the scalar value of a node as a newly allocated null-terminated
  * string.
+ * @ingroup nav
  *
  * @param tree Handle to the tree.
  * @param node Node ID of a node that has a value.
@@ -524,10 +604,9 @@ YAML_API bool is_scalar(YAMLTreeHandle tree, YAMLNodeId node);
  */
 YAML_API char* as_string(YAMLTreeHandle tree, YAMLNodeId node);
 
-// --- MODIFICATION ---
-
 /**
  * Adds a scalar key-value child to a MAP, or a plain scalar to a sequence.
+ * @ingroup edit
  *
  * @param tree   Handle to the tree.
  * @param parent Node ID of the parent MAP or sequence.
@@ -543,6 +622,7 @@ YAML_API YAMLNodeId add_scalar(YAMLTreeHandle tree, YAMLNodeId parent,
 
 /**
  * Adds a new empty MAP child to an existing MAP or sequence.
+ * @ingroup edit
  *
  * @param tree   Handle to the tree.
  * @param parent Node ID of the parent MAP or sequence.
@@ -557,6 +637,7 @@ YAML_API YAMLNodeId add_map(YAMLTreeHandle tree, YAMLNodeId parent,
 
 /**
  * Adds a new empty sequence child to an existing MAP or sequence.
+ * @ingroup edit
  *
  * @param tree   Handle to the tree.
  * @param parent Node ID of the parent MAP or sequence.
@@ -572,6 +653,7 @@ YAML_API YAMLNodeId add_sequence(YAMLTreeHandle tree, YAMLNodeId parent,
 
 /**
  * Sets or replaces the scalar value of an existing node.
+ * @ingroup edit
  *
  * The value string is copied into the tree's internal arena.
  *
@@ -584,6 +666,7 @@ YAML_API void set_scalar(YAMLTreeHandle tree, YAMLNodeId node,
 
 /**
  * Sets or replaces the key of an existing node.
+ * @ingroup edit
  *
  * The key string is copied into the tree's internal arena.
  *
@@ -597,6 +680,7 @@ YAML_API void set_node_key(YAMLTreeHandle tree, YAMLNodeId node,
 /**
  * Deep-copies the contents of a source node into a destination node,
  * overwriting whatever was previously there. Works across different trees.
+ * @ingroup edit
  *
  * Keys, values, type flags, and all descendants are copied. Strings are
  * duplicated into the destination tree's arena so the source tree may be
@@ -615,6 +699,7 @@ YAML_API void deep_copy_node(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
 /**
  * Deep-copies the children of a source node into a destination node,
  * inserting them at the given position. Works across different trees.
+ * @ingroup edit
  *
  * Only the children are copied — the source node itself is not. Existing
  * children of dst_node are preserved. Strings are duplicated into the
@@ -634,10 +719,9 @@ YAML_API void deep_copy_children(YAMLTreeHandle dst_tree, YAMLNodeId dst_node,
                                  YAMLTreeHandle src_tree, YAMLNodeId src_node,
                                  size_t index);
 
-// --- EMITTING & UTILS ---
-
 /**
  * Emits a node and its descendants as a YAML string.
+ * @ingroup emit
  *
  * @param tree Handle to the tree.
  * @param node Node ID to emit. If YAML_NULL_ID or out of range, returns NULL.
@@ -649,6 +733,7 @@ YAML_API char* node_to_string(YAMLTreeHandle tree, YAMLNodeId node);
 /**
  * Emits a tree as a YAML string. Same as `node_to_string` but defaulted to
  * the root.
+ * @ingroup emit
  *
  * @param tree Handle to the tree.
  * @return Heap-allocated null-terminated YAML string. The caller must free it
@@ -658,6 +743,7 @@ YAML_API char* tree_to_string(YAMLTreeHandle tree);
 
 /**
  * Writes the entire tree to a file as YAML.
+ * @ingroup emit
  *
  * @param tree     Handle to the tree to serialize.
  * @param filename Path to the output file. Created or truncated if it already
@@ -670,6 +756,7 @@ YAML_API bool write_file(YAMLTreeHandle tree, const char* filename);
 /**
  * Frees a string returned by get_node_key(), as_string(), node_to_string() or
  * tree_to_string(). These are every char*-returning function in this header.
+ * @ingroup lifecycle
  *
  * Passing NULL is safe and has no effect.
  *

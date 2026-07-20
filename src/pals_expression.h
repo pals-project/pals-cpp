@@ -19,44 +19,70 @@
 
 namespace pals {
 
-// Outcome of evaluating a PALS expression.
-//   ok=true                  -> `value` holds the finite numeric result.
-//   deferred=true            -> the expression contains random()/random_gauss(),
-//                               which must stay unevaluated to keep the expanded
-//                               tree reproducible. `value` is unspecified.
-//   ok=false, deferred=false -> not a (valid) evaluable expression: parse error,
-//                               unknown identifier, unknown species, or a
-//                               non-finite result. The caller should leave the
-//                               original text untouched.
+// The `expr` group is defined in yaml_c_wrapper.h (@defgroup expr); the symbols
+// below join it so the C entry point and this C++ interface document together.
+
+/**
+ * @brief Outcome of evaluating a PALS expression.
+ * @ingroup expr
+ *
+ *   - `ok=true`                  -> `value` holds the finite numeric result.
+ *   - `deferred=true`            -> the expression contains
+ *     random()/random_gauss(), which must stay unevaluated to keep the expanded
+ *     tree reproducible. `value` is unspecified.
+ *   - `ok=false, deferred=false` -> not a (valid) evaluable expression: parse
+ *     error, unknown identifier, unknown species, or a non-finite result. The
+ *     caller should leave the original text untouched.
+ */
 struct EvalOutcome {
-  bool ok = false;
-  bool deferred = false;
-  double value = 0.0;
+  bool ok = false;        ///< True when @ref value holds a finite result.
+  bool deferred = false;  ///< True when evaluation was deferred (random()).
+  double value = 0.0;     ///< The result; valid only when @ref ok is true.
 };
 
-// Looks up a user-defined constant/variable by name. Returns true and sets
-// `out` if the name is known. Built-in PALS constants (pi, c_light, ...) are
-// resolved inside the evaluator and need not be provided here.
+/**
+ * @brief Looks up a user-defined constant/variable by name.
+ * @ingroup expr
+ *
+ * Returns true and sets `out` if the name is known. Built-in PALS constants
+ * (pi, c_light, ...) are resolved inside the evaluator and need not be provided
+ * here.
+ */
 using SymbolLookup = std::function<bool(const std::string& name, double& out)>;
 
-// Looks up a user-defined *species-name* symbol by name (a constant/variable
-// whose value is a species string, e.g. `species: "#3He"`). Returns true and
-// sets `out` to the species name if the name is known. Lets the particle-data
-// functions accept a symbol, e.g. `mass_of(species)`, not only a quoted
-// literal `mass_of("#3He")`. An empty std::function means no such symbols.
+/**
+ * @brief Looks up a user-defined *species-name* symbol by name.
+ * @ingroup expr
+ *
+ * A constant/variable whose value is a species string, e.g.
+ * `species: "#3He"`. Returns true and sets `out` to the species name if the
+ * name is known. Lets the particle-data functions accept a symbol, e.g.
+ * `mass_of(species)`, not only a quoted literal `mass_of("#3He")`. An empty
+ * std::function means no such symbols.
+ */
 using SpeciesLookup =
     std::function<bool(const std::string& name, std::string& out)>;
 
-// Evaluates `text` as a PALS mathematical expression. A leading `expr(...)`
-// wrapper, if present, must be stripped by the caller. `lookup` resolves user
-// symbols; an empty std::function is fine when none are available. `species`
-// resolves a bare identifier passed to a particle-data function to a species
-// name; an empty std::function restricts those functions to quoted literals.
+/**
+ * @brief Evaluates `text` as a PALS mathematical expression.
+ * @ingroup expr
+ *
+ * A leading `expr(...)` wrapper, if present, must be stripped by the caller.
+ * `lookup` resolves user symbols; an empty std::function is fine when none are
+ * available. `species` resolves a bare identifier passed to a particle-data
+ * function to a species name; an empty std::function restricts those functions
+ * to quoted literals.
+ */
 EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup,
                             const SpeciesLookup& species = {});
 
-// If `name` is a built-in PALS constant, sets `out` to its value and returns
-// true; otherwise returns false.
+/**
+ * @brief Resolves a built-in PALS constant by name.
+ * @ingroup expr
+ *
+ * If `name` is a built-in PALS constant, sets `out` to its value and returns
+ * true; otherwise returns false.
+ */
 bool builtin_constant(const std::string& name, double& out);
 
 }  // namespace pals
