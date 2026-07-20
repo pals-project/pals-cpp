@@ -208,7 +208,7 @@ static std::string short_location(const ryml::Tree& t, size_t node) {
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
                    std::map<size_t, size_t>& prov, ProblemList& problems,
-                   size_t branches = ryml::NONE);
+                   size_t branches, std::map<size_t, int>& mp_pass);
 
 // Helper: find an element named 'name' within a line sequence. The element can
 // be just the scalar name or defined as a map.
@@ -237,7 +237,8 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     new bracnh.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
-                        std::map<size_t, size_t>& prov, ProblemList& problems) {
+                        std::map<size_t, size_t>& prov, ProblemList& problems,
+                        std::map<size_t, int>& mp_pass) {
     std::string fork_name = t.has_key(fork_node)
                                 ? std::string(t.key(fork_node).str,
                                               t.key(fork_node).len)
@@ -291,7 +292,7 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         // Rename from original element name to branch_name
         t.set_key(branch_node, t.to_arena(ryml::to_csubstr(branch_name)));
         // Expand the new branch so its scalars and inherits are resolved
-        expand(t, branch_node, emap, prov, problems, branches);
+        expand(t, branch_node, emap, prov, problems, branches, mp_pass);
     }
 
     if (branch_node == ryml::NONE) {
@@ -324,17 +325,64 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     t.set_val(fp_child, t.to_arena(ryml::to_csubstr(id_str)));
 }
 
+// True for a YAML scalar meaning boolean true (`multipass: true`, `True`, `1`).
+static bool is_true_flag(const std::string& v) {
+    return v == "true" || v == "True" || v == "TRUE" || v == "1";
+}
+
+// Stamp `multipass_index: idx` on a line entry (a seq wrapper holding one keyed
+// element map), unless the element already carries one. An existing index means
+// a nearer (more deeply nested) multipass line already claimed the element, and
+// per the standard the *first* multipass line up the chain wins, so it is not
+// overwritten.
+static void set_multipass_index(ryml::Tree& t, size_t entry, int idx) {
+    if (entry == ryml::NONE || !t.is_map(entry)) return;
+    size_t ele = t.first_child(entry);  // the keyed element map
+    if (ele == ryml::NONE || !t.is_map(ele)) return;
+    if (t.find_child(ele, ryml::to_csubstr("multipass_index")) != ryml::NONE)
+        return;
+    ensure_capacity(t);
+    size_t mi = t.append_child(ele);
+    t.ref(mi) |= ryml::KEY | ryml::VAL;
+    t.set_key(mi, t.to_arena(ryml::to_csubstr("multipass_index")));
+    t.set_val(mi, t.to_arena(ryml::to_csubstr(std::to_string(idx))));
+}
+
+// Stamp the multipass index `pass` on every entry of one instance of a
+// multipass line (the run [first, stop), ryml::NONE == to the end of the
+// sequence). Entries a nearer multipass line already claimed keep their index.
+//
+// The multipass index is the *pass number*: the number of times a particle
+// will have travelled through the physical element by that point, i.e. the
+// ordinal of this instance among the traversals of its multipass line. Every
+// element the instance contributes gets the same pass number. Two elements are
+// the same physical element when they share a multipass line and sit at the
+// same position within it; those matching positions across successive instances
+// carry the increasing pass numbers 1, 2, ... .
+static void stamp_multipass_pass(ryml::Tree& t, size_t first, size_t stop,
+                                 int pass) {
+    for (size_t e = first; e != ryml::NONE && e != stop; e = t.next_sibling(e))
+        set_multipass_index(t, e, pass);
+}
+
 /**
  * Perform lattice expansion on the element `node`.
  * 1. Substitute scalar elements with their full definition taken from emap.
  * 2. Beamlines that contain "repeat: n" have their contents repeated n times.
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
+ * 4. A beamline referenced by bare name inside a `line:` is a sub-line: its
+ *    `line:` contents are spliced directly into the enclosing line. When the
+ *    sub-line is `multipass`, the spliced run is stamped with its pass number.
+ *
+ * `mp_pass` counts, per multipass line definition, how many instances of that
+ * line have been spliced so far; expansion visits them in traversal order, so
+ * the count is the pass number to stamp on the next instance.
  */
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
                    std::map<size_t, size_t>& prov, ProblemList& problems,
-                   size_t branches) {
+                   size_t branches, std::map<size_t, int>& mp_pass) {
     if (node == ryml::NONE) return;
 
     // Sequence — handle 'repeat'
@@ -421,7 +469,7 @@ static void expand(ryml::Tree& t, size_t node,
                     }
                 }
             }
-            expand(t, child, emap, prov, problems, branches);
+            expand(t, child, emap, prov, problems, branches, mp_pass);
             child = next;
         }
         return;
@@ -430,17 +478,67 @@ static void expand(ryml::Tree& t, size_t node,
     // Standalone scalar value
     if (t.is_val(node) && !t.has_key(node)) {
         std::string name(t.val(node).str, t.val(node).len);
-        // replace with definition in element map
-        if (emap.count(name)) {
-            size_t def = emap[name];
+        size_t p = t.parent(node);
+        bool in_line = (p != ryml::NONE && t.has_key(p) &&
+                        t.key(p) == ryml::to_csubstr("line"));
+        auto it = emap.find(name);
+        if (it != emap.end()) {
+            size_t def = it->second;
+            size_t def_line = t.find_child(def, ryml::to_csubstr("line"));
+            bool is_beamline = child_val_str(t, def, "kind") == "BeamLine";
+
+            // Sub-line: a beamline referenced by bare name inside a `line:`
+            // contributes its `line:` contents directly to the enclosing line
+            // rather than surviving as a nested BeamLine. (A bare name in a
+            // `branches:` sequence is a branch, not a sub-line — it falls
+            // through to plain substitution and is stripped of its kind later.)
+            if (in_line && is_beamline && def_line != ryml::NONE &&
+                t.is_seq(def_line)) {
+                bool multipass =
+                    is_true_flag(child_val_str(t, def, "multipass"));
+                // Splice the sub-line's entries in front of this reference, then
+                // drop the reference itself. `before`/`stop` bracket the spliced
+                // run; both are outside it and stay put while it is expanded.
+                size_t before = t.prev_sibling(node);
+                size_t stop = t.next_sibling(node);
+                size_t after = before;
+                for (size_t c2 = t.first_child(def_line); c2 != ryml::NONE;
+                     c2 = t.next_sibling(c2)) {
+                    ensure_capacity(t, 2);
+                    after = duplicate_tracked(t, c2, p, after, prov);
+                }
+                erase_prov_subtree(t, node, prov);
+                t.remove(node);
+
+                // Expand the spliced run in place: element references become
+                // element maps, and any nested sub-lines flatten (assigning
+                // their own, nearer, multipass indices) in turn.
+                size_t first = (before == ryml::NONE) ? t.first_child(p)
+                                                      : t.next_sibling(before);
+                for (size_t cur = first; cur != ryml::NONE && cur != stop;) {
+                    size_t nx = t.next_sibling(cur);
+                    expand(t, cur, emap, prov, problems, branches, mp_pass);
+                    cur = nx;
+                }
+
+                // The spliced run is one instance (one pass) of this multipass
+                // sub-line: stamp every entry a nearer multipass sub-line did
+                // not already claim with this instance's pass number. Instances
+                // of a given line are visited in traversal order, so the running
+                // per-definition count is that pass number.
+                if (multipass)
+                    stamp_multipass_pass(t, first, stop, ++mp_pass[def]);
+                return;
+            }
+
+            // Element (or a beamline outside a `line:`): substitute in place.
             ensure_capacity(t, 2);
             t.change_type(node, ryml::MAP);
             duplicate_tracked(t, def, node, ryml::NONE, prov);
-            expand(t, node, emap, prov, problems, branches);
+            expand(t, node, emap, prov, problems, branches, mp_pass);
         } else {
             // A bare entry in a `line:` or `branches:` sequence names an element
             // or beamline; if it is not defined, the reference is dangling.
-            size_t p = t.parent(node);
             std::string pk = (p != ryml::NONE && t.has_key(p))
                                  ? std::string(t.key(p).str, t.key(p).len)
                                  : "";
@@ -473,14 +571,14 @@ static void expand(ryml::Tree& t, size_t node,
         if (kind == "Lattice") {
             node_branches = t.find_child(node, ryml::to_csubstr("branches"));
         } else if (kind == "Fork") {
-            handle_fork(t, node, branches, emap, prov, problems);
+            handle_fork(t, node, branches, emap, prov, problems, mp_pass);
         }
 
         size_t original_size = t.num_children(node);
         size_t c = t.first_child(node);
         for (size_t i = 0; i < original_size && c != ryml::NONE;
              i++, c = t.next_sibling(c))
-            expand(t, c, emap, prov, problems, node_branches);
+            expand(t, c, emap, prov, problems, node_branches, mp_pass);
     }
 }
 
@@ -496,8 +594,9 @@ static void expand(ryml::Tree& t, size_t node,
  * branch out of its `to_line`. Rather than special-case each route, strip the
  * key once here, after expansion has produced every branch.
  *
- * Only branches are stripped. A sub-line nested in a `line:` is still a
- * BeamLine and keeps its kind.
+ * Only branches carry a `kind: BeamLine` to strip. Sub-lines -- beamlines
+ * referenced inside a `line:` -- do not survive expansion: their contents are
+ * spliced into the enclosing line, so no nested BeamLine remains to consider.
  */
 static void strip_branch_kinds(ryml::Tree& t, size_t lat_node,
                                std::map<size_t, size_t>& prov) {
@@ -518,6 +617,47 @@ static void strip_branch_kinds(ryml::Tree& t, size_t lat_node,
         size_t kind = t.find_child(branch, ryml::to_csubstr("kind"));
         erase_prov_subtree(t, kind, prov);
         t.remove(kind);
+    }
+}
+
+/**
+ * Number the elements of every branch whose root line is itself `multipass`.
+ *
+ * A branch's own line is the top of the sub-line chain, so a `multipass: true`
+ * branch is the nearest multipass line for any of its elements not already
+ * claimed by a nested multipass sub-line (those were numbered as they flattened,
+ * and keep their nearer index). Runs after expansion, once every branch line
+ * holds its full flat element sequence.
+ *
+ * Each branch instance is one traversal (one pass) of its root line, so all of
+ * its still-unclaimed elements share a pass number. Physical element sets group
+ * by the root line *definition*, which can span branches: two branches built
+ * from the same root line are two passes through the same physical elements, so
+ * their matching positions carry successive pass numbers. Provenance recovers
+ * that shared definition — branches copied from one root map back to the same
+ * combined node — so the per-definition count is the pass number to stamp.
+ */
+static void number_multipass_branches(ryml::Tree& t, size_t lat_node,
+                                      std::map<size_t, size_t>& prov) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    std::map<size_t, int> mp_pass;  // root-line definition -> traversals so far
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch)) continue;
+        if (!is_true_flag(child_val_str(t, branch, "multipass"))) continue;
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line == ryml::NONE || !t.is_seq(line)) continue;
+        // Key on the branch's definition. A branch with no recorded provenance
+        // (none should occur here) falls back to its own node id, which is
+        // unique and so numbers it as a lone first pass.
+        auto it = prov.find(branch);
+        size_t def_key = (it != prov.end()) ? it->second : branch;
+        stamp_multipass_pass(t, t.first_child(line), ryml::NONE,
+                             ++mp_pass[def_key]);
     }
 }
 
@@ -734,7 +874,7 @@ static const std::set<std::string>& non_expr_keys() {
         "kind",       "include",     "use",
         "inherit",    "zero_point",  "to_line",
         "destination_element", "new_branch", "multipass",
-        "propagate_reference", "name"};
+        "propagate_reference", "name", "multipass_index"};
     return keys;
 }
 
@@ -1225,11 +1365,17 @@ static void make_expanded_and_leftover(ParsedData* comb,
                                   : "lattice '" + name_str + "' not found");
     } else {
         size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
-        expand(t, lat_node, emap, work.provenance, problems, branches);
+        std::map<size_t, int> mp_pass;  // multipass line def -> traversals so far
+        expand(t, lat_node, emap, work.provenance, problems, branches, mp_pass);
 
         // Runs after expand, not inside it: a Fork appends branches as it goes,
         // so only once expand has returned does `branches` hold them all.
         strip_branch_kinds(t, lat_node, work.provenance);
+
+        // A branch whose root line is itself `multipass` numbers its elements
+        // here — the branch line is not reached through a sub-line flatten, so
+        // its multipass indexing cannot happen during expand().
+        number_multipass_branches(t, lat_node, work.provenance);
 
         // Evaluate every mathematical expression to a number (immediate and
         // expr()-delayed alike). Node ids are unchanged -- only scalar text is

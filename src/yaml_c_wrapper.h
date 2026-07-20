@@ -128,8 +128,11 @@ extern "C" {
  * nothing else. Rooted at a map holding the single `name: {kind: Lattice, ...}`
  * entry, stripped of the PALS/facility scaffolding it was defined under. Its
  * `branches` entries are branches, not the BeamLines they were built from, and
- * so carry no `kind`; a BeamLine nested in a `line:` is a sub-line and keeps
- * its own.
+ * so carry no `kind`; a BeamLine referenced inside a `line:` is a sub-line whose
+ * contents are spliced directly into the enclosing line, so no nested BeamLine
+ * survives. Elements of a `multipass` line carry a `multipass_index` giving
+ * their pass number — how many times a particle will have travelled through
+ * that physical element by that point (nearest multipass wins).
  *           - `leftover`: the rest of the document, keeping its PALS/facility
  * scaffolding: element and beamline definitions, `use` statements, constants,
  * and any Lattice that was not the one expanded. Definitions substituted into
