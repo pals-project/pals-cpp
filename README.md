@@ -87,6 +87,31 @@ The [PALSJulia.jl](https://github.com/pals-project/PALSJulia.jl) package is an e
 - Provide a translator from `PALS` files to [`SciBmad`](https://github.com/bmad-sim/SciBmad.jl) lattice files.
 
 ## Developer Notes
+
+### Source layout
+The library sources live in `src/`, split by concern:
+
+- `yaml_c_wrapper.h` — the public C API: the opaque handle types and every
+  exported function. This is the only header consumers include.
+- `yaml_c_wrapper.cpp` — the generic YAML tree wrapper over rapidyaml (parse,
+  traverse, query, modify, emit). Knows nothing about PALS.
+- `yaml_tree.h` — internal declarations shared between the wrapper and the PALS
+  code: the tree representation behind `YAMLTreeHandle` (`ParsedData`) plus the
+  low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
+- `pals_expand.cpp` — the lattice expansion pipeline that builds the four-tree
+  representation (`original` / `combined` / `expanded` / `leftover`): include
+  splicing, structural expansion (repeats, inherits, forks), and expression /
+  controller evaluation.
+- `pals_match.cpp` — PALS name matching and parameter lookup (the PCRE2-based
+  `match_names` / `get_parameter_value` family).
+- `pals_util.{h,cpp}` — small helpers shared across the PALS split
+  (`child_val_str`, `split_dots`, `resolve_param_path`, `strip_expr_wrapper`).
+- `pals_expression.{h,cpp}` — the standalone PALS expression grammar and
+  evaluator (arithmetic, functions, built-in constants, particle-data lookups).
+
+Everything builds into `libyaml_c_wrapper.dylib`; see `CMakeLists.txt`.
+
+### Memory model
 `YAMLTreeHandle` wraps `ryml::Tree` into C objects so they can be part of a shared object library to interface with other languages. `ryml::Tree`s are stored in memory simply as arrays. `ryml::NodeRef` acts as a simple wrapper around nodes, which are just indices in the tree array. Trees are obtained by parsing C++ std::string, and values are simply pointers to locations in the string. Therefore, the string must be kept in memory as long as the tree is in use. 
 
 Most of the relevant ryml code for reference is contained in `/build/_deps/rapidyaml-src/src/c4/yml/tree.hpp`.
