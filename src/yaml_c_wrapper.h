@@ -132,7 +132,7 @@ extern "C" {
  * contents are spliced directly into the enclosing line, so no nested BeamLine
  * survives. Elements of a `multipass` line carry a `multipass_index` giving
  * their pass number — how many times a particle will have travelled through
- * that physical element by that point (nearest multipass wins).
+ * that physical element by that point.
  *           - `leftover`: the rest of the document, keeping its PALS/facility
  * scaffolding: element and beamline definitions, `use` statements, constants,
  * and any Lattice that was not the one expanded. Definitions substituted into
