@@ -76,6 +76,9 @@ file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
 
 add_library(yaml_c_wrapper SHARED
   src/yaml_c_wrapper.cpp
+  src/pals_expand.cpp
+  src/pals_match.cpp
+  src/pals_util.cpp
   src/pals_expression.cpp)
 target_link_libraries(yaml_c_wrapper PUBLIC ryml PRIVATE pcre2-8-static apc)
 
