@@ -454,6 +454,22 @@ YAML_API YAMLTreeHandle parse_file(const char* filename);
 YAML_API YAMLTreeHandle parse_string(const char* yaml_str);
 
 /**
+ * Returns the most recent parse error message on the calling thread.
+ * @ingroup parse
+ *
+ * Whenever parse_file(), parse_string() (and hence parse_and_expand_PALS())
+ * returns NULL because a document is malformed or a file cannot be read, this
+ * holds a human-readable description of why — for a YAML syntax error, prefixed
+ * with the offending "line L, column C:" — so the caller can report exactly what
+ * went wrong instead of a bare failure. It is cleared at the start of each parse
+ * and is empty when the last parse on this thread succeeded.
+ *
+ * @return A null-terminated string owned by the library, valid until the next
+ *         parse call on this thread. Never NULL (empty when there is no error).
+ */
+YAML_API const char* yaml_last_parse_error(void);
+
+/**
  * Creates an empty tree with a MAP root node.
  * @ingroup edit
  *

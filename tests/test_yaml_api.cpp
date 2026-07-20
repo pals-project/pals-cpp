@@ -33,6 +33,33 @@ TEST_CASE("parse_file returns nullptr for a missing file", "[parsing][file]") {
     REQUIRE(tree == nullptr);
 }
 
+TEST_CASE("malformed YAML returns nullptr instead of aborting", "[parsing]") {
+    // A sequence item missing its ':' is a syntax error. ryml would abort() by
+    // default; the library installs throwing callbacks so this is catchable.
+    YAMLTreeHandle tree = parse_string("- cav\n    kind: RFCavity\n");
+    REQUIRE(tree == nullptr);
+    // The error message pinpoints where the parse failed...
+    std::string err = yaml_last_parse_error();
+    REQUIRE_FALSE(err.empty());
+    REQUIRE(err.find("line") != std::string::npos);
+    // ...and quotes the source around it — the error line, the line before it
+    // (where a missing ':' actually is), and a caret — so the fault is visible.
+    REQUIRE(err.find("1 | - cav") != std::string::npos);
+    REQUIRE(err.find("kind: RFCavity") != std::string::npos);
+    REQUIRE(err.find('^') != std::string::npos);
+}
+
+TEST_CASE("yaml_last_parse_error is cleared after a successful parse",
+          "[parsing]") {
+    YAMLTreeHandle bad = parse_string(": : :");
+    if (bad) delete_tree(bad);
+    // Whether or not that particular string errors, a clean parse must reset it.
+    YAMLTreeHandle good = parse_string("key: value");
+    REQUIRE(good != nullptr);
+    REQUIRE(std::string(yaml_last_parse_error()).empty());
+    delete_tree(good);
+}
+
 TEST_CASE("create_empty_tree gives an empty MAP root", "[parsing]") {
     YAMLTreeHandle tree = create_empty_tree();
     REQUIRE(tree != nullptr);

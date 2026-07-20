@@ -8,11 +8,135 @@
 
 #include <cstring>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <ryml.hpp>
 #include <ryml_std.hpp>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace {
+
+// The most recent parse error on this thread, set whenever parse_file() or
+// parse_string() fails and read back through yaml_last_parse_error(). Made
+// thread-local so concurrent parses do not clobber one another's message.
+thread_local std::string g_last_parse_error;
+
+// Thrown by the ryml error callbacks below in place of ryml's default abort(),
+// so a malformed document surfaces as a catchable failure (a NULL handle) that
+// the host — Julia, say — can report, rather than a signal that kills the whole
+// process. Carries ryml's raw message plus the 1-based YAML location, so the
+// caller (which still holds the source buffer) can render a source snippet.
+// `line`/`col` are ryml::npos when unknown.
+struct RymlError : std::runtime_error {
+    size_t line;
+    size_t col;
+    RymlError(ryml::csubstr msg, size_t line_, size_t col_)
+        : std::runtime_error(std::string(msg.str, msg.len)),
+          line(line_),
+          col(col_) {}
+};
+
+// ryml requires its error callbacks never return; each throws instead. The
+// parse callback reports the location within the YAML source (`ymlloc`), which
+// is what pinpoints the offending line for the user.
+[[noreturn]] void ryml_error_parse(ryml::csubstr msg,
+                                   const ryml::ErrorDataParse& err, void*) {
+    throw RymlError(msg, err.ymlloc.line, err.ymlloc.col);
+}
+
+[[noreturn]] void ryml_error_basic(ryml::csubstr msg,
+                                   const ryml::ErrorDataBasic& err, void*) {
+    throw RymlError(msg, err.location.line, err.location.col);
+}
+
+// Return 1-based line `n` of `src` (without its trailing newline), or "" if the
+// source has fewer than `n` lines. ryml filters scalars in place during a parse
+// but never moves the newlines that bound the lines, so scanning the (possibly
+// partly-parsed) buffer still recovers the correct line boundaries.
+std::string source_line(const std::string& src, size_t n) {
+    if (n == 0) return {};
+    size_t start = 0;
+    for (size_t cur = 1; cur < n; ++cur) {
+        size_t nl = src.find('\n', start);
+        if (nl == std::string::npos) return {};
+        start = nl + 1;
+    }
+    size_t nl = src.find('\n', start);
+    std::string line =
+        src.substr(start, nl == std::string::npos ? nl : nl - start);
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    return line;
+}
+
+// Append a source snippet to `out`: the line before the error, the error line,
+// and a caret under the offending column, e.g.
+//
+//       32 |     - cav
+//       33 |         kind: RFCavity
+//                        ^
+//
+// A missing colon is only detectable on the line *after* the omission, so the
+// preceding line is shown too — that is where the real fault usually is. Does
+// nothing when the location is unknown.
+void append_source_context(std::string& out, const std::string& src,
+                           size_t line, size_t col) {
+    if (line == ryml::npos || line == 0) return;
+    const size_t gutter = std::to_string(line).size();
+    auto emit_line = [&](size_t n) {
+        if (n == 0) return;
+        const std::string num = std::to_string(n);
+        out += "\n    ";
+        out.append(gutter - num.size(), ' ');
+        out += num;
+        out += " | ";
+        out += source_line(src, n);
+    };
+    if (line > 1) emit_line(line - 1);
+    emit_line(line);
+    if (col != ryml::npos && col >= 1) {
+        out += "\n    ";
+        out.append(gutter, ' ');
+        out += " | ";
+        out.append(col - 1, ' ');
+        out += '^';
+    }
+}
+
+// Build the full "line L, column C: <msg>" string, followed by the source
+// snippet, from a caught RymlError and the buffer it was parsing.
+std::string build_parse_error(const RymlError& e, const std::string& src) {
+    std::string out;
+    if (e.line != ryml::npos) {
+        out = "line " + std::to_string(e.line);
+        if (e.col != ryml::npos) out += ", column " + std::to_string(e.col);
+        out += ": ";
+    }
+    out += e.what();
+    append_source_context(out, src, e.line, e.col);
+    return out;
+}
+
+// Install the throwing error callbacks, once, so every parse reports errors by
+// exception rather than by aborting. ryml's allocation callbacks are left
+// untouched. This runs lazily on the first parse rather than at load time on
+// purpose: ryml's global callbacks live in a namespace-scope object whose own
+// default (aborting) construction could otherwise run *after* ours in an
+// unspecified static-init order and clobber it. Call it before constructing any
+// Tree, whose callbacks are copied from the global at construction.
+void ensure_throwing_callbacks() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        ryml::Callbacks cb = ryml::get_callbacks();
+        cb.set_error_parse(&ryml_error_parse);
+        cb.set_error_basic(&ryml_error_basic);
+        ryml::set_callbacks(cb);
+    });
+}
+
+}  // namespace
 
 // Grow node pool if nearly full. ryml does not auto-resize.
 void ensure_capacity(ryml::Tree& t, size_t needed) {
@@ -67,35 +191,69 @@ void deep_copy_recursive(ryml::Tree& dst_t, size_t dst_node,
 extern "C" {
 
 YAML_API YAMLTreeHandle parse_file(const char* filename) {
+    ensure_throwing_callbacks();
+    g_last_parse_error.clear();
+    std::unique_ptr<ParsedData> data(new ParsedData());
     try {
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
-        if (!file) return nullptr;
+        if (!file) {
+            g_last_parse_error =
+                "could not open file: " +
+                std::string(filename ? filename : "(null)");
+            return nullptr;
+        }
         std::streamsize size = file.tellg();
         file.seekg(0, std::ios::beg);
-        ParsedData* data = new ParsedData();
         data->buffer.resize(size);
         file.read(&data->buffer[0], size);
-        data->tree = ryml::parse_in_place(ryml::to_substr(data->buffer));
-        return data;
+        // Parse into data->tree (not the returning overload) so the parser
+        // inherits the tree's callbacks — the global throwing ones set above.
+        // The returning parse_in_place(substr) builds its event handler with
+        // ryml's built-in defaults, which abort() on a syntax error.
+        ryml::parse_in_place(ryml::to_substr(data->buffer), &data->tree);
+        return data.release();
+    } catch (const RymlError& e) {
+        g_last_parse_error = build_parse_error(e, data->buffer);
+        return nullptr;
+    } catch (const std::exception& e) {
+        g_last_parse_error = e.what();
+        return nullptr;
     } catch (...) {
+        g_last_parse_error = "unknown parse error";
         return nullptr;
     }
 }
 
 YAML_API YAMLTreeHandle parse_string(const char* yaml_str) {
+    ensure_throwing_callbacks();
+    g_last_parse_error.clear();
     // Explicit null check prevents the segfault
     if (yaml_str == nullptr) {
+        g_last_parse_error = "null YAML string";
         return nullptr;
     }
 
+    std::unique_ptr<ParsedData> data(new ParsedData());
     try {
-        ParsedData* data = new ParsedData();
         data->buffer = yaml_str;
-        data->tree = ryml::parse_in_place(ryml::to_substr(data->buffer));
-        return data;
+        // Parse into data->tree so the parser uses the tree's (global, throwing)
+        // callbacks rather than ryml's built-in aborting defaults.
+        ryml::parse_in_place(ryml::to_substr(data->buffer), &data->tree);
+        return data.release();
+    } catch (const RymlError& e) {
+        g_last_parse_error = build_parse_error(e, data->buffer);
+        return nullptr;
+    } catch (const std::exception& e) {
+        g_last_parse_error = e.what();
+        return nullptr;
     } catch (...) {
+        g_last_parse_error = "unknown parse error";
         return nullptr;
     }
+}
+
+YAML_API const char* yaml_last_parse_error(void) {
+    return g_last_parse_error.c_str();
 }
 
 YAML_API YAMLTreeHandle create_empty_tree() {

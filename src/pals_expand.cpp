@@ -1460,8 +1460,14 @@ static void add_to_master_tree(ryml::Tree& master, const ryml::Tree& src,
 /**
  * Makes the original lattice. Creates a tree that maps included files to their
  * contents.
+ *
+ * If the top-level file cannot be read or is not valid YAML, `parse_error` is
+ * set to a human-readable description (with the offending line/column for a
+ * syntax error) and the returned tree is an empty MAP. Callers treat a non-empty
+ * `parse_error` as a fatal failure: there is no document to expand.
  */
-static YAMLTreeHandle make_original(const char* filename) {
+static YAMLTreeHandle make_original(const char* filename,
+                                    std::string& parse_error) {
     ParsedData* master = new ParsedData();
     master->tree.rootref() |= ryml::MAP;
     ParsedData* src = static_cast<ParsedData*>(parse_file(filename));
@@ -1475,6 +1481,10 @@ static YAMLTreeHandle make_original(const char* filename) {
                              master->tree.to_arena(ryml::to_csubstr(filename)));
         add_to_master_tree(master->tree, src->tree, src->tree.root_id());
         delete src;
+    } else {
+        // parse_file recorded why on this thread; nothing else has parsed since.
+        parse_error = yaml_last_parse_error();
+        if (parse_error.empty()) parse_error = "parse failed";
     }
     return master;
 }
@@ -1484,16 +1494,27 @@ extern "C" {
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice) {
     struct lattices lat = {};
+    ProblemList problems;
     // Built as a derivation chain so provenance can be recorded at each step:
     //   original --(splice includes)--> combined --(expand, split)--> expanded
     //                                                              \-> leftover
-    lat.original = make_original(filename);
-    lat.combined = make_combined_from_original(
-        static_cast<ParsedData*>(lat.original), filename);
-    ProblemList problems;
-    make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
-                               root_lattice, problems, lat.expanded,
-                               lat.leftover);
+    std::string parse_error;
+    lat.original = make_original(filename, parse_error);
+    if (!parse_error.empty()) {
+        // The top-level file is not valid YAML: there is no tree to expand.
+        // Free the empty stand-in, leave all four handles NULL, and report the
+        // location as the single problem so the caller can pinpoint the fault.
+        delete_tree(lat.original);
+        lat.original = nullptr;
+        problems.push_back("could not parse '" + std::string(filename) +
+                           "': " + parse_error);
+    } else {
+        lat.combined = make_combined_from_original(
+            static_cast<ParsedData*>(lat.original), filename);
+        make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
+                                   root_lattice, problems, lat.expanded,
+                                   lat.leftover);
+    }
 
     // Hand the problem list to the caller as an owning C string array (freed
     // with free_lattice_problems). The library never prints — the caller

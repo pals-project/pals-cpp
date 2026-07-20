@@ -364,3 +364,38 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
+
+TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
+          "[lattices][problems]") {
+    // A sequence item missing its ':' (here `- cav` followed by an indented
+    // mapping) is a YAML syntax error. ryml would abort the process; instead
+    // parse_and_expand_PALS must return NULL handles and one problem that names
+    // the file and pinpoints the line.
+    const char* path = "tmp_malformed.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - cav\n"
+              "        kind: RFCavity\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+
+    // No usable tree: every handle is NULL.
+    REQUIRE(lat.original == nullptr);
+    REQUIRE(lat.combined == nullptr);
+    REQUIRE(lat.expanded == nullptr);
+    REQUIRE(lat.leftover == nullptr);
+
+    // A single problem, naming the file and the offending line.
+    REQUIRE(lat.problems.count == 1);
+    std::string msg = lat.problems.items[0];
+    REQUIRE(msg.find(path) != std::string::npos);
+    REQUIRE(msg.find("line") != std::string::npos);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);  // all NULL — delete_tree(NULL) is a safe no-op
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
