@@ -1,6 +1,14 @@
 include(CTest)
 add_executable(tests
-  test_yaml_c_wrapper.cpp
+  test_yaml_api.cpp
+  test_expansion.cpp
+  test_correspondence.cpp
+  test_key_order.cpp
+  test_matching.cpp
+  test_parameters.cpp
+  test_expressions.cpp
+  test_multipass.cpp
+  test_controllers.cpp
 )
 
 target_link_libraries(tests
