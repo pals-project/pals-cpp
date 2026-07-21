@@ -8,8 +8,12 @@
 #include "yaml_c_wrapper.h"
 #include "yaml_tree.h"
 #include "pals_util.h"
+#include "pals_floor.h"
+
+#include "apc/apc.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1314,6 +1318,797 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     substitute_values(t, t.root_id(), *resolve, species, problems);
 }
 
+// ============================================================
+// ELEMENT BOOKKEEPING
+// ============================================================
+//
+// Once every expression has been reduced to a number, each branch is walked
+// element-by-element from its BeginningEle to compute the output parameters that
+// depend on where an element sits in the branch: the reference parameters
+// (species / energy / momentum / time), the floor placement, the s-position,
+// and the field-dependent parameters (normalized <-> unnormalized multipole and
+// bend strengths). See the "Lattice Expansion" step in
+// pals/source/lattice-construction.md; the floor math (Eqs. wws etc.) lives in
+// pals_floor.cpp.
+//
+// All ReferenceP / FloorP values describe the *upstream* end of their element.
+// The bookkeeper persists each element's results into the tree before moving on,
+// so _element_bookkeeper reads the previous element's stored parameters and
+// "propagates" them onto the current one, exactly as the standard describes.
+
+// Parse the whole of `s` (bar surrounding whitespace) as a finite double. Values
+// in the expanded tree are already evaluated to plain numbers by this point.
+static bool parse_num(const std::string& s, double& out) {
+    const char* p = s.c_str();
+    char* end = nullptr;
+    double d = std::strtod(p, &end);
+    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') ++end;
+    if (end != p && *end == '\0' && std::isfinite(d)) {
+        out = d;
+        return true;
+    }
+    return false;
+}
+
+// Numeric value of a keyed child, if present and numeric.
+static bool get_num_child(const ryml::Tree& t, size_t parent, const char* key,
+                          double& out) {
+    if (parent == ryml::NONE) return false;
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE || !t.has_val(c)) return false;
+    return parse_num(std::string(t.val(c).str, t.val(c).len), out);
+}
+
+// String value of a keyed child, trimmed and with any surrounding quotes
+// stripped; false (and `out` untouched) if absent or empty.
+static bool get_str_child(const ryml::Tree& t, size_t parent, const char* key,
+                          std::string& out) {
+    if (parent == ryml::NONE) return false;
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE || !t.has_val(c)) return false;
+    std::string v(t.val(c).str, t.val(c).len);
+    size_t a = v.find_first_not_of(" \t\r\n");
+    size_t b = v.find_last_not_of(" \t\r\n");
+    if (a == std::string::npos) return false;
+    v = v.substr(a, b - a + 1);
+    if (v.size() >= 2 && (v.front() == '"' || v.front() == '\'') &&
+        v.back() == v.front())
+        v = v.substr(1, v.size() - 2);
+    if (v.empty()) return false;
+    out = v;
+    return true;
+}
+
+// A keyed map child of `parent`, created (empty) if absent. An existing scalar
+// placeholder of the same key is converted to a map in place.
+static size_t find_or_add_map_child(ryml::Tree& t, size_t parent,
+                                    const char* key) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c != ryml::NONE) {
+        if (!t.is_map(c)) {
+            t.change_type(c, ryml::KEYMAP);
+            t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+        }
+        return c;
+    }
+    ensure_capacity(t, 2);
+    c = t.append_child(parent);
+    t.ref(c) |= ryml::KEY | ryml::MAP;
+    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    return c;
+}
+
+// Set (or create) a keyed scalar child to the shortest round-tripping decimal.
+static void set_num_child(ryml::Tree& t, size_t parent, const char* key,
+                          double v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(format_double(v))));
+}
+
+// Set (or create) a keyed scalar child to a string. Double-quoted so a leading
+// '#' in a species name survives YAML's comment rule on re-emit.
+static void set_str_child(ryml::Tree& t, size_t parent, const char* key,
+                          const std::string& v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
+    t.set_val_style(c, ryml::VAL_DQUO);
+}
+
+// Set (or create) a keyed scalar child to a bare (unquoted) token. Used for
+// enum and boolean defaults (e.g. `cavity_type: STANDING_WAVE`, `direction:
+// FORWARDS`, `aperture_active: true`), which are plain YAML scalars, not strings.
+static void set_plain_child(ryml::Tree& t, size_t parent, const char* key,
+                            const char* v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
+}
+
+// Reference parameters at one end of an element (ReferenceP). Energy and
+// momentum are related through the reference mass; a flag records which of them
+// is known so complete_energy() can fill the other.
+struct RefState {
+    std::string species;
+    double E_tot = 0.0;  // [eV] total energy
+    double pc = 0.0;     // [eV] momentum * c
+    double time = 0.0;   // [s]
+    bool has_species = false;
+    bool has_E = false;
+    bool has_pc = false;
+};
+
+// Fill in whichever of E_tot / pc is missing from the other, using the reference
+// species mass (E^2 = (pc)^2 + (m c^2)^2, all in eV). A no-op if the species is
+// unknown, both are set, or neither is.
+static void complete_energy(RefState& r) {
+    if (!r.has_species) return;
+    double m;
+    try {
+        m = apc::mass_of(r.species);
+    } catch (...) {
+        return;  // unknown species name; leave energy/momentum as-is
+    }
+    if (r.has_E && !r.has_pc) {
+        double v = r.E_tot * r.E_tot - m * m;
+        if (v >= 0.0) {
+            r.pc = std::sqrt(v);
+            r.has_pc = true;
+        }
+    } else if (r.has_pc && !r.has_E) {
+        r.E_tot = std::sqrt(r.pc * r.pc + m * m);
+        r.has_E = true;
+    }
+}
+
+// Read the ReferenceP group of an element into a RefState (its upstream values).
+static RefState read_ref(const ryml::Tree& t, size_t ele) {
+    RefState r;
+    size_t rp = t.find_child(ele, ryml::to_csubstr("ReferenceP"));
+    if (rp == ryml::NONE) return r;
+    r.has_species = get_str_child(t, rp, "species_ref", r.species);
+    r.has_E = get_num_child(t, rp, "E_tot_ref", r.E_tot);
+    r.has_pc = get_num_child(t, rp, "pc_ref", r.pc);
+    get_num_child(t, rp, "time_ref", r.time);  // defaults to 0
+    return r;
+}
+
+// Write a RefState back into an element's ReferenceP group (creating it).
+static void write_ref(ryml::Tree& t, size_t ele, const RefState& r) {
+    size_t rp = find_or_add_map_child(t, ele, "ReferenceP");
+    if (r.has_species) set_str_child(t, rp, "species_ref", r.species);
+    if (r.has_E) set_num_child(t, rp, "E_tot_ref", r.E_tot);
+    if (r.has_pc) set_num_child(t, rp, "pc_ref", r.pc);
+    set_num_child(t, rp, "time_ref", r.time);
+}
+
+// Apply a ReferenceChange element's ReferenceChangeP adjustments to a RefState
+// (see referencechange.md): a species, an absolute or delta energy/momentum, and
+// an absolute or delta reference time. Clearing has_E/has_pc lets the subsequent
+// complete_energy() recompute the partner quantity with the new mass/energy.
+static void apply_ref_change(const ryml::Tree& t, size_t ele, RefState& r) {
+    size_t rc = t.find_child(ele, ryml::to_csubstr("ReferenceChangeP"));
+    if (rc == ryml::NONE) return;
+
+    std::string sp;
+    if (get_str_child(t, rc, "species_ref", sp)) {
+        r.species = sp;
+        r.has_species = true;
+        r.has_pc = false;  // recompute momentum for the new mass
+    }
+    double v;
+    if (get_num_child(t, rc, "E_tot_ref", v)) {
+        r.E_tot = v;
+        r.has_E = true;
+        r.has_pc = false;
+    } else if (get_num_child(t, rc, "pc_ref", v)) {
+        r.pc = v;
+        r.has_pc = true;
+        r.has_E = false;
+    } else if (get_num_child(t, rc, "dE_ref", v)) {
+        if (r.has_E) {
+            r.E_tot += v;
+            r.has_pc = false;
+        }
+    } else if (get_num_child(t, rc, "dpc_ref", v)) {
+        if (r.has_pc) {
+            r.pc += v;
+            r.has_E = false;
+        }
+    }
+    if (get_num_child(t, rc, "time_ref", v))
+        r.time = v;
+    else if (get_num_child(t, rc, "dtime_ref", v))
+        r.time += v;
+}
+
+// Reference parameters at the downstream end of an element, given its completed
+// upstream parameters. Species and energy carry through unchanged for most
+// kinds; an RFCavity shifts the energy by RFP.dE_ref and a ReferenceChange
+// applies its ReferenceChangeP. The reference time advances by the transit time
+// (reference.md).
+static RefState downstream_ref(const ryml::Tree& t, size_t ele,
+                               const std::string& kind, const RefState& up,
+                               double length, ProblemList& problems) {
+    RefState down = up;
+
+    if (kind == "RFCavity") {
+        size_t rfp = t.find_child(ele, ryml::to_csubstr("RFP"));
+        double dE;
+        if (get_num_child(t, rfp, "dE_ref", dE) && down.has_E) {
+            down.E_tot = up.E_tot + dE;
+            down.has_pc = false;  // recompute momentum for the new energy
+        }
+    } else if (kind == "ReferenceChange") {
+        apply_ref_change(t, ele, down);
+    } else if (kind == "Foil") {
+        // A Foil can strip electrons, changing the downstream species (and hence
+        // energy). The stripping model is not defined by the standard, so the
+        // downstream species is left equal to the upstream one and the omission
+        // is flagged rather than guessed at.
+        std::string ename = t.has_key(ele) ? std::string(t.key(ele).str,
+                                                          t.key(ele).len)
+                                           : "<foil>";
+        add_problem(problems, "Foil element '" + ename +
+                                  "': downstream species change is not computed");
+    }
+
+    complete_energy(down);  // refill whichever of E/pc a change above cleared
+
+    // Reference transit time: length * (E_up + E_down) / (c * (pc_up + pc_down)).
+    if (up.has_E && down.has_E && up.has_pc && down.has_pc) {
+        double denom = apc::C_LIGHT * (up.pc + down.pc);
+        if (denom != 0.0)
+            down.time = up.time + length * (up.E_tot + down.E_tot) / denom;
+    }
+    return down;
+}
+
+// Read an element's FloorP group into a FloorState. Missing components default
+// to zero (origin / identity orientation). Returns false if the group is absent.
+static bool read_floor(const ryml::Tree& t, size_t ele, pals::FloorState& s) {
+    size_t fp = t.find_child(ele, ryml::to_csubstr("FloorP"));
+    if (fp == ryml::NONE) return false;
+    double x = 0, y = 0, z = 0, th = 0, ph = 0, ps = 0;
+    get_num_child(t, fp, "x", x);
+    get_num_child(t, fp, "y", y);
+    get_num_child(t, fp, "z", z);
+    get_num_child(t, fp, "theta", th);
+    get_num_child(t, fp, "phi", ph);
+    get_num_child(t, fp, "psi", ps);
+    s.r = pals::Vec3{x, y, z};
+    s.q = pals::quat_from_floor_angles(pals::FloorAngles{th, ph, ps});
+    return true;
+}
+
+// Write a FloorState back into an element's FloorP group (creating it),
+// converting the orientation quaternion to (theta, phi, psi).
+static void write_floor(ryml::Tree& t, size_t ele, const pals::FloorState& s) {
+    size_t fp = find_or_add_map_child(t, ele, "FloorP");
+    set_num_child(t, fp, "x", s.r.x);
+    set_num_child(t, fp, "y", s.r.y);
+    set_num_child(t, fp, "z", s.r.z);
+    pals::FloorAngles a = pals::floor_angles_from_quat(s.q);
+    set_num_child(t, fp, "theta", a.theta);
+    set_num_child(t, fp, "phi", a.phi);
+    set_num_child(t, fp, "psi", a.psi);
+}
+
+// Build the floor displacement L and coordinate rotation S for an element's
+// reference curve, dispatched on kind: bends use their BendP angle/tilt, patches
+// their PatchP offsets/rotations, everything else is a straight segment of the
+// element length. (FloorShift, which also redirects the reference curve, is not
+// yet handled and is treated as straight.)
+static void element_LS(const ryml::Tree& t, size_t ele, const std::string& kind,
+                       double length, pals::Vec3& L, pals::Quat& S) {
+    if (kind == "Bend") {
+        size_t bp = t.find_child(ele, ryml::to_csubstr("BendP"));
+        double angle = 0.0;
+        if (!get_num_child(t, bp, "angle_ref", angle)) {
+            double g = 0.0;
+            if (get_num_child(t, bp, "g_ref", g)) angle = g * length;
+        }
+        double tilt = 0.0;
+        get_num_child(t, bp, "tilt_ref", tilt);
+        pals::bend_LS(length, angle, tilt, L, S);
+    } else if (kind == "Patch") {
+        size_t pp = t.find_child(ele, ryml::to_csubstr("PatchP"));
+        double xo = 0, yo = 0, zo = 0, xr = 0, yr = 0, zr = 0;
+        get_num_child(t, pp, "x_offset", xo);
+        get_num_child(t, pp, "y_offset", yo);
+        get_num_child(t, pp, "z_offset", zo);
+        get_num_child(t, pp, "x_rot", xr);
+        get_num_child(t, pp, "y_rot", yr);
+        get_num_child(t, pp, "z_rot", zr);
+        pals::patch_LS(xo, yo, zo, xr, yr, zr, L, S);
+    } else {
+        pals::straight_LS(length, L, S);
+    }
+}
+
+// The name of an element (its map key), or a placeholder for the unkeyed case.
+static std::string ele_name(const ryml::Tree& t, size_t ele) {
+    return t.has_key(ele) ? std::string(t.key(ele).str, t.key(ele).len)
+                          : "<element>";
+}
+
+// Two numbers agree "to high accuracy" (rf.md): equal within a relative
+// tolerance, with both-zero counted as equal.
+static bool approx_eq(double a, double b) {
+    double scale = std::max(std::fabs(a), std::fabs(b));
+    return scale == 0.0 || std::fabs(a - b) <= 1e-9 * scale;
+}
+
+// ---------------------------------------------------------------------------
+// DEPENDENT PARAMETERS
+//
+// Many parameters within a group are not independent: one is a fixed multiple
+// (or the reciprocal) of another. The expanded lattice holds every non-zero
+// parameter, so when the author sets one member of such a relation the parser
+// derives the rest. When the author sets more than one, the parser instead
+// verifies they agree to high accuracy and flags an inconsistency (rather than
+// silently overwriting). link_pair / reciprocal_link are the two primitives;
+// the per-group resolvers below wire them up per the parameter docs.
+// ---------------------------------------------------------------------------
+
+// Relate two proportional parameters of a group, `b_key = factor * a_key`.
+//  - both present  -> verify agreement, flag an inconsistency if not.
+//  - only `a`      -> derive b = factor*a (unless the result is zero: a zero
+//                     parameter is not "held").
+//  - only `b`      -> derive a = b/factor (needs an invertible, non-zero factor).
+// Returns true if it wrote a value, so callers can iterate to a fixed point.
+static bool link_pair(ryml::Tree& t, size_t group, const char* a_key,
+                      const char* b_key, double factor, const std::string& ctx,
+                      ProblemList& problems) {
+    double a, b;
+    bool has_a = get_num_child(t, group, a_key, a);
+    bool has_b = get_num_child(t, group, b_key, b);
+    if (has_a && has_b) {
+        double expect = factor * a;
+        if (!approx_eq(b, expect)) {
+            std::ostringstream m;
+            m << ctx << ": '" << b_key << "' and '" << a_key
+              << "' are inconsistent (" << b_key << " = " << format_double(b)
+              << ", but " << format_double(factor) << " * " << a_key << " = "
+              << format_double(expect) << ").";
+            add_problem(problems, m.str());
+        }
+        return false;
+    }
+    if (has_a && factor * a != 0.0) {
+        set_num_child(t, group, b_key, factor * a);
+        return true;
+    }
+    if (has_b && factor != 0.0 && b / factor != 0.0) {
+        set_num_child(t, group, a_key, b / factor);
+        return true;
+    }
+    return false;
+}
+
+// Relate two reciprocal parameters of a group, `b_key = 1 / a_key` (e.g.
+// `rho_ref = 1 / g_ref`). A zero value has no finite reciprocal, so it is
+// neither a source nor a target. Consistency (a*b == 1) is only meaningful when
+// both are non-zero. Returns true if it wrote a value.
+static bool reciprocal_link(ryml::Tree& t, size_t group, const char* a_key,
+                            const char* b_key, const std::string& ctx,
+                            ProblemList& problems) {
+    double a, b;
+    bool has_a = get_num_child(t, group, a_key, a);
+    bool has_b = get_num_child(t, group, b_key, b);
+    if (has_a && has_b) {
+        if (a != 0.0 && b != 0.0 && !approx_eq(a * b, 1.0)) {
+            std::ostringstream m;
+            m << ctx << ": '" << a_key << "' and '" << b_key
+              << "' are inconsistent (" << a_key << " * " << b_key << " = "
+              << format_double(a * b) << ", expected 1).";
+            add_problem(problems, m.str());
+        }
+        return false;
+    }
+    if (has_a && a != 0.0) {
+        set_num_child(t, group, b_key, 1.0 / a);
+        return true;
+    }
+    if (has_b && b != 0.0) {
+        set_num_child(t, group, a_key, 1.0 / b);
+        return true;
+    }
+    return false;
+}
+
+// Resolve the BendP dependent parameters (bend.md). The reference bend strength
+// has four equivalent forms tied together by the element length and the
+// reference momentum:
+//   angle_ref     = length * g_ref
+//   rho_ref       = 1 / g_ref
+//   g_ref         = factor * bend_field_ref     (factor = q*c/pc)
+// and the "actual" output pair g_actual = factor * bend_field_actual. The
+// geometric relations need no momentum; only the field<->strength legs do, so
+// they run only when `has_factor`. Iterated to a fixed point so a value given in
+// any one form fills the others.
+static void resolve_bend(ryml::Tree& t, size_t ele, double length,
+                         bool has_factor, double factor,
+                         const std::string& ename, ProblemList& problems) {
+    size_t bp = t.find_child(ele, ryml::to_csubstr("BendP"));
+    if (bp == ryml::NONE) return;
+    std::string ctx = "element '" + ename + "' BendP";
+
+    reciprocal_link(t, bp, "g_ref", "rho_ref", ctx, problems);
+    for (int pass = 0; pass < 4; ++pass) {
+        bool changed = false;
+        changed |= link_pair(t, bp, "g_ref", "angle_ref", length, ctx, problems);
+        if (has_factor)
+            changed |= link_pair(t, bp, "bend_field_ref", "g_ref", factor, ctx,
+                                 problems);
+        if (!changed) break;
+    }
+    // g_ref may have been derived above; fill rho_ref from it now.
+    reciprocal_link(t, bp, "g_ref", "rho_ref", ctx, problems);
+    if (has_factor)
+        link_pair(t, bp, "bend_field_actual", "g_actual", factor, ctx, problems);
+}
+
+// Split a multipole component key into its (normal/skew char, order digits),
+// e.g. "Bn2L" -> ('n', "2"). `prefixes` is the pair of accepted leading tokens
+// (magnetic "Bn"/"Bs"/"Kn"/"Ks" collapse to the field forms here; electric
+// "En"/"Es"). Returns false for taper keys (an underscore) and anything that is
+// not <prefix><digits>[L].
+static bool parse_multipole_key(const std::string& k, char first,
+                                char& ns_out, std::string& order_out) {
+    if (k.size() < 3 || k[0] != first) return false;
+    if (k[1] != 'n' && k[1] != 's') return false;
+    if (k.find('_') != std::string::npos) return false;  // *_taper etc.
+    std::string rest = k.substr(2);
+    if (!rest.empty() && rest.back() == 'L') rest.pop_back();
+    if (rest.empty()) return false;
+    for (char c : rest)
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    ns_out = k[1];
+    order_out = rest;
+    return true;
+}
+
+// Collect the set of (normal/skew, order) components present in a multipole
+// group, judged by the field-form prefix `first` ('B' magnetic, 'E' electric)
+// and its normalized partner `norm` ('K', or '\0' when there is none).
+static std::set<std::pair<char, std::string>> multipole_components(
+    const ryml::Tree& t, size_t group, char first, char norm) {
+    std::set<std::pair<char, std::string>> comps;
+    for (size_t c = t.first_child(group); c != ryml::NONE;
+         c = t.next_sibling(c)) {
+        if (!t.has_key(c)) continue;
+        std::string k(t.key(c).str, t.key(c).len);
+        char ns;
+        std::string order;
+        if (parse_multipole_key(k, first, ns, order) ||
+            (norm && parse_multipole_key(k, norm, ns, order)))
+            comps.emplace(ns, order);
+    }
+    return comps;
+}
+
+// Resolve MagneticMultipoleP components (magneticmultipole.md). Each component
+// of order N has four equivalent forms tied by length and reference momentum:
+//   BnNL = length * BnN,   KnN = factor * BnN,   KnNL = factor * length * BnN
+// (and likewise for the skew "s" forms). Length-integration needs no momentum;
+// the field<->normalized legs run only when `has_factor`. Iterated to a fixed
+// point so a value given in any one form fills the rest.
+static void resolve_magnetic_multipoles(ryml::Tree& t, size_t ele, double length,
+                                        bool has_factor, double factor,
+                                        const std::string& ename,
+                                        ProblemList& problems) {
+    size_t mp = t.find_child(ele, ryml::to_csubstr("MagneticMultipoleP"));
+    if (mp == ryml::NONE) return;
+    std::string ctx = "element '" + ename + "' MagneticMultipoleP";
+
+    for (const auto& comp : multipole_components(t, mp, 'B', 'K')) {
+        std::string B = std::string("B") + comp.first + comp.second;
+        std::string BL = B + "L";
+        std::string K = std::string("K") + comp.first + comp.second;
+        std::string KL = K + "L";
+        for (int pass = 0; pass < 4; ++pass) {
+            bool changed = false;
+            changed |= link_pair(t, mp, B.c_str(), BL.c_str(), length, ctx,
+                                 problems);
+            changed |= link_pair(t, mp, K.c_str(), KL.c_str(), length, ctx,
+                                 problems);
+            if (has_factor) {
+                changed |= link_pair(t, mp, B.c_str(), K.c_str(), factor, ctx,
+                                     problems);
+                changed |= link_pair(t, mp, BL.c_str(), KL.c_str(), factor, ctx,
+                                     problems);
+            }
+            if (!changed) break;
+        }
+    }
+}
+
+// Resolve ElectricMultipoleP components (electricmultipole.md). Electric
+// multipoles have no normalized form, so a component of order N is only tied by
+// length-integration: EnNL = length * EnN (and the skew "s" forms). No momentum
+// is needed.
+static void resolve_electric_multipoles(ryml::Tree& t, size_t ele, double length,
+                                        const std::string& ename,
+                                        ProblemList& problems) {
+    size_t ep = t.find_child(ele, ryml::to_csubstr("ElectricMultipoleP"));
+    if (ep == ryml::NONE) return;
+    std::string ctx = "element '" + ename + "' ElectricMultipoleP";
+
+    for (const auto& comp : multipole_components(t, ep, 'E', '\0')) {
+        std::string E = std::string("E") + comp.first + comp.second;
+        std::string EL = E + "L";
+        link_pair(t, ep, E.c_str(), EL.c_str(), length, ctx, problems);
+    }
+}
+
+// Compute the field-dependent output parameters of an element. Uses the
+// element's *upstream* reference (parameters are referenced to the upstream
+// end). The reference momentum sets the field<->normalized conversion factor
+// K = factor * B; when the species/momentum is unknown the momentum-dependent
+// legs are skipped, but the purely geometric relations (bend angle/radius,
+// multipole length-integration) still run.
+static void compute_dependent(ryml::Tree& t, size_t ele, const std::string& kind,
+                              const RefState& up, double length,
+                              ProblemList& problems) {
+    bool has_factor = false;
+    double factor = 0.0;
+    if (up.has_species && up.has_pc && up.pc > 0.0) {
+        try {
+            factor = apc::charge_of(up.species) * apc::C_LIGHT / up.pc;
+            has_factor = true;
+        } catch (...) {
+            has_factor = false;
+        }
+    }
+
+    std::string ename = ele_name(t, ele);
+    if (kind == "Bend")
+        resolve_bend(t, ele, length, has_factor, factor, ename, problems);
+    resolve_magnetic_multipoles(t, ele, length, has_factor, factor, ename,
+                                problems);
+    resolve_electric_multipoles(t, ele, length, ename, problems);
+}
+
+// Resolve the RFP dependent parameters (rf.md). The active length `L_active`
+// defaults to the element length `L`; it is materialized when non-zero. The RF
+// voltage and gradient are then tied by `voltage = gradient * L_active`: one is
+// derived from the other, or an inconsistency is flagged when both are set.
+// (frequency <-> harmon is *not* resolved here: it needs the change in reference
+// time across the whole branch, which is not known element-by-element.) Any
+// element carrying an RFP group is handled, keyed on the group's presence.
+static void compute_rf_dependent(ryml::Tree& t, size_t ele, double length,
+                                 ProblemList& problems) {
+    size_t rfp = t.find_child(ele, ryml::to_csubstr("RFP"));
+    if (rfp == ryml::NONE) return;
+
+    // L_active defaults to the element length; hold it when non-zero.
+    double L_active = 0.0;
+    if (!get_num_child(t, rfp, "L_active", L_active)) {
+        L_active = length;
+        if (L_active != 0.0) set_num_child(t, rfp, "L_active", L_active);
+    }
+
+    std::string ctx = "element '" + ele_name(t, ele) + "' RFP";
+    link_pair(t, rfp, "gradient", "voltage", L_active, ctx, problems);
+}
+
+// Parameters with a non-zero (or enum/boolean) default, filled in for any group
+// that is *present* in the element. The expanded lattice holds every non-zero
+// parameter, so an author who writes a group but omits these gets the defaults
+// made explicit. A group absent from the element is left untouched -- only
+// ReferenceP and FloorP are added by the parser. Parameters whose default is
+// zero/null/false are not listed: they are not "held".
+struct GroupDefault {
+    const char* group;
+    const char* key;
+    const char* value;
+};
+static const GroupDefault kGroupDefaults[] = {
+    {"RFP", "cavity_type", "STANDING_WAVE"},
+    {"RFP", "zero_phase", "ACCELERATING"},
+    {"BendP", "ref_geometry", "arc"},
+    {"BendP", "multipole_geometry", "follows_ref_geometry"},
+    {"ApertureP", "shape", "ELLIPTICAL"},
+    {"ApertureP", "location", "ENTRANCE_END"},
+    {"ApertureP", "aperture_active", "true"},
+    {"ForkP", "direction", "FORWARDS"},
+    {"ForkP", "propagate_reference", "true"},
+};
+
+// Write the non-zero/enum defaults (kGroupDefaults) into every group the element
+// already carries, leaving any value the author set in place.
+static void materialize_group_defaults(ryml::Tree& t, size_t ele) {
+    for (const GroupDefault& d : kGroupDefaults) {
+        size_t g = t.find_child(ele, ryml::to_csubstr(d.group));
+        if (g == ryml::NONE || !t.is_map(g)) continue;
+        if (t.find_child(g, ryml::to_csubstr(d.key)) == ryml::NONE)
+            set_plain_child(t, g, d.key, d.value);
+    }
+}
+
+// The per-element bookkeeper. Given the previous element in the branch (NONE for
+// the first, the BeginningEle) and the current element, compute and store the
+// current element's upstream reference parameters, floor placement, s-position,
+// and field-dependent parameters. Order matters: the reference momentum is
+// needed for the dependent-parameter conversions, so reference comes first.
+//
+// `seed_fork` names the Fork element that instantiated this branch, or NONE. It
+// is set only for the first element of a branch created by a Fork whose
+// `propagate_reference` is true: that beginning (destination) element then
+// inherits the Fork's reference species/energy and floor placement instead of
+// starting from the branch's own (usually empty) inputs (fork.md, s:forking).
+static void _element_bookkeeper(ryml::Tree& t, size_t prev, size_t ele,
+                                ProblemList& problems,
+                                size_t seed_fork = ryml::NONE) {
+    std::string kind = child_val_str(t, ele, "kind");
+
+    RefState up;
+    pals::FloorState floor;
+    double s_pos = 0.0;
+
+    if (prev == ryml::NONE && seed_fork != ryml::NONE) {
+        // Beginning element of a forked branch with propagate_reference: inherit
+        // the Fork element's reference and floor. A Fork has zero length and a
+        // unit transfer map, so its stored (upstream) reference and floor are
+        // also its values at the connection point. The new branch's s-coordinate
+        // still starts at zero.
+        up = read_ref(t, seed_fork);
+        complete_energy(up);
+        read_floor(t, seed_fork, floor);
+    } else if (prev == ryml::NONE) {
+        // First element of the branch (BeginningEle): reference, floor and
+        // s-position are user inputs. Complete the reference (fill pc from E or
+        // vice versa) and normalize the floor placement; both default sensibly
+        // when unset (zero energy/momentum, origin, identity orientation, s = 0).
+        up = read_ref(t, ele);
+        complete_energy(up);
+        read_floor(t, ele, floor);  // leaves the origin/identity default if absent
+        get_num_child(t, ele, "s_position", s_pos);
+    } else {
+        // Any later element: its upstream parameters are the previous element's
+        // downstream parameters, propagated through the previous element.
+        std::string pkind = child_val_str(t, prev, "kind");
+        double plen = 0.0;
+        get_num_child(t, prev, "length", plen);
+
+        RefState pup = read_ref(t, prev);
+        complete_energy(pup);
+        up = downstream_ref(t, prev, pkind, pup, plen, problems);
+
+        pals::FloorState pfloor;
+        read_floor(t, prev, pfloor);
+        pals::Vec3 L;
+        pals::Quat S;
+        element_LS(t, prev, pkind, plen, L, S);
+        floor = pals::floor_propagate(pfloor, L, S);
+
+        double ps = 0.0;
+        get_num_child(t, prev, "s_position", ps);
+        s_pos = ps + plen;
+    }
+
+    // Store the outputs. Reference before dependent: the latter reads pc_ref.
+    write_ref(t, ele, up);
+    write_floor(t, ele, floor);
+    set_num_child(t, ele, "s_position", s_pos);
+
+    // Fill in dependent parameters and non-zero/enum defaults of the groups the
+    // element carries. The expanded lattice holds every non-zero parameter.
+    double length = 0.0;
+    get_num_child(t, ele, "length", length);
+    materialize_group_defaults(t, ele);
+    compute_dependent(t, ele, kind, up, length, problems);
+    compute_rf_dependent(t, ele, length, problems);
+}
+
+// Append a zero-length `Placeholder` element named `branch_end` to a branch's
+// `line` and return its definition node. This is the marker that holds the
+// branch's final floor placement and reference parameters; the bookkeeper fills
+// those in by treating it like any other element (its upstream parameters are
+// the downstream end of the last real element).
+static size_t append_branch_end(ryml::Tree& t, size_t line) {
+    ensure_capacity(t, 4);
+    size_t wrapper = t.append_child(line);  // the anonymous seq-entry map
+    t.ref(wrapper) |= ryml::MAP;
+    size_t def = t.append_child(wrapper);  // the keyed element definition
+    t.ref(def) |= ryml::KEY | ryml::MAP;
+    t.set_key(def, t.to_arena(ryml::to_csubstr("branch_end")));
+    size_t kind = t.append_child(def);
+    t.ref(kind) |= ryml::KEY | ryml::VAL;
+    t.set_key(kind, t.to_arena(ryml::to_csubstr("kind")));
+    t.set_val(kind, t.to_arena(ryml::to_csubstr("Placeholder")));
+    return def;
+}
+
+// Walk every branch of the expanded lattice and run _element_bookkeeper on each
+// element in order, threading each element's results (persisted in the tree)
+// into the next. After the branch's elements, a `branch_end` Placeholder is
+// appended and bookkept to hold the branch's final floor placement and reference
+// parameters (the downstream end of the last element).
+//
+// A Fork whose `propagate_reference` is true seeds its destination branch's
+// beginning element from its own reference/floor. Branches are visited in order
+// and a new branch is always appended after the Fork that creates it, so by the
+// time a forked branch is reached its Fork has been bookkept: `fork_seed` maps
+// the destination element (by node id, matching the raw `fork_pointer`) to that
+// Fork. `fork_pointer` still holds the work-tree node id here; it is remapped to
+// the split-out tree only later.
+static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
+                                   ProblemList& problems) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    std::map<size_t, size_t> fork_seed;  // destination element -> its Fork
+
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch)) continue;
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line == ryml::NONE || !t.is_seq(line)) continue;
+
+        size_t prev = ryml::NONE;
+        for (size_t le = t.first_child(line); le != ryml::NONE;
+             le = t.next_sibling(le)) {
+            // A line entry is a wrapper map whose first child is the keyed
+            // element definition; bare unresolved references have no parameters.
+            if (!t.is_map(le)) continue;
+            size_t def = t.first_child(le);
+            if (def == ryml::NONE || !t.has_key(def)) continue;
+
+            size_t seed = ryml::NONE;
+            if (prev == ryml::NONE) {
+                auto it = fork_seed.find(def);
+                if (it != fork_seed.end()) seed = it->second;
+            }
+            _element_bookkeeper(t, prev, def, problems, seed);
+
+            // Record where a Fork propagates its reference/floor to. The default
+            // (materialized above) is propagate_reference: true; only an explicit
+            // false opts out.
+            if (child_val_str(t, def, "kind") == "Fork") {
+                size_t forkp = t.find_child(def, ryml::to_csubstr("ForkP"));
+                std::string prop =
+                    forkp != ryml::NONE
+                        ? child_val_str(t, forkp, "propagate_reference")
+                        : "";
+                std::string ptr = child_val_str(t, def, "fork_pointer");
+                if (prop != "false" && !ptr.empty()) {
+                    try {
+                        fork_seed[static_cast<size_t>(std::stoull(ptr))] = def;
+                    } catch (...) {
+                    }
+                }
+            }
+            prev = def;
+        }
+
+        // An empty branch has no final state to record; otherwise cap it with a
+        // `branch_end` Placeholder carrying the downstream end of the last
+        // element.
+        if (prev != ryml::NONE)
+            _element_bookkeeper(t, prev, append_branch_end(t, line), problems);
+    }
+}
+
 // Rewrite the `fork_pointer` scalars of a freshly split-out tree. handle_fork
 // stores the raw node id of the fork's destination element, but it runs while
 // expansion is still on the work tree; cutting the lattice out into its own tree
@@ -1410,6 +2205,13 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // expr()-delayed alike). Node ids are unchanged -- only scalar text is
         // rewritten -- so provenance stays valid.
         evaluate_expressions(t, problems);
+
+        // With every input now a plain number, walk each branch element-by-
+        // element to fill in the reference, floor, s-position, and field-
+        // dependent output parameters. This adds new ReferenceP/FloorP nodes,
+        // which carry no provenance (like fork_pointer) and so simply do not
+        // appear in the correspondence map.
+        run_element_bookkeeper(t, lat_node, problems);
 
         size_t wrapper = t.parent(lat_node);
         skip = (wrapper != ryml::NONE && !t.is_root(wrapper) &&

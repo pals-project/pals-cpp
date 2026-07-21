@@ -52,14 +52,15 @@ TEST_CASE("Multipass sub-lines are numbered with a multipass_index",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(lat.expanded != nullptr);
 
-    // Flat line: mark, cavA, cavA, cavA, cavA (5 elements).
+    // Flat line: mark, cavA, cavA, cavA, cavA (5 elements), plus the appended
+    // `branch_end` Placeholder the bookkeeper caps every branch with (6 total).
     YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
     YAMLNodeId branch = get_child_by_index(
         lat.expanded,
         get_child_by_index(lat.expanded,
                            get_child_by_key(lat.expanded, lat1, "branches"), 0),
         0);
-    REQUIRE(get_size(lat.expanded, get_child_by_key(lat.expanded, branch, "line")) == 5);
+    REQUIRE(get_size(lat.expanded, get_child_by_key(lat.expanded, branch, "line")) == 6);
 
     // mark, from the non-multipass inj, carries no index.
     REQUIRE(mp_index_at(lat.expanded, 0) == YAML_NULL_ID);

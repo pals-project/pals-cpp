@@ -9,6 +9,7 @@ add_executable(tests
   test_expressions.cpp
   test_multipass.cpp
   test_controllers.cpp
+  test_bookkeeper.cpp
 )
 
 target_link_libraries(tests

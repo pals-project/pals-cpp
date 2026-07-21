@@ -111,13 +111,16 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     // Merging `inherit: thingB` brings the parent's keys in ahead of the
     // child's own, rather than sorting the merged result. `main_line` is a
     // `multipass` root line, so its one element also picks up a trailing
-    // `multipass_index`, appended after the inherited keys.
+    // `multipass_index`, appended after the inherited keys. Finally, the element
+    // bookkeeper appends its computed output groups (`ReferenceP`, `FloorP`) and
+    // `s_position`, in that order, after everything the file supplied.
     YAMLNodeId line_seq = get_child_by_key(lat.expanded, e_line, "line");
     YAMLNodeId thingZ = get_child_by_index(
         lat.expanded, get_child_by_index(lat.expanded, line_seq, 0), 0);
     REQUIRE(key_eq(lat.expanded, thingZ, "thingZ"));
-    const std::vector<std::string> inherited = {"kind", "length", "inherit",
-                                                "multipass_index"};
+    const std::vector<std::string> inherited = {
+        "kind",           "length",     "inherit", "multipass_index",
+        "ReferenceP",     "FloorP",     "s_position"};
     REQUIRE(keys_of(lat.expanded, thingZ) == inherited);
     REQUIRE(val_eq(lat.expanded,
                    get_child_by_key(lat.expanded, thingZ, "multipass_index"),
