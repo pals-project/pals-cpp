@@ -465,6 +465,143 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     rm_tmp(path);
 }
 
+// Helper: the keyed element definition of a branch's first line element.
+// expanded -> lat1(0) -> branches -> branch entry(idx) -> branch map(0) ->
+// line -> line entry(0) -> element def(0).
+static YAMLNodeId first_element_of_branch(YAMLTreeHandle t, size_t branch_idx) {
+    YAMLNodeId lat1 = get_child_by_index(t, get_root(t), 0);
+    YAMLNodeId branches = get_child_by_key(t, lat1, "branches");
+    YAMLNodeId branch = get_child_by_index(
+        t, get_child_by_index(t, branches, branch_idx), 0);
+    YAMLNodeId line = get_child_by_key(t, branch, "line");
+    YAMLNodeId entry = get_child_by_index(t, line, 0);
+    return get_child_by_index(t, entry, 0);
+}
+
+TEST_CASE("a Fork propagates reference and floor into its new branch",
+          "[lattices]") {
+    // propagate_reference is true by default, so the destination branch's
+    // beginning element inherits the Fork element's reference species/energy and
+    // floor placement (fork.md), even when the forked-to line has no BeginningEle
+    // of its own.
+    const char* path = "tmp_fork_propagate.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        FloorP:\n"
+              "          x: 1.5\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - m1:\n"
+              "        kind: Marker\n"
+              "    - ext_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m1\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: ext_line\n"
+              "                new_branch: extraction\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    // Branch 1 is `extraction`; its first (destination) element is `m1`.
+    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
+    REQUIRE(key_eq(lat.expanded, dest, "m1"));
+
+    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
+    REQUIRE(refp != YAML_NULL_ID);
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, refp, "species_ref"),
+                   "proton"));
+    // Energy carried through the zero-length Fork unchanged, and completion
+    // filled in the momentum from it.
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, refp, "E_tot_ref"), "1e+09"));
+    REQUIRE(get_child_by_key(lat.expanded, refp, "pc_ref") != YAML_NULL_ID);
+
+    // Floor placement of the source (x = 1.5) reaches the destination too.
+    YAMLNodeId floorp = get_child_by_key(lat.expanded, dest, "FloorP");
+    REQUIRE(floorp != YAML_NULL_ID);
+    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, floorp, "x"),
+                   "1.5"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
+          "[lattices]") {
+    // With propagate_reference explicitly false, nothing is carried across the
+    // Fork: the destination element keeps only its own (here empty) reference.
+    const char* path = "tmp_fork_noprop.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - m1:\n"
+              "        kind: Marker\n"
+              "    - ext_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m1\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: ext_line\n"
+              "                new_branch: extraction\n"
+              "                propagate_reference: false\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
+    REQUIRE(key_eq(lat.expanded, dest, "m1"));
+
+    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
+    // A ReferenceP is still written (time_ref), but no species/energy propagated.
+    REQUIRE(get_child_by_key(lat.expanded, refp, "species_ref") == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(lat.expanded, refp, "E_tot_ref") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
           "[lattices][problems]") {
     // A sequence item missing its ':' (here `- cav` followed by an indented

@@ -79,7 +79,8 @@ add_library(yaml_c_wrapper SHARED
   src/pals_expand.cpp
   src/pals_match.cpp
   src/pals_util.cpp
-  src/pals_expression.cpp)
+  src/pals_expression.cpp
+  src/pals_floor.cpp)
 target_link_libraries(yaml_c_wrapper PUBLIC ryml PRIVATE pcre2-8-static apc)
 
 add_executable(example_rw examples/example_rw.cpp)
