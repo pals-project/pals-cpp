@@ -250,9 +250,16 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     }
 
     size_t forkp = t.find_child(fork_node, ryml::to_csubstr("ForkP"));
-    if (forkp == ryml::NONE || !t.is_map(forkp)) {
+    if (forkp == ryml::NONE) {
         add_problem(problems,
                     "Fork element '" + fork_name + "': missing ForkP");
+        return;
+    }
+    if (!t.is_map(forkp)) {
+        add_problem(problems,
+                    "Fork element '" + fork_name +
+                        "': ForkP must be a map of parameters (e.g. "
+                        "\"to_line: ...\"), not a sequence");
         return;
     }
 
