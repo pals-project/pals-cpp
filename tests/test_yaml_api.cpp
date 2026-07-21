@@ -49,6 +49,21 @@ TEST_CASE("malformed YAML returns nullptr instead of aborting", "[parsing]") {
     REQUIRE(err.find('^') != std::string::npos);
 }
 
+TEST_CASE("parse error skips blank preceding lines to the first non-blank one",
+          "[parsing]") {
+    // The error is on line 4; line 3 is blank, so an unhelpful blank previous
+    // line would be shown. Instead the snippet walks back to line 2 (the real
+    // fault, a map entry missing its dash) and shows every line down to 4.
+    YAMLTreeHandle tree =
+        parse_string("seq:\n  - a: 1\n\n  b: 2\n");
+    REQUIRE(tree == nullptr);
+    std::string err = yaml_last_parse_error();
+    REQUIRE(err.find("2 | ") != std::string::npos);   // first non-blank line
+    REQUIRE(err.find("3 | ") != std::string::npos);   // the blank line
+    REQUIRE(err.find("4 | ") != std::string::npos);   // the error line
+    REQUIRE(err.find('^') != std::string::npos);
+}
+
 TEST_CASE("yaml_last_parse_error is cleared after a successful parse",
           "[parsing]") {
     YAMLTreeHandle bad = parse_string(": : :");

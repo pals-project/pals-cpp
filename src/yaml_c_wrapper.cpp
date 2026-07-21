@@ -71,7 +71,12 @@ std::string source_line(const std::string& src, size_t n) {
     return line;
 }
 
-// Append a source snippet to `out`: the line before the error, the error line,
+// True when a source line has no non-whitespace content.
+bool is_blank_line(const std::string& line) {
+    return line.find_first_not_of(" \t") == std::string::npos;
+}
+
+// Append a source snippet to `out`: the preceding context, the error line,
 // and a caret under the offending column, e.g.
 //
 //       32 |     - cav
@@ -79,8 +84,17 @@ std::string source_line(const std::string& src, size_t n) {
 //                        ^
 //
 // A missing colon is only detectable on the line *after* the omission, so the
-// preceding line is shown too — that is where the real fault usually is. Does
-// nothing when the location is unknown.
+// preceding line is shown too — that is where the real fault usually is. When
+// that preceding line is blank it is no help, so the scan walks further back to
+// the first non-blank line and shows every line from there down to the error,
+// e.g. a missing dash reported on line 68 whose real fault is on line 66:
+//
+//       66 |     - use: "lat1"
+//       67 |
+//       68 |     ext_line:
+//              ^
+//
+// Does nothing when the location is unknown.
 void append_source_context(std::string& out, const std::string& src,
                            size_t line, size_t col) {
     if (line == ryml::npos || line == 0) return;
@@ -94,7 +108,13 @@ void append_source_context(std::string& out, const std::string& src,
         out += " | ";
         out += source_line(src, n);
     };
-    if (line > 1) emit_line(line - 1);
+    if (line > 1) {
+        // Walk back over blank preceding lines to the first non-blank one, then
+        // show that line and everything between it and the error.
+        size_t first = line - 1;
+        while (first > 1 && is_blank_line(source_line(src, first))) --first;
+        for (size_t n = first; n < line; ++n) emit_line(n);
+    }
     emit_line(line);
     if (col != ryml::npos && col >= 1) {
         out += "\n    ";
