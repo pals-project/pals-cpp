@@ -416,6 +416,55 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     rm_tmp(path);
 }
 
+TEST_CASE("a Fork needs only to_line; destination_element and new_branch default",
+          "[lattices][problems]") {
+    // Per the schema only `to_line` is required: `destination_element` defaults
+    // to the destination branch's beginning element and `new_branch` defaults to
+    // the `to_line` name. A ForkP with just `to_line` must expand without any
+    // "missing a required field" problem.
+    const char* path = "tmp_fork_defaults.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - dump_begin:\n"
+              "        kind: Marker\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
+                std::string::npos);
+
+    // The fork resolved to a target, so the element carries a fork_pointer and
+    // the defaulted branch (named after to_line) exists.
+    YAMLNodeId fp = find_by_key(lat.expanded, "fork_pointer");
+    REQUIRE(fp != YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
           "[lattices][problems]") {
     // A sequence item missing its ':' (here `- cav` followed by an indented
