@@ -263,15 +263,21 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         return;
     }
 
+    // Only `to_line` is required. `destination_element` defaults to the
+    // destination branch's beginning (first) element, and `new_branch` defaults
+    // to the `to_line` name. An explicit `null` is treated as unset.
+    auto unset = [](const std::string& v) { return v.empty() || v == "null"; };
     std::string to_line = child_val_str(t, forkp, "to_line");
-    std::string to_element = child_val_str(t, forkp, "destination_element");
-    std::string branch_name = child_val_str(t, forkp, "new_branch");
-    if (to_line.empty() || to_element.empty() || branch_name.empty()) {
-        add_problem(problems, "Fork element '" + fork_name +
-                                  "': ForkP is missing a required field "
-                                  "(to_line, destination_element, new_branch)");
+    if (unset(to_line)) {
+        add_problem(problems,
+                    "Fork element '" + fork_name +
+                        "': ForkP is missing the required field 'to_line'");
         return;
     }
+    std::string to_element = child_val_str(t, forkp, "destination_element");
+    if (unset(to_element)) to_element.clear();
+    std::string branch_name = child_val_str(t, forkp, "new_branch");
+    if (unset(branch_name)) branch_name = to_line;
 
     // Check whether to_line already exists as a branch (by its original element
     // name)
@@ -315,12 +321,28 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                                   to_line + "' has no line to fork into");
         return;
     }
-    size_t target = find_in_line(t, line, to_element);
-    if (target == ryml::NONE) {
-        add_problem(problems, "Fork element '" + fork_name +
-                                  "': destination_element '" + to_element +
-                                  "' not found in '" + to_line + "'");
-        return;
+    size_t target;
+    if (to_element.empty()) {
+        // Default destination is the branch's beginning (first) element. A line
+        // entry may be a bare scalar or a keyed map; mirror find_in_line and
+        // resolve a map entry to its keyed element.
+        target = t.first_child(line);
+        if (target != ryml::NONE && t.is_map(target))
+            target = t.first_child(target);
+        if (target == ryml::NONE) {
+            add_problem(problems, "Fork element '" + fork_name + "': to_line '" +
+                                      to_line +
+                                      "' has no beginning element to fork into");
+            return;
+        }
+    } else {
+        target = find_in_line(t, line, to_element);
+        if (target == ryml::NONE) {
+            add_problem(problems, "Fork element '" + fork_name +
+                                      "': destination_element '" + to_element +
+                                      "' not found in '" + to_line + "'");
+            return;
+        }
     }
 
     // Add fork_pointer: <node id of target as string>
