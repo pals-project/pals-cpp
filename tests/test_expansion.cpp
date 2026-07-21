@@ -365,6 +365,57 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
     rm_tmp(path);
 }
 
+TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing",
+          "[lattices][problems]") {
+    // A ForkP written as a sequence (a stray leading dash) *is* present, so the
+    // old "missing ForkP" message was misleading. The diagnostic must say the
+    // ForkP is the wrong shape rather than claim it is absent.
+    const char* path = "tmp_forkp_seq.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - dump_begin:\n"
+              "        kind: Marker\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                - to_line: dump_line\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    bool wrong_shape = false;
+    bool missing = false;
+    for (size_t i = 0; i < lat.problems.count; ++i) {
+        std::string msg = lat.problems.items[i];
+        if (msg.find("f1") != std::string::npos) {
+            if (msg.find("must be a map") != std::string::npos) wrong_shape = true;
+            if (msg.find("missing ForkP") != std::string::npos) missing = true;
+        }
+    }
+    REQUIRE(wrong_shape);
+    REQUIRE_FALSE(missing);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
           "[lattices][problems]") {
     // A sequence item missing its ':' (here `- cav` followed by an indented
