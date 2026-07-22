@@ -122,7 +122,8 @@ struct lattices {
  * expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
  * forks), a single combined/original node may appear in several links — one per
  * copy. A field is YAML_NULL_ID when no corresponding node exists (e.g. the
- * `fork_pointer` scalars synthesised during expansion have no original source).
+ * `destination_pointer` scalars synthesised during expansion have no original
+ * source).
  *
  * Expansion splits the document, so a link carries either an `expanded` id or a
  * `leftover` id, never both; the two are tied together through the `combined`

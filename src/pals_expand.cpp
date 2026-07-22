@@ -91,8 +91,8 @@ static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
 // provenance. This is what lets `expanded` and `leftover` be cut out of the
 // temporary work tree and still record provenance straight back to `combined`:
 // the work tree is discarded, so links through it would dangle. Nodes with no
-// entry in `via` (created during expansion, e.g. `fork_pointer`) have no source
-// and drop out.
+// entry in `via` (created during expansion, e.g. `destination_pointer`) have
+// no source and drop out.
 static void chain_prov(std::map<size_t, size_t>& prov,
                        const std::map<size_t, size_t>& via) {
     for (auto it = prov.begin(); it != prov.end();) {
@@ -242,9 +242,12 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     creates nothing.
 //  3. Names the new branch (after `to_line` for SELF, else after `new_branch`).
 //  4. Checks the destination is a kind that may be forked to.
-//  5. Creates a fork_pointer in the element pointing at "destination_element" in
-//     the destination branch, and resolves ForkP.new_branch to the name of the
-//     branch that was made (or `null` when none was).
+//  5. Creates a destination_pointer in the element pointing at
+//     "destination_element" in the destination branch, and resolves
+//     ForkP.new_branch to the name of the branch that was made (or `null` when
+//     none was). The pointer is a node id, for use while expansion runs;
+//     link_fork_connections later turns it into the `ForkP.forked_to` name that
+//     the expanded lattice states the connection by.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
                         std::map<size_t, size_t>& prov, ProblemList& problems,
@@ -338,7 +341,7 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         // enclosing expand may still be walking; without the mark that walk
         // reaches it and expands it a second time, re-running every Fork inside
         // it and so duplicating both their destination branches and their
-        // fork_pointers.
+        // destination_pointers.
         expand(t, branch_node, emap, prov, problems, branches, mp_pass, done);
         done.insert(branch_node);
         created_branch = true;
@@ -397,12 +400,12 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         }
     }
 
-    // Add fork_pointer: <node id of target as string>
+    // Add destination_pointer: <node id of target as string>
     ensure_capacity(t, 2);
     std::string id_str = std::to_string(target);
     size_t fp_child = t.append_child(fork_node);
     t.ref(fp_child) |= ryml::KEY | ryml::VAL;
-    t.set_key(fp_child, t.to_arena(ryml::to_csubstr("fork_pointer")));
+    t.set_key(fp_child, t.to_arena(ryml::to_csubstr("destination_pointer")));
     t.set_val(fp_child, t.to_arena(ryml::to_csubstr(id_str)));
 
     // Resolve ForkP.new_branch to the branch this Fork actually instantiated:
@@ -975,8 +978,8 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 // avoids a stray collision between such a name and a constant (e.g. an element
 // literally named `pi`).
 //
-// `fork_pointer` is here for a different reason: it is a node id, and a node id
-// is a number, so evaluating it "succeeds" and rewrites it through
+// `destination_pointer` is here for a different reason: it is a node id, and a
+// node id is a number, so evaluating it "succeeds" and rewrites it through
 // format_double. That is lossless as a number but not as text -- an id of 110
 // comes back as `1.1e+02`, the shortest round-tripping form -- and every reader
 // of the pointer parses it with std::stoull, which stops at the `.` and yields
@@ -987,7 +990,7 @@ static const std::set<std::string>& non_expr_keys() {
         "inherit",    "zero_point",  "to_line",
         "destination_element", "new_branch", "multipass",
         "propagate_reference", "name", "multipass_index",
-        "fork_pointer"};
+        "destination_pointer", "forked_to"};
     return keys;
 }
 
@@ -2139,9 +2142,9 @@ static size_t append_branch_end(ryml::Tree& t, size_t line) {
 // beginning element from its own reference/floor. Branches are visited in order
 // and a new branch is always appended after the Fork that creates it, so by the
 // time a forked branch is reached its Fork has been bookkept: `fork_seed` maps
-// the destination element (by node id, matching the raw `fork_pointer`) to that
-// Fork. `fork_pointer` still holds the work-tree node id here; it is remapped to
-// the split-out tree only later.
+// the destination element (by node id, matching the raw
+// `destination_pointer`) to that Fork. `destination_pointer` still holds the
+// work-tree node id here; it is remapped to the split-out tree only later.
 static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                                    ProblemList& problems) {
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
@@ -2185,7 +2188,7 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                     forkp != ryml::NONE
                         ? child_val_str(t, forkp, "propagate_reference")
                         : "";
-                std::string ptr = child_val_str(t, def, "fork_pointer");
+                std::string ptr = child_val_str(t, def, "destination_pointer");
                 std::string nb =
                     forkp != ryml::NONE
                         ? child_val_str(t, forkp, "new_branch")
@@ -2209,11 +2212,46 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
     }
 }
 
+// Map every element definition in the expanded lattice to the
+// `{branch-name}>>{element-name}` form the fork parameters name elements by
+// (fork.md, forkfrom.md). Built as a whole before the forks are walked because a
+// Fork names a destination in a branch other than its own, which the walk has
+// either already passed or not yet reached.
+static std::map<size_t, std::string> qualified_element_names(ryml::Tree& t,
+                                                             size_t branches) {
+    std::map<size_t, std::string> names;
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.has_key(branch)) continue;
+        std::string branch_name(t.key(branch).str, t.key(branch).len);
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line == ryml::NONE || !t.is_seq(line)) continue;
+        for (size_t le = t.first_child(line); le != ryml::NONE;
+             le = t.next_sibling(le)) {
+            if (!t.is_map(le)) continue;
+            size_t ele = t.first_child(le);
+            if (ele == ryml::NONE || !t.has_key(ele)) continue;
+            names[ele] = branch_name + ">>" +
+                         std::string(t.key(ele).str, t.key(ele).len);
+        }
+    }
+    return names;
+}
+
 /**
- * Record on every fork destination the `Fork` elements that point at it.
+ * Write the two names that record, in the expanded lattice, what each `Fork`
+ * connected to: `ForkP.forked_to` on the Fork, and `ForkFromP` on its
+ * destination.
  *
- * `ForkFromP` (forkfrom.md, s:fork.from.params) is the reverse of the `Fork`'s
- * own `ForkP`: a sequence carrying one entry per incoming Fork, keyed
+ * `forked_to` (fork.md, s:fork.params) is an output parameter naming the
+ * destination element as `{branch-name}>>{element-name}` -- the resolved form of
+ * the `to_line`/`destination_element` the input asked for, so whatever the input
+ * carried under that key is replaced by what the Fork actually reached.
+ *
+ * `ForkFromP` (forkfrom.md, s:fork.from.params) points the other way: a sequence
+ * on the destination carrying one entry per incoming Fork, keyed
  * `{branch-name}>>{element-name}` after the Fork and its branch, with the
  * Fork's index in that branch's line as the value:
  *
@@ -2221,19 +2259,21 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
  *       - inject_line>>inj_fork: 134
  *       - alt_line>>end_fork: 37
  *
- * The index is 1-based -- entry 37 is the 37th element of `alt_line`. The group
- * is built by the parser and exists only in the expanded lattice, so like
- * `fork_pointer` its nodes carry no provenance.
+ * The index is 1-based -- entry 37 is the 37th element of `alt_line`. Both names
+ * are built by the parser and exist only in the expanded lattice, so like
+ * `destination_pointer` their nodes carry no provenance.
  *
  * Runs after expansion, when every branch line is final and the indices are the
- * ones the expanded lattice actually carries. The `fork_pointer` scalars still
- * hold work tree ids at this point -- remap_fork_pointers renumbers them only
- * once the lattice has been cut out into a tree of its own -- so each one names
- * its destination element directly.
+ * ones the expanded lattice actually carries. The `destination_pointer`
+ * scalars still hold work tree ids at this point -- remap_destination_pointers
+ * renumbers them only once the lattice has been cut out into a tree of its own
+ * -- so each one names its destination element directly.
  */
-static void link_fork_from(ryml::Tree& t, size_t lat_node) {
+static void link_fork_connections(ryml::Tree& t, size_t lat_node) {
     size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
     if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    std::map<size_t, std::string> qnames = qualified_element_names(t, branches);
 
     for (size_t entry = t.first_child(branches); entry != ryml::NONE;
          entry = t.next_sibling(entry)) {
@@ -2256,9 +2296,10 @@ static void link_fork_from(ryml::Tree& t, size_t lat_node) {
             if (ele == ryml::NONE || !t.has_key(ele)) continue;
             if (child_val_str(t, ele, "kind") != "Fork") continue;
 
-            // A Fork that failed to resolve has no fork_pointer, and the reason
-            // was reported when it was handled; there is nothing to link to.
-            std::string ptr = child_val_str(t, ele, "fork_pointer");
+            // A Fork that failed to resolve has no destination_pointer, and
+            // the reason was reported when it was handled; there is nothing to
+            // link to.
+            std::string ptr = child_val_str(t, ele, "destination_pointer");
             if (ptr.empty()) continue;
             size_t dest;
             try {
@@ -2267,6 +2308,15 @@ static void link_fork_from(ryml::Tree& t, size_t lat_node) {
                 continue;
             }
             if (dest >= t.capacity() || !t.is_map(dest)) continue;
+
+            // Name the destination on the Fork. A destination that is not in
+            // `qnames` is not an element of any branch line, which handle_fork
+            // does not produce a pointer to.
+            size_t forkp = t.find_child(ele, ryml::to_csubstr("ForkP"));
+            auto dest_name = qnames.find(dest);
+            if (forkp != ryml::NONE && dest_name != qnames.end())
+                set_plain_child(t, forkp, "forked_to",
+                                dest_name->second.c_str());
 
             std::string name = branch_name + ">>" +
                                std::string(t.key(ele).str, t.key(ele).len);
@@ -2283,19 +2333,20 @@ static void link_fork_from(ryml::Tree& t, size_t lat_node) {
     }
 }
 
-// Rewrite the `fork_pointer` scalars of a freshly split-out tree. handle_fork
-// stores the raw node id of the fork's destination element, but it runs while
-// expansion is still on the work tree; cutting the lattice out into its own tree
-// renumbers every node, so each pointer has to be translated to the id its
-// target now carries. `from_work` maps work ids to ids in `t`. A pointer whose
-// target did not come across (it should always be inside the lattice) is left
-// alone and reported.
-static void remap_fork_pointers(ryml::Tree& t, size_t node,
+// Rewrite the `destination_pointer` scalars of a freshly split-out tree.
+// handle_fork stores the raw node id of the fork's destination element, but it
+// runs while expansion is still on the work tree; cutting the lattice out into
+// its own tree renumbers every node, so each pointer has to be translated to
+// the id its target now carries. `from_work` maps work ids to ids in `t`. A
+// pointer whose target did not come across (it should always be inside the
+// lattice) is left alone and reported.
+static void remap_destination_pointers(ryml::Tree& t, size_t node,
                                 const std::map<size_t, size_t>& from_work,
                                 ProblemList& problems) {
     if (node == ryml::NONE) return;
 
-    if (t.has_key(node) && t.key(node) == ryml::to_csubstr("fork_pointer") &&
+    if (t.has_key(node) &&
+        t.key(node) == ryml::to_csubstr("destination_pointer") &&
         t.has_val(node)) {
         std::string old(t.val(node).str, t.val(node).len);
         size_t target = 0;
@@ -2306,8 +2357,9 @@ static void remap_fork_pointers(ryml::Tree& t, size_t node,
         }
         auto it = from_work.find(target);
         if (it == from_work.end()) {
-            add_problem(problems,
-                        "fork_pointer target is outside the expanded lattice");
+            add_problem(
+                problems,
+                "destination_pointer target is outside the expanded lattice");
             return;
         }
         std::string id_str = std::to_string(it->second);
@@ -2315,7 +2367,7 @@ static void remap_fork_pointers(ryml::Tree& t, size_t node,
     }
 
     for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
-        remap_fork_pointers(t, c, from_work, problems);
+        remap_destination_pointers(t, c, from_work, problems);
 }
 
 // Builds the `expanded` and `leftover` trees from `combined`.
@@ -2385,13 +2437,13 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // With every input now a plain number, walk each branch element-by-
         // element to fill in the reference, floor, s-position, and field-
         // dependent output parameters. This adds new ReferenceP/FloorP nodes,
-        // which carry no provenance (like fork_pointer) and so simply do not
+        // which carry no provenance (like destination_pointer) and so simply do not
         // appear in the correspondence map.
         run_element_bookkeeper(t, lat_node, problems);
 
         // Last, so the line indices it records are the finished ones -- the
         // bookkeeper caps every branch with a `branch_end` element.
-        link_fork_from(t, lat_node);
+        link_fork_connections(t, lat_node);
 
         size_t wrapper = t.parent(lat_node);
         skip = (wrapper != ryml::NONE && !t.is_root(wrapper) &&
@@ -2418,7 +2470,8 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // pointers need.
         std::map<size_t, size_t> from_work;
         for (const auto& kv : exp->provenance) from_work[kv.second] = kv.first;
-        remap_fork_pointers(exp->tree, exp->tree.root_id(), from_work, problems);
+        remap_destination_pointers(exp->tree, exp->tree.root_id(), from_work,
+                                   problems);
 
         chain_prov(exp->provenance, work.provenance);
     }

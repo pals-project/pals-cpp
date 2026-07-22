@@ -73,7 +73,7 @@ const std::map<std::string, std::set<std::string>>& group_params() {
         {"FoilP", {"dE_ref"}},
         {"ForkP",
          {"to_line", "destination_element", "direction", "new_branch",
-          "propagate_reference"}},
+          "propagate_reference", "forked_to"}},
         {"ParticleP",
          {"x",           "px",          "y",          "py",
           "z",           "pz",          "spin_x",     "spin_y",
