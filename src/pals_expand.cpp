@@ -9,6 +9,7 @@
 #include "yaml_tree.h"
 #include "pals_util.h"
 #include "pals_floor.h"
+#include "pals_check.h"
 
 #include "apc/apc.h"
 
@@ -2513,6 +2514,13 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
     } else {
         lat.combined = make_combined_from_original(
             static_cast<ParsedData*>(lat.original), filename);
+
+        // Spell-check against combined, not expanded: every definition appears
+        // there exactly once, as written, so each misspelling is reported once
+        // and names the element the user typed rather than one of the copies
+        // expansion made of it.
+        check_pals_names(GET_TREE(lat.combined), problems);
+
         make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
                                    root_lattice, problems, lat.expanded,
                                    lat.leftover);
