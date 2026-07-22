@@ -903,6 +903,132 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     rm_tmp(path);
 }
 
+// Every node keyed `key` in the tree, in walk order.
+static std::vector<std::string> all_values_for(YAMLTreeHandle t,
+                                               const char* key) {
+    std::vector<std::string> out;
+    std::vector<YAMLNodeId> stack{get_root(t)};
+    while (!stack.empty()) {
+        YAMLNodeId n = stack.back();
+        stack.pop_back();
+        char* k = get_node_key(t, n);
+        bool hit = k && std::string(k) == key;
+        yaml_free_string(k);
+        if (hit) {
+            char* v = as_string(t, n);
+            out.push_back(v ? std::string(v) : std::string());
+            yaml_free_string(v);
+        }
+        for (size_t i = 0; i < get_size(t, n); i++)
+            stack.push_back(get_child_by_index(t, n, i));
+    }
+    return out;
+}
+
+TEST_CASE("a fork_pointer survives expression substitution intact",
+          "[lattices][problems]") {
+    // A fork_pointer holds a node id, which is a number, so the expression pass
+    // used to "evaluate" it and write the result back through format_double --
+    // the shortest text that round-trips as a double. For most ids that is the
+    // digits themselves, but an id of 110 comes back as `1.1e+02`, and every
+    // reader parses the pointer with std::stoull, which stops at the `.` and
+    // yields 1. That silently cost the fork its ForkFromP entry and its
+    // reference propagation, and left remap_fork_pointers reporting the target
+    // as outside the lattice. non_expr_keys() now skips the key.
+    //
+    // Only a minority of ids format that way -- a multiple of 10 from 100 up --
+    // so the three unused `pad` Drifts below are there to shift the work-tree
+    // ids until two of the five destinations land in that range. Without them
+    // every pointer happens to come out in plain digits and the bug hides. The
+    // assertions hold whatever the ids turn out to be; they simply stop
+    // exercising this if an unrelated change shifts the ids again.
+    const char* path = "tmp_fork_pointer_fmt.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin1:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: \"electron\"\n"
+              "          E_tot_ref: 1e7\n"
+              "    - m:\n"
+              "        kind: Marker\n"
+              "    - dft:\n"
+              "        kind: Drift\n"
+              "        length: 2\n"
+              "    - pad1:\n"
+              "        kind: Drift\n"
+              "        length: 1\n"
+              "    - pad2:\n"
+              "        kind: Drift\n"
+              "        length: 1\n"
+              "    - pad3:\n"
+              "        kind: Drift\n"
+              "        length: 1\n"
+              "    - a_fork:\n"
+              "        kind: Fork\n"
+              "        ForkP:\n"
+              "          to_line: a_line\n"
+              "    - b_fork:\n"
+              "        kind: Fork\n"
+              "        ForkP:\n"
+              "          to_line: b_line\n"
+              "    - c_fork:\n"
+              "        kind: Fork\n"
+              "        ForkP:\n"
+              "          to_line: c_line\n"
+              "    - a_back_fork:\n"
+              "        kind: Fork\n"
+              "        ForkP:\n"
+              "          to_line: a_line\n"
+              "    - zero_line:\n"
+              "        kind: BeamLine\n"
+              "        line: [begin1, dft, a_fork]\n"
+              "    - one_line:\n"
+              "        kind: BeamLine\n"
+              "        line: [begin1, dft, c_fork]\n"
+              "    - a_line:\n"
+              "        kind: BeamLine\n"
+              "        line: [m, dft, b_fork]\n"
+              "    - b_line:\n"
+              "        kind: BeamLine\n"
+              "        line: [m, dft]\n"
+              "    - c_line:\n"
+              "        kind: BeamLine\n"
+              "        line: [m, dft, a_back_fork]\n"
+              "    - root_lat:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - zero_line\n"
+              "          - one_line\n"
+              "    - use: \"root_lat\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.problems.count == 0);
+
+    // Five Forks resolve: two chains of three (zero_line -> a_line -> b_line,
+    // one_line -> c_line -> a_line -> b_line), sharing no branch instances.
+    std::vector<std::string> ptrs = all_values_for(lat.expanded, "fork_pointer");
+    REQUIRE(ptrs.size() == 5);
+    for (const std::string& p : ptrs) {
+        INFO("fork_pointer: " << p);
+        REQUIRE(!p.empty());
+        REQUIRE(p.find_first_not_of("0123456789") == std::string::npos);
+    }
+
+    // Each of those Forks reaches its destination, so each destination carries
+    // the reverse link. A misparsed pointer drops the entry without a word.
+    REQUIRE(all_values_for(lat.expanded, "ForkFromP").size() == 5);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
           "[lattices][problems]") {
     // `null` requires `to_line` to name an existing branch. A bare BeamLine

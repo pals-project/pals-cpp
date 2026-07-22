@@ -974,12 +974,20 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 // Keys whose scalar values are names/flags, never expressions. Skipping them
 // avoids a stray collision between such a name and a constant (e.g. an element
 // literally named `pi`).
+//
+// `fork_pointer` is here for a different reason: it is a node id, and a node id
+// is a number, so evaluating it "succeeds" and rewrites it through
+// format_double. That is lossless as a number but not as text -- an id of 110
+// comes back as `1.1e+02`, the shortest round-tripping form -- and every reader
+// of the pointer parses it with std::stoull, which stops at the `.` and yields
+// 1. See handle_fork.
 static const std::set<std::string>& non_expr_keys() {
     static const std::set<std::string> keys = {
         "kind",       "include",     "use",
         "inherit",    "zero_point",  "to_line",
         "destination_element", "new_branch", "multipass",
-        "propagate_reference", "name", "multipass_index"};
+        "propagate_reference", "name", "multipass_index",
+        "fork_pointer"};
     return keys;
 }
 
