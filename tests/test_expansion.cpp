@@ -688,6 +688,70 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     rm_tmp(path);
 }
 
+TEST_CASE("a destination of a kind that cannot be forked to is reported",
+          "[lattices][problems]") {
+    // Only a Marker, a BeginningEle, or another Fork may be forked to
+    // (lattice-construction.md, s:fork): the destination has to share the Fork's
+    // zero length and unit transfer map. `dump_line` begins with a Drift, so
+    // both the defaulted destination and one named outright are rejected, and
+    // neither Fork is linked.
+    const char* path = "tmp_fork_bad_kind.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - d1:\n"
+              "        kind: Drift\n"
+              "        length: 1\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - d1\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "          - f2:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "                new_branch: null\n"
+              "                destination_element: d1\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "          - dump_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    int reported = 0;
+    for (size_t i = 0; i < lat.problems.count; ++i) {
+        std::string p(lat.problems.items[i]);
+        if (p.find("must be a Marker") != std::string::npos) {
+            REQUIRE(p.find("'d1'") != std::string::npos);
+            REQUIRE(p.find("'Drift'") != std::string::npos);
+            reported++;
+        }
+    }
+    REQUIRE(reported == 2);
+
+    // Neither Fork resolved, so nothing was linked in either direction.
+    REQUIRE(find_by_key(lat.expanded, "fork_pointer") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.expanded, "ForkFromP") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
           "[lattices]") {
     // ForkFromP (forkfrom.md, s:fork.from.params) is the reverse link of ForkP:
