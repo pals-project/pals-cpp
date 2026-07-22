@@ -74,17 +74,17 @@ TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
 // handle_fork writes the raw node id of the fork's destination element. That id
 // is assigned before the lattice is cut out into its own tree, so it must be
 // translated to survive the renumbering.
-TEST_CASE("fork_pointer resolves inside the expanded tree", "[lattices]") {
+TEST_CASE("destination_pointer resolves inside the expanded tree", "[lattices]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
 
-    // Find the fork_pointer scalar anywhere in the expanded tree.
+    // Find the destination_pointer scalar anywhere in the expanded tree.
     YAMLNodeId fp = YAML_NULL_ID;
     std::vector<YAMLNodeId> stack{get_root(lat.expanded)};
     while (!stack.empty()) {
         YAMLNodeId n = stack.back();
         stack.pop_back();
         char* key = get_node_key(lat.expanded, n);
-        if (key && std::string(key) == "fork_pointer") fp = n;
+        if (key && std::string(key) == "destination_pointer") fp = n;
         yaml_free_string(key);
         for (size_t i = 0; i < get_size(lat.expanded, n); i++)
             stack.push_back(get_child_by_index(lat.expanded, n, i));
@@ -452,9 +452,9 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
         REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
                 std::string::npos);
 
-    // The fork resolved to a target, so the element carries a fork_pointer and
+    // The fork resolved to a target, so the element carries a destination_pointer and
     // the defaulted branch (named after to_line) exists.
-    YAMLNodeId fp = find_by_key(lat.expanded, "fork_pointer");
+    YAMLNodeId fp = find_by_key(lat.expanded, "destination_pointer");
     REQUIRE(fp != YAML_NULL_ID);
 
     // Expansion resolves ForkP.new_branch to the name of the branch it made,
@@ -474,15 +474,20 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
 
 // Helper: the keyed element definition of a branch's first line element.
 // expanded -> lat1(0) -> branches -> branch entry(idx) -> branch map(0) ->
-// line -> line entry(0) -> element def(0).
-static YAMLNodeId first_element_of_branch(YAMLTreeHandle t, size_t branch_idx) {
+// line -> line entry(pos) -> element def(0).
+static YAMLNodeId element_of_branch(YAMLTreeHandle t, size_t branch_idx,
+                                    size_t pos) {
     YAMLNodeId lat1 = get_child_by_index(t, get_root(t), 0);
     YAMLNodeId branches = get_child_by_key(t, lat1, "branches");
     YAMLNodeId branch = get_child_by_index(
         t, get_child_by_index(t, branches, branch_idx), 0);
     YAMLNodeId line = get_child_by_key(t, branch, "line");
-    YAMLNodeId entry = get_child_by_index(t, line, 0);
+    YAMLNodeId entry = get_child_by_index(t, line, pos);
     return get_child_by_index(t, entry, 0);
+}
+
+static YAMLNodeId first_element_of_branch(YAMLTreeHandle t, size_t branch_idx) {
+    return element_of_branch(t, branch_idx, 0);
 }
 
 TEST_CASE("a Fork propagates reference and floor into its new branch",
@@ -662,8 +667,8 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
     REQUIRE(get_size(lat.expanded, branches) == 2);
 
-    // The Fork still connects: it carries a fork_pointer.
-    REQUIRE(find_by_key(lat.expanded, "fork_pointer") != YAML_NULL_ID);
+    // The Fork still connects: it carries a destination_pointer.
+    REQUIRE(find_by_key(lat.expanded, "destination_pointer") != YAML_NULL_ID);
 
     // ForkP.new_branch stays `null` — no branch was made.
     YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
@@ -741,8 +746,9 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
     REQUIRE(reported == 2);
 
     // Neither Fork resolved, so nothing was linked in either direction.
-    REQUIRE(find_by_key(lat.expanded, "fork_pointer") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.expanded, "destination_pointer") == YAML_NULL_ID);
     REQUIRE(find_by_key(lat.expanded, "ForkFromP") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.expanded, "forked_to") == YAML_NULL_ID);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
@@ -825,6 +831,91 @@ TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
     rm_tmp(path);
 }
 
+// Read `ForkP.forked_to` off an element of a branch line.
+static std::string forked_to_of(YAMLTreeHandle t, size_t branch_idx,
+                                size_t pos) {
+    YAMLNodeId forkp = get_child_by_key(
+        t, element_of_branch(t, branch_idx, pos), "ForkP");
+    if (forkp == YAML_NULL_ID) return "";
+    char* v = as_string(t, get_child_by_key(t, forkp, "forked_to"));
+    std::string out(v ? v : "");
+    yaml_free_string(v);
+    return out;
+}
+
+TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
+    // `forked_to` (fork.md, s:fork.params) is an output parameter: the parser
+    // writes the destination element as `{branch-name}>>{element-name}`. The
+    // branch name is the one the expanded lattice ends up with, which is not in
+    // general the `to_line` the input named -- all three settings of
+    // `new_branch` are here, and only the SELF one has the two coincide.
+    const char* path = "tmp_forked_to.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - m0:\n"
+              "        kind: Marker\n"
+              "    - dump_begin:\n"
+              "        kind: Marker\n"
+              "    - alt_begin:\n"
+              "        kind: Marker\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "    - alt_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - alt_begin\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m0\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "                destination_element: dump_begin\n"
+              "                new_branch: proton_dump\n"
+              "          - f2:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: alt_line\n"
+              "          - f3:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: proton_dump\n"
+              "                new_branch: null\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.problems.count == 0);
+
+    // f1 renamed the branch it built, so `forked_to` names `proton_dump` where
+    // `to_line` said `dump_line`.
+    REQUIRE(forked_to_of(lat.expanded, 0, 1) == "proton_dump>>dump_begin");
+
+    // f2 took the default (SELF): the branch is named after the beam line, and
+    // the destination defaults to that line's first element.
+    REQUIRE(forked_to_of(lat.expanded, 0, 2) == "alt_line>>alt_begin");
+
+    // f3 pointed into the branch f1 had already built, and names the same
+    // destination as f1 does.
+    REQUIRE(forked_to_of(lat.expanded, 0, 3) == "proton_dump>>dump_begin");
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
           "[lattices]") {
     // A chained fork: `ring` forks to `mid`, and `mid` itself forks to `end`.
@@ -832,7 +923,7 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     // the destination element, and appends it to `branches` -- which the
     // enclosing walk over `branches` is still iterating. Expanding it a second
     // time would re-run the Fork it holds, giving two `end` branches and two
-    // fork_pointers on the one element, so the branch is expanded only once.
+    // destination_pointers on the one element, so the branch is expanded only once.
     //
     // `ring` is followed by a second listed branch, so the walk over `branches`
     // has somewhere to go after `ring` and reaches the entry `ring`'s Fork
@@ -883,14 +974,14 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
     REQUIRE(get_size(lat.expanded, branches) == 4);
 
-    // f2, the Fork in the branch that f1 built, ran once: one fork_pointer.
+    // f2, the Fork in the branch that f1 built, ran once: one destination_pointer.
     YAMLNodeId f2 = first_element_of_branch(lat.expanded, 2);
     REQUIRE(key_eq(lat.expanded, f2, "f2"));
     int pointers = 0;
     for (size_t i = 0; i < get_size(lat.expanded, f2); ++i) {
         char* k = get_node_key(lat.expanded,
                                get_child_by_index(lat.expanded, f2, i));
-        if (k && std::string(k) == "fork_pointer") pointers++;
+        if (k && std::string(k) == "destination_pointer") pointers++;
         yaml_free_string(k);
     }
     REQUIRE(pointers == 1);
@@ -925,15 +1016,15 @@ static std::vector<std::string> all_values_for(YAMLTreeHandle t,
     return out;
 }
 
-TEST_CASE("a fork_pointer survives expression substitution intact",
+TEST_CASE("a destination_pointer survives expression substitution intact",
           "[lattices][problems]") {
-    // A fork_pointer holds a node id, which is a number, so the expression pass
+    // A destination_pointer holds a node id, which is a number, so the expression pass
     // used to "evaluate" it and write the result back through format_double --
     // the shortest text that round-trips as a double. For most ids that is the
     // digits themselves, but an id of 110 comes back as `1.1e+02`, and every
     // reader parses the pointer with std::stoull, which stops at the `.` and
     // yields 1. That silently cost the fork its ForkFromP entry and its
-    // reference propagation, and left remap_fork_pointers reporting the target
+    // reference propagation, and left remap_destination_pointers reporting the target
     // as outside the lattice. non_expr_keys() now skips the key.
     //
     // Only a minority of ids format that way -- a multiple of 10 from 100 up --
@@ -942,7 +1033,7 @@ TEST_CASE("a fork_pointer survives expression substitution intact",
     // every pointer happens to come out in plain digits and the bug hides. The
     // assertions hold whatever the ids turn out to be; they simply stop
     // exercising this if an unrelated change shifts the ids again.
-    const char* path = "tmp_fork_pointer_fmt.pals.yaml";
+    const char* path = "tmp_destination_pointer_fmt.pals.yaml";
     write_tmp(path,
               "PALS:\n"
               "  facility:\n"
@@ -1009,10 +1100,10 @@ TEST_CASE("a fork_pointer survives expression substitution intact",
 
     // Five Forks resolve: two chains of three (zero_line -> a_line -> b_line,
     // one_line -> c_line -> a_line -> b_line), sharing no branch instances.
-    std::vector<std::string> ptrs = all_values_for(lat.expanded, "fork_pointer");
+    std::vector<std::string> ptrs = all_values_for(lat.expanded, "destination_pointer");
     REQUIRE(ptrs.size() == 5);
     for (const std::string& p : ptrs) {
-        INFO("fork_pointer: " << p);
+        INFO("destination_pointer: " << p);
         REQUIRE(!p.empty());
         REQUIRE(p.find_first_not_of("0123456789") == std::string::npos);
     }
