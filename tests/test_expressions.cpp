@@ -265,7 +265,7 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
               "        kind: Bend\n"
               "        length: 0.2\n"
               "        BendP:\n"
-              "          edge_int2: 0.02 * thingB>MagneticMultipoleP.Kn2L\n"
+              "          edge2_int: 0.02 * thingB>MagneticMultipoleP.Kn2L\n"
               "    - main_line:\n"
               "        kind: BeamLine\n"
               "        line:\n"
@@ -283,7 +283,7 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     REQUIRE(dh1a != YAML_NULL_ID);
     YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
     REQUIRE(close(
-        num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge_int2")),
+        num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge2_int")),
         0.02 * 0.1));
 
     // A clean lattice reports no problems.
@@ -313,7 +313,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
               "        ReferenceP:\n"
               "          species_ref: species\n"
               "        BendP:\n"
-              "          e_tot: 1.1 * mass_of(species)\n"
+              "          h1: 1.1 * mass_of(species)\n"
               "    - main_line:\n"
               "        kind: BeamLine\n"
               "        line:\n"
@@ -338,7 +338,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     REQUIRE(dh1a != YAML_NULL_ID);
     YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
     REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, bendp, "e_tot")),
+                          get_child_by_key(lat.expanded, bendp, "h1")),
                   1.1 * m_3he));
 
     // A bare identifier naming the species constant (`species_ref: species`) is
