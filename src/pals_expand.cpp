@@ -240,7 +240,8 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     `to_line`; the literal `null` instead points into an existing branch and
 //     creates nothing.
 //  3. Names the new branch (after `to_line` for SELF, else after `new_branch`).
-//  4. Creates a fork_pointer in the element pointing at "destination_element" in
+//  4. Checks the destination is a kind that may be forked to.
+//  5. Creates a fork_pointer in the element pointing at "destination_element" in
 //     the destination branch, and resolves ForkP.new_branch to the name of the
 //     branch that was made (or `null` when none was).
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
@@ -369,6 +370,28 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
             add_problem(problems, "Fork element '" + fork_name +
                                       "': destination_element '" + to_element +
                                       "' not found in '" + to_line + "'");
+            return;
+        }
+    }
+
+    // A Fork has zero length and a unit transfer map, so to keep the connection
+    // unambiguous the destination has to be an element with those same
+    // properties: only a Marker, a BeginningEle, or another Fork may be forked
+    // to (lattice-construction.md, s:fork). A bare entry that never resolved
+    // carries no kind to judge, and is reported as a dangling reference in its
+    // own right.
+    if (t.is_map(target)) {
+        std::string dest_kind = child_val_str(t, target, "kind");
+        if (dest_kind != "Marker" && dest_kind != "BeginningEle" &&
+            dest_kind != "Fork") {
+            std::string dest_name(t.key(target).str, t.key(target).len);
+            add_problem(problems,
+                        "Fork element '" + fork_name +
+                            "': destination element '" + dest_name + "' in '" +
+                            to_line + "' has kind '" +
+                            (dest_kind.empty() ? "<none>" : dest_kind) +
+                            "'; a Fork destination must be a Marker, a "
+                            "BeginningEle, or a Fork");
             return;
         }
     }
