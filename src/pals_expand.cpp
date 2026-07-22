@@ -242,12 +242,12 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     creates nothing.
 //  3. Names the new branch (after `to_line` for SELF, else after `new_branch`).
 //  4. Checks the destination is a kind that may be forked to.
-//  5. Creates a destination_pointer in the element pointing at
-//     "destination_element" in the destination branch, and resolves
-//     ForkP.new_branch to the name of the branch that was made (or `null` when
-//     none was). The pointer is a node id, for use while expansion runs;
-//     link_fork_connections later turns it into the `ForkP.forked_to` name that
-//     the expanded lattice states the connection by.
+//  5. Creates a ForkP.destination_pointer pointing at "destination_element" in
+//     the destination branch, and resolves ForkP.new_branch to the name of the
+//     branch that was made (or `null` when none was). The pointer is a node id,
+//     for use while expansion runs; link_fork_connections later turns it into
+//     the `ForkP.forked_to` name that the expanded lattice states the
+//     connection by.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
                         std::map<size_t, size_t>& prov, ProblemList& problems,
@@ -400,10 +400,12 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         }
     }
 
-    // Add destination_pointer: <node id of target as string>
+    // Add ForkP.destination_pointer: <node id of target as string>. It sits in
+    // the group beside the `to_line`/`destination_element` it resolves and the
+    // `forked_to` it will become, not loose on the element.
     ensure_capacity(t, 2);
     std::string id_str = std::to_string(target);
-    size_t fp_child = t.append_child(fork_node);
+    size_t fp_child = t.append_child(forkp);
     t.ref(fp_child) |= ryml::KEY | ryml::VAL;
     t.set_key(fp_child, t.to_arena(ryml::to_csubstr("destination_pointer")));
     t.set_val(fp_child, t.to_arena(ryml::to_csubstr(id_str)));
@@ -2188,7 +2190,10 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                     forkp != ryml::NONE
                         ? child_val_str(t, forkp, "propagate_reference")
                         : "";
-                std::string ptr = child_val_str(t, def, "destination_pointer");
+                std::string ptr =
+                    forkp != ryml::NONE
+                        ? child_val_str(t, forkp, "destination_pointer")
+                        : "";
                 std::string nb =
                     forkp != ryml::NONE
                         ? child_val_str(t, forkp, "new_branch")
@@ -2296,10 +2301,12 @@ static void link_fork_connections(ryml::Tree& t, size_t lat_node) {
             if (ele == ryml::NONE || !t.has_key(ele)) continue;
             if (child_val_str(t, ele, "kind") != "Fork") continue;
 
-            // A Fork that failed to resolve has no destination_pointer, and
-            // the reason was reported when it was handled; there is nothing to
-            // link to.
-            std::string ptr = child_val_str(t, ele, "destination_pointer");
+            // A Fork that failed to resolve has no ForkP.destination_pointer,
+            // and the reason was reported when it was handled; there is nothing
+            // to link to.
+            size_t forkp = t.find_child(ele, ryml::to_csubstr("ForkP"));
+            if (forkp == ryml::NONE) continue;
+            std::string ptr = child_val_str(t, forkp, "destination_pointer");
             if (ptr.empty()) continue;
             size_t dest;
             try {
@@ -2312,9 +2319,8 @@ static void link_fork_connections(ryml::Tree& t, size_t lat_node) {
             // Name the destination on the Fork. A destination that is not in
             // `qnames` is not an element of any branch line, which handle_fork
             // does not produce a pointer to.
-            size_t forkp = t.find_child(ele, ryml::to_csubstr("ForkP"));
             auto dest_name = qnames.find(dest);
-            if (forkp != ryml::NONE && dest_name != qnames.end())
+            if (dest_name != qnames.end())
                 set_plain_child(t, forkp, "forked_to",
                                 dest_name->second.c_str());
 

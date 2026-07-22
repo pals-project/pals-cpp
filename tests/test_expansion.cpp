@@ -452,14 +452,16 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
         REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
                 std::string::npos);
 
-    // The fork resolved to a target, so the element carries a destination_pointer and
-    // the defaulted branch (named after to_line) exists.
-    YAMLNodeId fp = find_by_key(lat.expanded, "destination_pointer");
-    REQUIRE(fp != YAML_NULL_ID);
+    // The fork resolved to a target, so its ForkP carries a
+    // destination_pointer and the defaulted branch (named after to_line)
+    // exists. The pointer is a parameter of the group, not a key loose on the
+    // element.
+    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
+    REQUIRE(get_child_by_key(lat.expanded, forkp, "destination_pointer") !=
+            YAML_NULL_ID);
 
     // Expansion resolves ForkP.new_branch to the name of the branch it made,
     // which for the default is the to_line name.
-    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
     REQUIRE(val_eq(lat.expanded,
                    get_child_by_key(lat.expanded, forkp, "new_branch"),
                    "dump_line"));
@@ -974,13 +976,16 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
     REQUIRE(get_size(lat.expanded, branches) == 4);
 
-    // f2, the Fork in the branch that f1 built, ran once: one destination_pointer.
+    // f2, the Fork in the branch that f1 built, ran once: its ForkP holds one
+    // destination_pointer. A second run would append a second one to the same
+    // group, since handle_fork reuses the ForkP it finds.
     YAMLNodeId f2 = first_element_of_branch(lat.expanded, 2);
     REQUIRE(key_eq(lat.expanded, f2, "f2"));
+    YAMLNodeId forkp = get_child_by_key(lat.expanded, f2, "ForkP");
     int pointers = 0;
-    for (size_t i = 0; i < get_size(lat.expanded, f2); ++i) {
+    for (size_t i = 0; i < get_size(lat.expanded, forkp); ++i) {
         char* k = get_node_key(lat.expanded,
-                               get_child_by_index(lat.expanded, f2, i));
+                               get_child_by_index(lat.expanded, forkp, i));
         if (k && std::string(k) == "destination_pointer") pointers++;
         yaml_free_string(k);
     }
