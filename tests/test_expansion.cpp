@@ -266,10 +266,15 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     REQUIRE(has("could not evaluate expression for BendP.edge2_int"));
     REQUIRE(has("could not evaluate expression for BendP.e1"));
 
-    // Exactly those five: plain names (`kind: Bend`, the line references that
+    // `main_line` opens on a Bend that declares no reference, so the branch has
+    // no species or energy to propagate either.
+    REQUIRE(has("branch 'main_line': first element 'DH1A' has no reference "
+                "species or energy"));
+
+    // Exactly those six: plain names (`kind: Bend`, the line references that
     // DO resolve) are not reported, and duplicate copies made by expansion
     // collapse to one message each.
-    REQUIRE(lat.problems.count == 5);
+    REQUIRE(lat.problems.count == 6);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
@@ -426,6 +431,11 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     write_tmp(path,
               "PALS:\n"
               "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
               "    - dump_begin:\n"
               "        kind: Marker\n"
               "    - dump_line:\n"
@@ -435,6 +445,7 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
               "    - ring:\n"
               "        kind: BeamLine\n"
               "        line:\n"
+              "          - begin\n"
               "          - f1:\n"
               "              kind: Fork\n"
               "              ForkP:\n"
@@ -563,9 +574,12 @@ TEST_CASE("a Fork propagates reference and floor into its new branch",
 }
 
 TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
-          "[lattices]") {
+          "[lattices][problems]") {
     // With propagate_reference explicitly false, nothing is carried across the
     // Fork: the destination element keeps only its own (here empty) reference.
+    // That leaves the whole branch with no reference to propagate, which is
+    // reported -- the destination declares no ReferenceP of its own, so turning
+    // propagation off is the same as never giving the branch one.
     const char* path = "tmp_fork_noprop.pals.yaml";
     write_tmp(path,
               "PALS:\n"
@@ -607,6 +621,78 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     // A ReferenceP is still written (time_ref), but no species/energy propagated.
     REQUIRE(get_child_by_key(lat.expanded, refp, "species_ref") == YAML_NULL_ID);
     REQUIRE(get_child_by_key(lat.expanded, refp, "E_tot_ref") == YAML_NULL_ID);
+
+    // `ring` has its reference from `begin`; only `extraction` is reported.
+    REQUIRE(lat.problems.count == 1);
+    REQUIRE(std::string(lat.problems.items[0]) ==
+            "branch 'extraction': first element 'm1' has no reference species "
+            "or energy, and none was propagated into the branch; the reference "
+            "parameters cannot be computed");
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+TEST_CASE("a half-declared branch reference is reported for what it lacks",
+          "[lattices][problems]") {
+    // Species and energy are reported separately, because either alone leaves
+    // the reference unusable: the species supplies the mass that converts
+    // between energy and momentum, and without one of those two there is
+    // nothing to convert. `pc_ref` counts as the energy half -- completion
+    // derives `E_tot_ref` from it.
+    const char* path = "tmp_ref_partial.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - no_energy:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "    - no_species:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - by_momentum:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          pc_ref: 1.0e9\n"
+              "    - line_a:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - no_energy\n"
+              "    - line_b:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - no_species\n"
+              "    - line_c:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - by_momentum\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - line_a\n"
+              "          - line_b\n"
+              "          - line_c\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    std::vector<std::string> msgs;
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        msgs.emplace_back(lat.problems.items[i]);
+    REQUIRE(msgs.size() == 2);
+
+    REQUIRE(msgs[0].find("branch 'line_a': first element 'no_energy' has no "
+                         "reference energy or momentum") == 0);
+    REQUIRE(msgs[1].find("branch 'line_b': first element 'no_species' has no "
+                         "reference species,") == 0);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
@@ -856,7 +942,10 @@ TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
               "PALS:\n"
               "  facility:\n"
               "    - m0:\n"
-              "        kind: Marker\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
               "    - dump_begin:\n"
               "        kind: Marker\n"
               "    - alt_begin:\n"

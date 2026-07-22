@@ -2134,6 +2134,42 @@ static size_t append_branch_end(ryml::Tree& t, size_t line) {
     return def;
 }
 
+// Report a branch whose reference parameters cannot be computed.
+//
+// Every element takes its reference from the one before it, so the whole branch
+// rests on the first element's: it is either written on that element (a
+// BeginningEle's ReferenceP) or propagated in from the Fork that created the
+// branch. When neither happens there is no species and no energy to propagate,
+// and nothing later in the branch can supply them -- a `ReferenceP` further
+// down is read as that element's own upstream values, not as a starting point
+// for the ones before it. The species and the energy are reported separately
+// because either alone is enough to leave the reference incomplete: without the
+// species there is no mass to convert energy and momentum through, and without
+// either energy or momentum there is nothing to convert.
+//
+// Runs after the first element has been bookkept, so `ele` holds the reference
+// it ended up with, seed and all.
+static void check_branch_reference(const ryml::Tree& t, size_t branch,
+                                   size_t ele, ProblemList& problems) {
+    RefState r = read_ref(t, ele);
+    if (r.has_species && (r.has_E || r.has_pc)) return;
+
+    const char* missing =
+        !r.has_species
+            ? (r.has_E || r.has_pc ? "no reference species"
+                                   : "no reference species or energy")
+            : "no reference energy or momentum";
+    std::string branch_name =
+        t.has_key(branch)
+            ? std::string(t.key(branch).str, t.key(branch).len)
+            : "<branch>";
+    add_problem(problems,
+                "branch '" + branch_name + "': first element '" +
+                    ele_name(t, ele) + "' has " + missing +
+                    ", and none was propagated into the branch; the reference "
+                    "parameters cannot be computed");
+}
+
 // Walk every branch of the expanded lattice and run _element_bookkeeper on each
 // element in order, threading each element's results (persisted in the tree)
 // into the next. After the branch's elements, a `branch_end` Placeholder is
@@ -2171,12 +2207,14 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
             size_t def = t.first_child(le);
             if (def == ryml::NONE || !t.has_key(def)) continue;
 
+            bool first = (prev == ryml::NONE);
             size_t seed = ryml::NONE;
-            if (prev == ryml::NONE) {
+            if (first) {
                 auto it = fork_seed.find(def);
                 if (it != fork_seed.end()) seed = it->second;
             }
             _element_bookkeeper(t, prev, def, problems, seed);
+            if (first) check_branch_reference(t, branch, def, problems);
 
             // Record where a Fork propagates its reference/floor to. Propagation
             // applies only when the destination is the beginning element of a
