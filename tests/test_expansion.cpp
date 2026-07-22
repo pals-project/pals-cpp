@@ -229,7 +229,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
               "    - DH1A:\n"
               "        kind: Bend\n"
               "        BendP:\n"
-              "          edge_int2: 0.02 * thingB>MagneticMultipoleP.NotThere\n"
+              "          edge2_int: 0.02 * thingB>MagneticMultipoleP.NotThere\n"
               "          e1: 3 * missing_const\n"
               "    - ghost_child:\n"
               "        kind: Bend\n"
@@ -263,7 +263,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     REQUIRE(has("reference to undefined element or line 'NoSuchElement'"));
     REQUIRE(has("inherit: 'ghost_ancestor' is not defined"));
     REQUIRE(has("could not evaluate expression for constants.a_const"));
-    REQUIRE(has("could not evaluate expression for BendP.edge_int2"));
+    REQUIRE(has("could not evaluate expression for BendP.edge2_int"));
     REQUIRE(has("could not evaluate expression for BendP.e1"));
 
     // Exactly those five: plain names (`kind: Bend`, the line references that

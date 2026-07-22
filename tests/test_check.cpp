@@ -80,11 +80,223 @@ TEST_CASE("a misspelled parameter group is reported with a suggestion",
     REQUIRE(has(ps,
                 "element 'q1': unknown parameter group 'FlorP'; did you mean "
                 "'FloorP'?"));
-    // `Refereence` does not end in `P`, so it is not taken for a group at all.
-    REQUIRE(!has(ps, "Refereence"));
-    // Nor is `L20_BLW_P`: PALS never digits or underscores a group name, so the
-    // shape says "outside the standard" rather than "misspelled".
-    REQUIRE(!has(ps, "L20_BLW_P"));
+    // Neither `Refereence` nor `L20_BLW_P` has the shape of a group -- one does
+    // not end in `P`, and PALS never digits or underscores a group name -- so
+    // neither is judged against the group table. They are still keys of a
+    // Quadrupole that PALS does not define, and are caught as parameters.
+    REQUIRE(!has(ps, "parameter group 'Refereence'"));
+    REQUIRE(!has(ps, "parameter group 'L20_BLW_P'"));
+    REQUIRE(has(ps, "element 'q1': unknown parameter 'Refereence'"));
+    REQUIRE(has(ps, "element 'q1': unknown parameter 'L20_BLW_P'"));
+}
+
+TEST_CASE("a misspelled parameter inside a group is reported",
+          "[check][problems]") {
+    // Each group has a fixed component list (one section each under
+    // source/parameters), so a key that is not on it is a mistake -- `xxx` is
+    // no more a ForkP parameter than `FlorP` is a group.
+    auto ps = problems_for("tmp_check_param.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - f1:\n"
+                           "        kind: Fork\n"
+                           "        ForkP:\n"
+                           "          to_line: dump\n"
+                           "          xxx: abc\n"
+                           "    - b1:\n"
+                           "        kind: Bend\n"
+                           "        length: 1\n"
+                           "        BendP:\n"
+                           "          edge_int2: 0.02\n"
+                           "          e1: 0.1\n");
+
+    REQUIRE(has(ps, "element 'f1' ForkP: unknown parameter 'xxx'"));
+    // `edge_int2` is Bmad's spelling of what bend.md calls `edge2_int`. It is
+    // reported without a guess: two edits from `edge2_int` and equally two from
+    // `edge1_int`, and a tie is not worth resolving by coin toss.
+    REQUIRE(has(ps, "element 'b1' BendP: unknown parameter 'edge_int2'"));
+    REQUIRE(!has(ps, "'edge_int2'; did you mean"));
+    // Correct names are left alone.
+    REQUIRE(!has(ps, "'to_line'"));
+    REQUIRE(!has(ps, "'e1'"));
+}
+
+TEST_CASE("multipole component names are accepted by shape, not by list",
+          "[check][problems]") {
+    // A multipole component name is generated from its order, so there is no
+    // list to check against: `Bn`/`Bs`/`Kn`/`Ks` (magnetic) or `En`/`Es`
+    // (electric) plus the order, optionally `L` for the length-integrated form
+    // and `_taper` for the tapering parameter, and `tilt` plus the order.
+    auto ps = problems_for("tmp_check_mult.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        MagneticMultipoleP:\n"
+                           "          tilt7: 0.7\n"
+                           "          Bn3: 27.3\n"
+                           "          Bn2L: 34.7\n"
+                           "          Ks1: 1\n"
+                           "          Kn2L_taper: 0.1\n"
+                           "          Kn_bogus: 5\n"
+                           "          tiltL: 3\n"
+                           "        ElectricMultipoleP:\n"
+                           "          En3: 1\n"
+                           "          Es2L: 2\n"
+                           "          Bn3: 4\n");
+
+    REQUIRE(count_with(ps, "unknown parameter") == 3);
+    REQUIRE(has(ps, "MagneticMultipoleP: unknown parameter 'Kn_bogus'"));
+    // `tilt` has no length-integrated form, so the trailing `L` is not one.
+    REQUIRE(has(ps, "MagneticMultipoleP: unknown parameter 'tiltL'"));
+    // A magnetic component in the electric group is not an electric one.
+    REQUIRE(has(ps, "ElectricMultipoleP: unknown parameter 'Bn3'"));
+    // No suggestion is offered: the nearest listed name would be a guess at a
+    // different multipole order.
+    REQUIRE(!has(ps, "'Kn_bogus'; did you mean"));
+}
+
+TEST_CASE("a misspelled element parameter is reported", "[check][problems]") {
+    // The parameters outside any group are a short fixed list
+    // (lattice-element-parameters.md, s:non.params), extended by what the kind
+    // is built from -- `line` for a BeamLine, `branches` for a Lattice.
+    auto ps = problems_for("tmp_check_ele.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        lenght: 1\n"
+                           "        s_position: 2\n"
+                           "        is_on: true\n"
+                           "    - ring:\n"
+                           "        kind: BeamLine\n"
+                           "        line:\n"
+                           "          - q1\n"
+                           "    - lat1:\n"
+                           "        kind: Lattice\n"
+                           "        branches:\n"
+                           "          - ring\n");
+
+    REQUIRE(has(ps,
+                "element 'q1': unknown parameter 'lenght'; did you mean "
+                "'length'?"));
+    REQUIRE(count_with(ps, "unknown parameter") == 1);
+}
+
+TEST_CASE("groups with no fixed vocabulary are left alone",
+          "[check][problems]") {
+    // MetaP may hold arbitrary metadata beyond its six components (meta.md) and
+    // TrackingP is program-specific by design (tracking.md), so neither is
+    // checked -- nor is anything nested inside them.
+    auto ps = problems_for("tmp_check_open.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        MetaP:\n"
+                           "          alias: QUAD1\n"
+                           "          blueprint: anything at all\n"
+                           "          power_supply:\n"
+                           "            NotAGroupP: 3\n"
+                           "        TrackingP:\n"
+                           "          SciBmad:\n"
+                           "            ds_step: 0.3\n"
+                           "        GirderP:\n"
+                           "          undocumented_so_far: 1\n");
+
+    REQUIRE(count_with(ps, "unknown parameter") == 0);
+    REQUIRE(count_with(ps, "unknown parameter group") == 0);
+}
+
+TEST_CASE("a parameter group the element's kind does not have is reported",
+          "[check][problems]") {
+    // Each kind lists the groups it carries (lattice-element-kinds.md). A group
+    // PALS defines but this kind does not have is a real group in the wrong
+    // place, so it is reported against the kind, not the spelling.
+    auto ps = problems_for("tmp_check_kindgroup.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - d1:\n"
+                           "        kind: Drift\n"
+                           "        length: 1\n"
+                           "        SolenoidP:\n"
+                           "          Ksol: 10\n"
+                           "        ApertureP:\n"
+                           "          x_width: 0.02\n"
+                           "    - s1:\n"
+                           "        kind: Solenoid\n"
+                           "        length: 1\n"
+                           "        SolenoidP:\n"
+                           "          Ksol: 10\n"
+                           "    - beg:\n"
+                           "        kind: BeginningEle\n"
+                           "        TwissP:\n"
+                           "          beta_a: 12.5\n"
+                           "        ParticleP:\n"
+                           "          x: 1\n");
+
+    REQUIRE(has(ps,
+                "element 'd1': parameter group 'SolenoidP' is not valid for "
+                "kind 'Drift'"));
+    // A Drift does have an aperture, and a Solenoid does have SolenoidP.
+    REQUIRE(count_with(ps, "not valid for kind") == 1);
+    // TwissP and ParticleP state the initial conditions of a branch, which is
+    // what the beginning element is for.
+    REQUIRE(!has(ps, "TwissP"));
+    REQUIRE(!has(ps, "ParticleP"));
+}
+
+TEST_CASE("kinds with no documented group list are not constrained",
+          "[check][problems]") {
+    // `Girder` is still "Under Construction" -- nothing is documented to check
+    // its groups against -- while `Placeholder` says outright that it has none.
+    auto ps = problems_for("tmp_check_nolist.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - g1:\n"
+                           "        kind: Girder\n"
+                           "        BodyShiftP:\n"
+                           "          x_offset: 0.001\n"
+                           "    - p1:\n"
+                           "        kind: Placeholder\n"
+                           "        ApertureP:\n"
+                           "          x_width: 0.02\n");
+
+    REQUIRE(!has(ps, "kind 'Girder'"));
+    REQUIRE(has(ps,
+                "element 'p1': parameter group 'ApertureP' is not valid for "
+                "kind 'Placeholder'"));
+}
+
+TEST_CASE("a parameter group defined on its own is checked as a group",
+          "[check][problems]") {
+    // A group defined outside an element names itself with `kind` and may be
+    // given a `name` or `inherit` another (lattice-element-parameters.md,
+    // s:inherit.params). `kind: ApertureP` is a group name, not an element
+    // kind, and its entries are ApertureP's.
+    auto ps = problems_for("tmp_check_named.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - ap1:\n"
+                           "        kind: ApertureP\n"
+                           "        x_min: -0.03\n"
+                           "        x_max: 0.04\n"
+                           "        x_mim: 0.01\n"
+                           "    - q0:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        ApertureP:\n"
+                           "          inherit: ap1\n");
+
+    REQUIRE(!has(ps, "unknown kind 'ApertureP'"));
+    REQUIRE(has(ps,
+                "element 'ap1' ApertureP: unknown parameter 'x_mim'; did you "
+                "mean 'x_min'?"));
+    // `inherit` is a group's own key, not one of ApertureP's components.
+    REQUIRE(!has(ps, "'inherit'"));
+    REQUIRE(count_with(ps, "unknown parameter") == 1);
 }
 
 TEST_CASE("correctly spelled kinds and groups are not reported",
