@@ -212,7 +212,8 @@ static std::string short_location(const ryml::Tree& t, size_t node) {
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
                    std::map<size_t, size_t>& prov, ProblemList& problems,
-                   size_t branches, std::map<size_t, int>& mp_pass);
+                   size_t branches, std::map<size_t, int>& mp_pass,
+                   std::set<size_t>& done);
 
 // Helper: find an element named 'name' within a line sequence. The element can
 // be just the scalar name or defined as a map.
@@ -240,11 +241,12 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 //     creates nothing.
 //  3. Names the new branch (after `to_line` for SELF, else after `new_branch`).
 //  4. Creates a fork_pointer in the element pointing at "destination_element" in
-//     the destination branch, and records whether a new branch was made.
+//     the destination branch, and resolves ForkP.new_branch to the name of the
+//     branch that was made (or `null` when none was).
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
                         std::map<size_t, size_t>& prov, ProblemList& problems,
-                        std::map<size_t, int>& mp_pass) {
+                        std::map<size_t, int>& mp_pass, std::set<size_t>& done) {
     std::string fork_name = t.has_key(fork_node)
                                 ? std::string(t.key(fork_node).str,
                                               t.key(fork_node).len)
@@ -329,8 +331,14 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
         branch_node = duplicate_tracked(t, def, wrapper, ryml::NONE, prov);
         // Rename from the original element name to branch_name.
         t.set_key(branch_node, t.to_arena(ryml::to_csubstr(branch_name)));
-        // Expand the new branch so its scalars and inherits are resolved.
-        expand(t, branch_node, emap, prov, problems, branches, mp_pass);
+        // Expand the new branch so its scalars and inherits are resolved, then
+        // mark it done. It has just been appended to `branches`, which an
+        // enclosing expand may still be walking; without the mark that walk
+        // reaches it and expands it a second time, re-running every Fork inside
+        // it and so duplicating both their destination branches and their
+        // fork_pointers.
+        expand(t, branch_node, emap, prov, problems, branches, mp_pass, done);
+        done.insert(branch_node);
         created_branch = true;
     }
 
@@ -373,15 +381,23 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     t.set_key(fp_child, t.to_arena(ryml::to_csubstr("fork_pointer")));
     t.set_val(fp_child, t.to_arena(ryml::to_csubstr(id_str)));
 
-    // Record whether this Fork instantiated a new branch. Reference/floor are
-    // propagated to the destination only when it is the beginning element of a
-    // *new* branch (fork.md), so the bookkeeper seeds propagation only for these
-    // and never for a `null` fork into an existing branch.
-    size_t nb_child = t.append_child(fork_node);
-    t.ref(nb_child) |= ryml::KEY | ryml::VAL;
-    t.set_key(nb_child, t.to_arena(ryml::to_csubstr("fork_new_branch")));
-    t.set_val(nb_child,
-              t.to_arena(ryml::to_csubstr(created_branch ? "true" : "false")));
+    // Resolve ForkP.new_branch to the branch this Fork actually instantiated:
+    // its name, or the literal `null` when the Fork points into a branch that
+    // already existed. This materializes the input form (unset == SELF, or a
+    // custom name) into the name the expanded lattice really carries, and is
+    // what tells downstream code whether a new branch was made -- reference and
+    // floor are propagated to the destination only when it is the beginning
+    // element of a *new* branch (fork.md), so the bookkeeper seeds propagation
+    // for these and never for a `null` fork into an existing branch.
+    size_t nb_child = t.find_child(forkp, ryml::to_csubstr("new_branch"));
+    if (nb_child == ryml::NONE) {
+        ensure_capacity(t, 2);
+        nb_child = t.append_child(forkp);
+        t.ref(nb_child) |= ryml::KEY | ryml::VAL;
+        t.set_key(nb_child, t.to_arena(ryml::to_csubstr("new_branch")));
+    }
+    t.set_val(nb_child, t.to_arena(ryml::to_csubstr(
+                            created_branch ? branch_name : "null")));
 }
 
 // True for a YAML scalar meaning boolean true (`multipass: true`, `True`, `1`).
@@ -441,8 +457,14 @@ static void stamp_multipass_pass(ryml::Tree& t, size_t first, size_t stop,
 static void expand(ryml::Tree& t, size_t node,
                    std::map<std::string, size_t>& emap,
                    std::map<size_t, size_t>& prov, ProblemList& problems,
-                   size_t branches, std::map<size_t, int>& mp_pass) {
+                   size_t branches, std::map<size_t, int>& mp_pass,
+                   std::set<size_t>& done) {
     if (node == ryml::NONE) return;
+    // A branch a Fork built was expanded eagerly, at the point the Fork had to
+    // look inside it for its destination element. Expansion is not idempotent
+    // (a second pass re-runs the Forks it contains), so it is only ever done
+    // once. See handle_fork.
+    if (done.count(node)) return;
 
     // Sequence — handle 'repeat'
     if (t.is_seq(node)) {
@@ -528,7 +550,7 @@ static void expand(ryml::Tree& t, size_t node,
                     }
                 }
             }
-            expand(t, child, emap, prov, problems, branches, mp_pass);
+            expand(t, child, emap, prov, problems, branches, mp_pass, done);
             child = next;
         }
         return;
@@ -576,7 +598,7 @@ static void expand(ryml::Tree& t, size_t node,
                                                       : t.next_sibling(before);
                 for (size_t cur = first; cur != ryml::NONE && cur != stop;) {
                     size_t nx = t.next_sibling(cur);
-                    expand(t, cur, emap, prov, problems, branches, mp_pass);
+                    expand(t, cur, emap, prov, problems, branches, mp_pass, done);
                     cur = nx;
                 }
 
@@ -594,7 +616,7 @@ static void expand(ryml::Tree& t, size_t node,
             ensure_capacity(t, 2);
             t.change_type(node, ryml::MAP);
             duplicate_tracked(t, def, node, ryml::NONE, prov);
-            expand(t, node, emap, prov, problems, branches, mp_pass);
+            expand(t, node, emap, prov, problems, branches, mp_pass, done);
         } else {
             // A bare entry in a `line:` or `branches:` sequence names an element
             // or beamline; if it is not defined, the reference is dangling.
@@ -630,14 +652,14 @@ static void expand(ryml::Tree& t, size_t node,
         if (kind == "Lattice") {
             node_branches = t.find_child(node, ryml::to_csubstr("branches"));
         } else if (kind == "Fork") {
-            handle_fork(t, node, branches, emap, prov, problems, mp_pass);
+            handle_fork(t, node, branches, emap, prov, problems, mp_pass, done);
         }
 
         size_t original_size = t.num_children(node);
         size_t c = t.first_child(node);
         for (size_t i = 0; i < original_size && c != ryml::NONE;
              i++, c = t.next_sibling(c))
-            expand(t, c, emap, prov, problems, node_branches, mp_pass);
+            expand(t, c, emap, prov, problems, node_branches, mp_pass, done);
     }
 }
 
@@ -1405,6 +1427,18 @@ static bool get_str_child(const ryml::Tree& t, size_t parent, const char* key,
     return true;
 }
 
+// A keyed sequence child of `parent`, created (empty) if absent.
+static size_t find_or_add_seq_child(ryml::Tree& t, size_t parent,
+                                    const char* key) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c != ryml::NONE) return c;
+    ensure_capacity(t, 2);
+    c = t.append_child(parent);
+    t.ref(c) |= ryml::KEY | ryml::SEQ;
+    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    return c;
+}
+
 // A keyed map child of `parent`, created (empty) if absent. An existing scalar
 // placeholder of the same key is converted to a map in place.
 static size_t find_or_add_map_child(ryml::Tree& t, size_t parent,
@@ -2109,10 +2143,10 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
 
             // Record where a Fork propagates its reference/floor to. Propagation
             // applies only when the destination is the beginning element of a
-            // *new* branch (fork.md): a `null` fork into an existing branch
-            // (fork_new_branch != "true") never seeds. The default
-            // (materialized above) is propagate_reference: true; only an explicit
-            // false opts out.
+            // *new* branch (fork.md): a fork into an existing branch, which
+            // handle_fork resolves to `new_branch: null`, never seeds. The
+            // default (materialized above) is propagate_reference: true; only an
+            // explicit false opts out.
             if (child_val_str(t, def, "kind") == "Fork") {
                 size_t forkp = t.find_child(def, ryml::to_csubstr("ForkP"));
                 std::string prop =
@@ -2120,8 +2154,11 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                         ? child_val_str(t, forkp, "propagate_reference")
                         : "";
                 std::string ptr = child_val_str(t, def, "fork_pointer");
-                bool new_branch =
-                    child_val_str(t, def, "fork_new_branch") == "true";
+                std::string nb =
+                    forkp != ryml::NONE
+                        ? child_val_str(t, forkp, "new_branch")
+                        : "";
+                bool new_branch = !nb.empty() && nb != "null";
                 if (prop != "false" && !ptr.empty() && new_branch) {
                     try {
                         fork_seed[static_cast<size_t>(std::stoull(ptr))] = def;
@@ -2137,6 +2174,80 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
         // element.
         if (prev != ryml::NONE)
             _element_bookkeeper(t, prev, append_branch_end(t, line), problems);
+    }
+}
+
+/**
+ * Record on every fork destination the `Fork` elements that point at it.
+ *
+ * `ForkFromP` (forkfrom.md, s:fork.from.params) is the reverse of the `Fork`'s
+ * own `ForkP`: a sequence carrying one entry per incoming Fork, keyed
+ * `{branch-name}>>{element-name}` after the Fork and its branch, with the
+ * Fork's index in that branch's line as the value:
+ *
+ *     ForkFromP:
+ *       - inject_line>>inj_fork: 134
+ *       - alt_line>>end_fork: 37
+ *
+ * The index is 1-based -- entry 37 is the 37th element of `alt_line`. The group
+ * is built by the parser and exists only in the expanded lattice, so like
+ * `fork_pointer` its nodes carry no provenance.
+ *
+ * Runs after expansion, when every branch line is final and the indices are the
+ * ones the expanded lattice actually carries. The `fork_pointer` scalars still
+ * hold work tree ids at this point -- remap_fork_pointers renumbers them only
+ * once the lattice has been cut out into a tree of its own -- so each one names
+ * its destination element directly.
+ */
+static void link_fork_from(ryml::Tree& t, size_t lat_node) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.has_key(branch)) continue;
+        std::string branch_name(t.key(branch).str, t.key(branch).len);
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line == ryml::NONE || !t.is_seq(line)) continue;
+
+        int index = 0;
+        for (size_t le = t.first_child(line); le != ryml::NONE;
+             le = t.next_sibling(le)) {
+            // Every entry counts towards the index, including a bare name that
+            // stayed unresolved -- the index is a position in the line, not a
+            // count of the elements that expanded.
+            index++;
+            if (!t.is_map(le)) continue;
+            size_t ele = t.first_child(le);
+            if (ele == ryml::NONE || !t.has_key(ele)) continue;
+            if (child_val_str(t, ele, "kind") != "Fork") continue;
+
+            // A Fork that failed to resolve has no fork_pointer, and the reason
+            // was reported when it was handled; there is nothing to link to.
+            std::string ptr = child_val_str(t, ele, "fork_pointer");
+            if (ptr.empty()) continue;
+            size_t dest;
+            try {
+                dest = static_cast<size_t>(std::stoull(ptr));
+            } catch (...) {
+                continue;
+            }
+            if (dest >= t.capacity() || !t.is_map(dest)) continue;
+
+            std::string name = branch_name + ">>" +
+                               std::string(t.key(ele).str, t.key(ele).len);
+            size_t group = find_or_add_seq_child(t, dest, "ForkFromP");
+            ensure_capacity(t, 2);
+            size_t item = t.append_child(group);
+            t.ref(item) |= ryml::MAP;
+            size_t kv = t.append_child(item);
+            t.ref(kv) |= ryml::KEY | ryml::VAL;
+            t.set_key(kv, t.to_arena(ryml::to_csubstr(name)));
+            t.set_val(kv,
+                      t.to_arena(ryml::to_csubstr(std::to_string(index))));
+        }
     }
 }
 
@@ -2221,7 +2332,9 @@ static void make_expanded_and_leftover(ParsedData* comb,
     } else {
         size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
         std::map<size_t, int> mp_pass;  // multipass line def -> traversals so far
-        expand(t, lat_node, emap, work.provenance, problems, branches, mp_pass);
+        std::set<size_t> done;  // branches a Fork already expanded
+        expand(t, lat_node, emap, work.provenance, problems, branches, mp_pass,
+               done);
 
         // Runs after expand, not inside it: a Fork appends branches as it goes,
         // so only once expand has returned does `branches` hold them all.
@@ -2243,6 +2356,10 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // which carry no provenance (like fork_pointer) and so simply do not
         // appear in the correspondence map.
         run_element_bookkeeper(t, lat_node, problems);
+
+        // Last, so the line indices it records are the finished ones -- the
+        // bookkeeper caps every branch with a `branch_end` element.
+        link_fork_from(t, lat_node);
 
         size_t wrapper = t.parent(lat_node);
         skip = (wrapper != ryml::NONE && !t.is_root(wrapper) &&

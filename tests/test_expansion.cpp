@@ -457,6 +457,13 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     YAMLNodeId fp = find_by_key(lat.expanded, "fork_pointer");
     REQUIRE(fp != YAML_NULL_ID);
 
+    // Expansion resolves ForkP.new_branch to the name of the branch it made,
+    // which for the default is the to_line name.
+    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, forkp, "new_branch"),
+                   "dump_line"));
+
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
@@ -658,6 +665,12 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     // The Fork still connects: it carries a fork_pointer.
     REQUIRE(find_by_key(lat.expanded, "fork_pointer") != YAML_NULL_ID);
 
+    // ForkP.new_branch stays `null` — no branch was made.
+    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, forkp, "new_branch"),
+                   "null"));
+
     // `other` (branch 0) keeps its own reference — the Fork's proton/1e9 was not
     // propagated into an existing branch.
     YAMLNodeId dest = first_element_of_branch(lat.expanded, 0);
@@ -666,6 +679,157 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     REQUIRE(val_eq(lat.expanded,
                    get_child_by_key(lat.expanded, refp, "species_ref"),
                    "electron"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
+          "[lattices]") {
+    // ForkFromP (forkfrom.md, s:fork.from.params) is the reverse link of ForkP:
+    // the destination element carries one entry per Fork pointing at it, keyed
+    // `{branch-name}>>{element-name}` with the Fork's 1-based index in its own
+    // branch's line. Two Forks in `ring` aim at the same element, so both land
+    // in the one group, in branch order.
+    const char* path = "tmp_fork_from.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - m0:\n"
+              "        kind: Marker\n"
+              "    - dump_begin:\n"
+              "        kind: Marker\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m0\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "          - m0\n"
+              "          - f2:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "                new_branch: null\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    // f1 built the `dump_line` branch; f2 (new_branch: null) pointed into it.
+    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
+    REQUIRE(key_eq(lat.expanded, dest, "dump_begin"));
+
+    YAMLNodeId group = get_child_by_key(lat.expanded, dest, "ForkFromP");
+    REQUIRE(group != YAML_NULL_ID);
+    REQUIRE(get_size(lat.expanded, group) == 2);
+
+    // f1 is the 2nd element of ring, f2 the 4th.
+    YAMLNodeId e0 = get_child_by_index(
+        lat.expanded, get_child_by_index(lat.expanded, group, 0), 0);
+    REQUIRE(key_eq(lat.expanded, e0, "ring>>f1"));
+    REQUIRE(val_eq(lat.expanded, e0, "2"));
+
+    YAMLNodeId e1 = get_child_by_index(
+        lat.expanded, get_child_by_index(lat.expanded, group, 1), 0);
+    REQUIRE(key_eq(lat.expanded, e1, "ring>>f2"));
+    REQUIRE(val_eq(lat.expanded, e1, "4"));
+
+    // The group is built only for elements a Fork actually points at.
+    REQUIRE(get_child_by_key(lat.expanded, first_element_of_branch(lat.expanded, 0),
+                             "ForkFromP") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
+          "[lattices]") {
+    // A chained fork: `ring` forks to `mid`, and `mid` itself forks to `end`.
+    // handle_fork expands `mid` eagerly, the moment it has to look inside it for
+    // the destination element, and appends it to `branches` -- which the
+    // enclosing walk over `branches` is still iterating. Expanding it a second
+    // time would re-run the Fork it holds, giving two `end` branches and two
+    // fork_pointers on the one element, so the branch is expanded only once.
+    //
+    // `ring` is followed by a second listed branch, so the walk over `branches`
+    // has somewhere to go after `ring` and reaches the entry `ring`'s Fork
+    // appended behind it. A Fork in the *last* listed branch never showed the
+    // duplication: the walk stops before the entry it added.
+    const char* path = "tmp_fork_chained.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - m1:\n"
+              "        kind: Marker\n"
+              "    - m2:\n"
+              "        kind: Marker\n"
+              "    - end_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m1\n"
+              "    - mid_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f2:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: end_line\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: mid_line\n"
+              "    - spectator:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m2\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "          - spectator\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    // Exactly four branches: the two listed, and one each from the two Forks.
+    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
+    REQUIRE(get_size(lat.expanded, branches) == 4);
+
+    // f2, the Fork in the branch that f1 built, ran once: one fork_pointer.
+    YAMLNodeId f2 = first_element_of_branch(lat.expanded, 2);
+    REQUIRE(key_eq(lat.expanded, f2, "f2"));
+    int pointers = 0;
+    for (size_t i = 0; i < get_size(lat.expanded, f2); ++i) {
+        char* k = get_node_key(lat.expanded,
+                               get_child_by_index(lat.expanded, f2, i));
+        if (k && std::string(k) == "fork_pointer") pointers++;
+        yaml_free_string(k);
+    }
+    REQUIRE(pointers == 1);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
