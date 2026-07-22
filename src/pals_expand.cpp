@@ -233,12 +233,14 @@ static size_t find_in_line(const ryml::Tree& t, size_t line,
 }
 
 // Handle a Fork element:
-//  1. Reads the ForkP
-//  2. If the beamline ForkP["to_line"] doesn't exist in the lattice,
-//     create the target branch in branches
-//  3. Rename the forked beamline to ForkP["new_branch"]
-//  4. Create a fork_pointer in the element with pointing to "destination_element" in the
-//     new bracnh.
+//  1. Reads the ForkP.
+//  2. Interprets `new_branch` (fork.md, s:fork.params): "SELF" (the default)
+//     and any custom name instantiate a new branch from the BeamLine named by
+//     `to_line`; the literal `null` instead points into an existing branch and
+//     creates nothing.
+//  3. Names the new branch (after `to_line` for SELF, else after `new_branch`).
+//  4. Creates a fork_pointer in the element pointing at "destination_element" in
+//     the destination branch, and records whether a new branch was made.
 static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
                         std::map<std::string, size_t>& emap,
                         std::map<size_t, size_t>& prov, ProblemList& problems,
@@ -268,54 +270,68 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     }
 
     // Only `to_line` is required. `destination_element` defaults to the
-    // destination branch's beginning (first) element, and `new_branch` defaults
-    // to the `to_line` name. An explicit `null` is treated as unset.
-    auto unset = [](const std::string& v) { return v.empty() || v == "null"; };
+    // destination branch's beginning (first) element. `new_branch` selects the
+    // action (fork.md, s:fork.params):
+    //   * "SELF" (the default when unset): `to_line` must name a BeamLine; a new
+    //     branch is created named after that beam line (i.e. `to_line`).
+    //   * "null": `to_line` must name an existing branch; no new branch is made,
+    //     the Fork just points into it.
+    //   * any other value: as SELF, but the new branch takes that name.
     std::string to_line = child_val_str(t, forkp, "to_line");
-    if (unset(to_line)) {
+    if (to_line.empty() || to_line == "null") {
         add_problem(problems,
                     "Fork element '" + fork_name +
                         "': ForkP is missing the required field 'to_line'");
         return;
     }
     std::string to_element = child_val_str(t, forkp, "destination_element");
-    if (unset(to_element)) to_element.clear();
-    std::string branch_name = child_val_str(t, forkp, "new_branch");
-    if (unset(branch_name)) branch_name = to_line;
+    if (to_element == "null") to_element.clear();
 
-    // Check whether to_line already exists as a branch (by its original element
-    // name)
-    size_t existing_branch = ryml::NONE;
-    for (size_t c = t.first_child(branches); c != ryml::NONE;
-         c = t.next_sibling(c)) {
-        if (!t.is_map(c)) continue;
-        size_t entry = t.first_child(c);
-        if (entry != ryml::NONE && t.has_key(entry) &&
-            std::string(t.key(entry).str, t.key(entry).len) == to_line) {
-            existing_branch = entry;
-            break;
+    std::string new_branch = child_val_str(t, forkp, "new_branch");
+    bool fork_to_existing = (new_branch == "null");
+    std::string branch_name =
+        (new_branch.empty() || new_branch == "SELF") ? to_line : new_branch;
+
+    size_t branch_node = ryml::NONE;
+    bool created_branch = false;
+    if (fork_to_existing) {
+        // `null`: point into an existing branch, located by its (original) name.
+        for (size_t c = t.first_child(branches); c != ryml::NONE;
+             c = t.next_sibling(c)) {
+            if (!t.is_map(c)) continue;
+            size_t entry = t.first_child(c);
+            if (entry != ryml::NONE && t.has_key(entry) &&
+                std::string(t.key(entry).str, t.key(entry).len) == to_line) {
+                branch_node = entry;
+                break;
+            }
         }
-    }
-
-    size_t branch_node = existing_branch;
-    if (existing_branch == ryml::NONE && emap.count(to_line)) {
+        if (branch_node == ryml::NONE) {
+            add_problem(problems,
+                        "Fork element '" + fork_name +
+                            "': new_branch is null, but to_line '" + to_line +
+                            "' is not an existing branch");
+            return;
+        }
+    } else {
+        // SELF or a custom name: instantiate a new branch from the BeamLine.
+        if (!emap.count(to_line)) {
+            add_problem(problems, "Fork element '" + fork_name + "': to_line '" +
+                                      to_line + "' is not a defined BeamLine");
+            return;
+        }
         size_t def = emap[to_line];
         // Append a new wrapper map to branches, then duplicate the definition
-        // into it
+        // into it.
         ensure_capacity(t, t.num_children(def) + 2);
         size_t wrapper = t.append_child(branches);
         t.to_map(wrapper);
         branch_node = duplicate_tracked(t, def, wrapper, ryml::NONE, prov);
-        // Rename from original element name to branch_name
+        // Rename from the original element name to branch_name.
         t.set_key(branch_node, t.to_arena(ryml::to_csubstr(branch_name)));
-        // Expand the new branch so its scalars and inherits are resolved
+        // Expand the new branch so its scalars and inherits are resolved.
         expand(t, branch_node, emap, prov, problems, branches, mp_pass);
-    }
-
-    if (branch_node == ryml::NONE) {
-        add_problem(problems, "Fork element '" + fork_name + "': to_line '" +
-                                  to_line + "' is not defined");
-        return;
+        created_branch = true;
     }
 
     // Find to_element within the new branch's line
@@ -350,12 +366,22 @@ static void handle_fork(ryml::Tree& t, size_t fork_node, size_t branches,
     }
 
     // Add fork_pointer: <node id of target as string>
-    ensure_capacity(t);
+    ensure_capacity(t, 2);
     std::string id_str = std::to_string(target);
     size_t fp_child = t.append_child(fork_node);
     t.ref(fp_child) |= ryml::KEY | ryml::VAL;
     t.set_key(fp_child, t.to_arena(ryml::to_csubstr("fork_pointer")));
     t.set_val(fp_child, t.to_arena(ryml::to_csubstr(id_str)));
+
+    // Record whether this Fork instantiated a new branch. Reference/floor are
+    // propagated to the destination only when it is the beginning element of a
+    // *new* branch (fork.md), so the bookkeeper seeds propagation only for these
+    // and never for a `null` fork into an existing branch.
+    size_t nb_child = t.append_child(fork_node);
+    t.ref(nb_child) |= ryml::KEY | ryml::VAL;
+    t.set_key(nb_child, t.to_arena(ryml::to_csubstr("fork_new_branch")));
+    t.set_val(nb_child,
+              t.to_arena(ryml::to_csubstr(created_branch ? "true" : "false")));
 }
 
 // True for a YAML scalar meaning boolean true (`multipass: true`, `True`, `1`).
@@ -2081,7 +2107,10 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
             }
             _element_bookkeeper(t, prev, def, problems, seed);
 
-            // Record where a Fork propagates its reference/floor to. The default
+            // Record where a Fork propagates its reference/floor to. Propagation
+            // applies only when the destination is the beginning element of a
+            // *new* branch (fork.md): a `null` fork into an existing branch
+            // (fork_new_branch != "true") never seeds. The default
             // (materialized above) is propagate_reference: true; only an explicit
             // false opts out.
             if (child_val_str(t, def, "kind") == "Fork") {
@@ -2091,7 +2120,9 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                         ? child_val_str(t, forkp, "propagate_reference")
                         : "";
                 std::string ptr = child_val_str(t, def, "fork_pointer");
-                if (prop != "false" && !ptr.empty()) {
+                bool new_branch =
+                    child_val_str(t, def, "fork_new_branch") == "true";
+                if (prop != "false" && !ptr.empty() && new_branch) {
                     try {
                         fork_seed[static_cast<size_t>(std::stoull(ptr))] = def;
                     } catch (...) {

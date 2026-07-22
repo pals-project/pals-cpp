@@ -602,6 +602,126 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     rm_tmp(path);
 }
 
+TEST_CASE("new_branch: null forks into an existing branch, creating none",
+          "[lattices]") {
+    // `new_branch: null` (fork.md, s:fork.params) points the Fork at an existing
+    // branch instead of instantiating one. No branch is added, and because the
+    // destination is not the beginning element of a *new* branch, nothing is
+    // propagated: the existing branch keeps its own reference. (`other` is listed
+    // first so it is already expanded when `ring`'s Fork resolves.)
+    const char* path = "tmp_fork_null.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - eb:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: electron\n"
+              "          E_tot_ref: 5.0e8\n"
+              "    - other:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - eb\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: other\n"
+              "                new_branch: null\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - other\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
+                std::string::npos);
+
+    // Exactly the two declared branches: the Fork added none.
+    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
+    REQUIRE(get_size(lat.expanded, branches) == 2);
+
+    // The Fork still connects: it carries a fork_pointer.
+    REQUIRE(find_by_key(lat.expanded, "fork_pointer") != YAML_NULL_ID);
+
+    // `other` (branch 0) keeps its own reference — the Fork's proton/1e9 was not
+    // propagated into an existing branch.
+    YAMLNodeId dest = first_element_of_branch(lat.expanded, 0);
+    REQUIRE(key_eq(lat.expanded, dest, "eb"));
+    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, refp, "species_ref"),
+                   "electron"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
+          "[lattices][problems]") {
+    // `null` requires `to_line` to name an existing branch. A bare BeamLine
+    // definition (not listed among the lattice's branches) does not qualify, and
+    // the mismatch is surfaced rather than silently creating a branch.
+    const char* path = "tmp_fork_null_bad.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - m1:\n"
+              "        kind: Marker\n"
+              "    - ext_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - m1\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: ext_line\n"
+              "                new_branch: null\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    bool reported = false;
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        if (std::string(lat.problems.items[i]).find("is not an existing branch") !=
+            std::string::npos)
+            reported = true;
+    REQUIRE(reported);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
           "[lattices][problems]") {
     // A sequence item missing its ':' (here `- cav` followed by an indented
