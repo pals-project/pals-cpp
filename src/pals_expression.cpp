@@ -162,20 +162,23 @@ class Parser {
   std::string read_identifier() {
     skip_ws();
     size_t start = pos_;
-    bool seen_gt = false;
+    bool dotted = false;
     while (pos_ < s_.size()) {
       char c = s_[pos_];
       // `>` joins a controller name to one of its variables (`ps27>cur1`) or an
       // element name to a parameter path (`thingB>MagneticMultipoleP.Kn2L`);
       // PALS has no `>` operator, so it is unambiguous inside an identifier.
       if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '>') {
-        if (c == '>') seen_gt = true;
+        if (c == '>') dotted = true;
         ++pos_;
-      } else if (c == '.' && seen_gt) {
-        // A `.` is part of the identifier only inside an element-parameter
-        // reference (after `>`), where it separates the parameter group from
-        // the parameter. Elsewhere `.` begins a number and is not an identifier
-        // character.
+      } else if (c == '.' &&
+                 (dotted || s_.compare(start, pos_ - start, "SELF") == 0)) {
+        // A `.` is part of the identifier only in a parameter path: after the
+        // `>` of an element-parameter reference, or after the `SELF` of a `set`
+        // value expression (`SELF.BendP.g_ref`), where it separates the
+        // parameter group from the parameter. Elsewhere `.` begins a number and
+        // is not an identifier character.
+        dotted = true;
         ++pos_;
       } else {
         break;

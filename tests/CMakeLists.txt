@@ -9,6 +9,7 @@ add_executable(tests
   test_expressions.cpp
   test_multipass.cpp
   test_controllers.cpp
+  test_sets.cpp
   test_bookkeeper.cpp
   test_check.cpp
   test_floor.cpp

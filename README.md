@@ -7,6 +7,7 @@ Pals-cpp is the parser library for PALS accelerator lattice files. It uses rapid
 5. Elements in a lattice defined outside of it will have their definitions brought it.
 6. Fork elements will create new branches in the lattice to their destination branch. 
 7. Mathematical expressions are evaluated to numbers (see below).
+8. `set` commands are executed and controllers are applied to the parameters they drive, on either side of an `expand_lattice` node (see below).
 
 ## Expression Evaluation
 As a final step of expansion, every scalar value in the `expanded` tree that is a
@@ -31,14 +32,18 @@ is right-associative, so `2^3^2` is `2^(3^2) = 512`; and a unary sign binds
 ecosystem.
 
 **Controllers.** A `kind: Controller` element bundles expressions that drive
-lattice parameters. Its `variables:` form a controller-scoped symbol table
-(variables may reference earlier variables of the same controller and, via the
-`controller>variable` syntax, variables of another controller), and each entry
-in `controls:` pairs a `parameter` target with an `expression`. Controller
-`variables` and control `expression`s are evaluated against that scoped table
-(rather than the global one), and each control `expression` is computed and its
-value written into the control entry. The `parameter` target specs and
-`control_type` are names and are left untouched.
+lattice parameters. Its `variables:` form a controller-scoped symbol table —
+each initial value is a constant expression (constants and functions only, no
+variables), and each entry in `controls:` pairs a `parameter` target — a
+name-matching string — with an `expression` over that controller's own
+variables, reaching nothing outside the controller. `control_type:
+ABSOLUTE` (the default) means the controllers determine the parameter outright,
+so during expansion each matched parameter is set to the sum of the values of
+every ABSOLUTE controller driving it; `control_type: RELATIVE` describes a knob
+the simulation program varies afterwards and so changes nothing at expansion.
+A controller may also drive another controller's variable, named
+`controller>variable`, which makes controllers a hierarchy evaluated from the
+top down. See [Evaluating expressions](docs/src/guide/expressions.md).
 
 The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of` take
 a quoted species name (e.g. `mass_of("#3He")`); an unquoted name is an error. A
@@ -48,6 +53,17 @@ functions and the physical values behind the named constants are provided by
 (a C++ mirror of [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl)),
 fetched automatically by CMake. A single expression can also be evaluated on its
 own via `evaluate_pals_expression()`.
+
+**Set commands.** A `set` writes a value into every parameter its `parameter`
+name-matching string selects; in the `value` expression `PARAMETER` is the
+current value and `SELF` the element that owns it
+(`value: 2*PARAMETER + atan(SELF.BendP.g_ref)`). The compact `sets:` form is a
+list of `target: value` pairs. An `expand_lattice` node in the `facility` list
+decides what a set acts on: before it, the element *definitions* (and only those
+defined earlier in the list); after it, the already-expanded lattice, so each
+copy of a repeated element is written separately. `absolute_error` and
+`relative_error` are reported rather than applied — the standard does not
+specify the error distribution.
 
 ## Usage
 First, to build, run the following in the root directory:  
@@ -100,8 +116,9 @@ The library sources live in `src/`, split by concern:
   low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
 - `pals_expand.cpp` — the lattice expansion pipeline that builds the four-tree
   representation (`original` / `combined` / `expanded` / `leftover`): include
-  splicing, structural expansion (repeats, inherits, forks), expression /
-  controller evaluation, and the element bookkeeper that walks each branch
+  splicing, structural expansion (repeats, inherits, forks), expression,
+  controller and `set` evaluation, and the element bookkeeper that walks each
+  branch
   filling in reference parameters, floor placement, s-positions and dependent
   parameters.
 - `pals_check.{h,cpp}` — spelling checks against the fixed PALS vocabulary
