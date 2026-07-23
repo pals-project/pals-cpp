@@ -12,6 +12,7 @@ add_executable(tests
   test_sets.cpp
   test_bookkeeper.cpp
   test_check.cpp
+  test_load.cpp
   test_floor.cpp
   # pals_floor.cpp carries hidden visibility in the shared library, so its
   # geometry symbols are compiled directly into the tests for test_floor.cpp.

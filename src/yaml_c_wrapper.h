@@ -90,10 +90,12 @@ struct string_list {
  * that can read the rest of this header.
  */
 struct lattices {
-    YAMLTreeHandle original;  ///< Raw tree mapping each file (including
-                              ///< includes) to its unparsed contents.
-    YAMLTreeHandle combined;  ///< Tree with all "include" directives resolved
-                              ///< and spliced inline.
+    YAMLTreeHandle original;  ///< Raw tree mapping each file the document is
+                              ///< built from -- the top-level file and every
+                              ///< file it reaches by "include" or "load" -- to
+                              ///< its unparsed contents, keyed by path.
+    YAMLTreeHandle combined;  ///< Tree with all "include" directives spliced
+                              ///< inline and all "load"ed files merged in.
     YAMLTreeHandle expanded;  ///< The expanded root lattice, and nothing else:
                               ///< a map holding the single `name: {kind:
                               ///< Lattice, ...}` entry, without the
