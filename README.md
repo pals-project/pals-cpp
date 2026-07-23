@@ -1,7 +1,7 @@
 ## Introduction
 Pals-cpp is the parser library for PALS accelerator lattice files. It uses rapidyaml https://github.com/biojppm/rapidyaml to read lattices into memory and provides additional capabilities like printing to console, writing to files, and searching for elements. One major component is performing lattice expansion following the PALS specifications:
 1. The lattice to be expanded can be specified by the user. If none is specified, the one in the last `use: root_lattice` statement will be expanded. If none exists, the last lattice in the file is expanded. 
-2. Content from other files can be brought into scope using `include: filename`
+2. Content from other files can be brought into scope in two ways. An `include: filename` splices that file's contents in verbatim at the point the `include` is written. A `load` list under the `PALS` node instead merges whole files subnode by subnode — list subnodes concatenate in load order, dictionary subnodes take the union, and `SELF` marks where the joining file's own contents belong — which is how a layout file and a settings file are composed into one lattice. Paths are relative to the file naming them, and both can nest to any depth.
 3. Elements that inherit parameters from other elements will have those properties brought into scope.
 4. Beamlines in a lattice with a `repeat: count` will have their contents repeated `count` times in the lattice.
 5. Elements in a lattice defined outside of it will have their definitions brought it.
@@ -84,9 +84,10 @@ This builds `libyaml_c_wrapper.dylib`, a shared object library that can interfac
 
 ### Example 2
 The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat root_lattice` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing three lattices:
-- `original` is a map containing the base lattice as well as any lattices included
-in the base lattice.
-- `combined` is the base lattice but with all included files substituted in.
+- `original` is a map containing the base lattice as well as any file it reaches
+by `include` or `load`.
+- `combined` is the base lattice but with all included files substituted in and
+all loaded files merged in.
 - `expanded` is the base lattice after lattice expansion has been performed.
 To see the console output, in the build directory, run
 
@@ -116,7 +117,7 @@ The library sources live in `src/`, split by concern:
   low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
 - `pals_expand.cpp` — the lattice expansion pipeline that builds the four-tree
   representation (`original` / `combined` / `expanded` / `leftover`): include
-  splicing, structural expansion (repeats, inherits, forks), expression,
+  splicing, `load` merging, structural expansion (repeats, inherits, forks), expression,
   controller and `set` evaluation, and the element bookkeeper that walks each
   branch
   filling in reference parameters, floor placement, s-positions and dependent

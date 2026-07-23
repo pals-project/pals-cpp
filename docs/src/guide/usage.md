@@ -19,8 +19,9 @@ tests. Put lattice files under `lattice_files/`.
 
 ## Expanding a lattice
 
-`parse_and_expand_PALS` reads a lattice file, resolves its includes, expands the
-selected lattice, and returns a `lattices` struct with four independent views —
+`parse_and_expand_PALS` reads a lattice file, resolves its includes and loads,
+expands the selected lattice, and returns a `lattices` struct with four
+independent views —
 `original`, `combined`, `expanded`, and `leftover` (see
 [What it does](../index.md)). Each is a `YAMLTreeHandle` and must be freed with
 `delete_tree`.

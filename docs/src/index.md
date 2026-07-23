@@ -28,10 +28,12 @@ api
 Lattice expansion follows the PALS specification and produces four views of a
 document:
 
-1. **`original`** — the raw tree mapping each file (including `include`d files)
-   to its unparsed contents.
+1. **`original`** — the raw tree mapping each file the document is built from —
+   the top-level file and every file it reaches by `include` or `load`, at any
+   depth — to its unparsed contents, keyed by path.
 2. **`combined`** — the tree with every `include` directive resolved and spliced
-   inline.
+   inline, and every `load`ed file merged in subnode by subnode under the `PALS`
+   root.
 3. **`expanded`** — the selected lattice fully expanded, and nothing else:
    elements substituted with their definitions, `repeat`ed beamlines unrolled,
    `inherit`ed ancestors merged, forks resolved, every mathematical expression
