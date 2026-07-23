@@ -400,9 +400,9 @@ TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
 
     // The non-zero enum defaults of the present BendP group are made explicit.
     YAMLNodeId bp = get_child_by_key(t, find_by_key(t, "b1"), "BendP");
-    REQUIRE(val_eq(t, get_child_by_key(t, bp, "ref_geometry"), "arc"));
+    REQUIRE(val_eq(t, get_child_by_key(t, bp, "ref_geometry"), "ARC"));
     REQUIRE(val_eq(t, get_child_by_key(t, bp, "multipole_geometry"),
-                   "follows_ref_geometry"));
+                   "FOLLOWS_REF_GEOMETRY"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);

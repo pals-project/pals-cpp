@@ -2020,8 +2020,8 @@ struct GroupDefault {
 static const GroupDefault kGroupDefaults[] = {
     {"RFP", "cavity_type", "STANDING_WAVE"},
     {"RFP", "zero_phase", "ACCELERATING"},
-    {"BendP", "ref_geometry", "arc"},
-    {"BendP", "multipole_geometry", "follows_ref_geometry"},
+    {"BendP", "ref_geometry", "ARC"},
+    {"BendP", "multipole_geometry", "FOLLOWS_REF_GEOMETRY"},
     {"ApertureP", "shape", "ELLIPTICAL"},
     {"ApertureP", "location", "ENTRANCE_END"},
     {"ApertureP", "aperture_active", "true"},
