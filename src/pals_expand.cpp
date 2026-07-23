@@ -1970,6 +1970,51 @@ static void resolve_bend(ryml::Tree& t, size_t ele, double& length,
     get_num_child(t, ele, "length", length);
 }
 
+// Default the actual bending field from the reference one (bend.md,
+// `Kn0_from_g_ref`). The field the particle actually sees is the dipole
+// component of MagneticMultipoleP, and unless the author says otherwise a bend
+// bends its own reference particle along the reference curve: `Kn0` = `g_ref`,
+// equivalently `Bn0` = `Bn0_ref`. `Kn0_from_g_ref: false` leaves the component
+// alone, for a bend whose actual field is zero or comes from somewhere else.
+//
+// All four forms of the dipole component count as "set" -- `Kn0L` and `Bn0L`
+// state the same field as `Kn0` and `Bn0`, only integrated over the length --
+// and only the normal ones: a skew dipole is a separate component, not this one.
+// The group is created when the default applies to a bend that carries none,
+// since otherwise the field would have nowhere to go. Whichever form is written
+// here, resolve_magnetic_multipoles fills the other three next.
+static void resolve_bend_actual_field(ryml::Tree& t, size_t ele) {
+    size_t bp = t.find_child(ele, ryml::to_csubstr("BendP"));
+    if (bp == ryml::NONE) return;
+    std::string flag = child_val_str(t, bp, "Kn0_from_g_ref");
+    if (!flag.empty() && !is_true_flag(flag)) return;  // absent means true
+
+    size_t mp = t.find_child(ele, ryml::to_csubstr("MagneticMultipoleP"));
+    if (mp != ryml::NONE)
+        for (const char* k : {"Kn0", "Kn0L", "Bn0", "Bn0L"})
+            if (t.find_child(mp, ryml::to_csubstr(k)) != ryml::NONE) return;
+
+    // g_ref and Bn0_ref are tied together by the curvature linking above, so
+    // g_ref is the one to take whenever the reference momentum was known;
+    // Bn0_ref carries the field when it was not. A zero reference bend field is
+    // no field at all, and a zero is not held.
+    double g = 0.0, B = 0.0;
+    const char* key = nullptr;
+    double value = 0.0;
+    if (get_num_child(t, bp, "g_ref", g) && g != 0.0) {
+        key = "Kn0";
+        value = g;
+    } else if (get_num_child(t, bp, "Bn0_ref", B) && B != 0.0) {
+        key = "Bn0";
+        value = B;
+    }
+    if (!key) return;
+
+    if (mp == ryml::NONE)
+        mp = find_or_add_map_child(t, ele, "MagneticMultipoleP");
+    set_num_child(t, mp, key, value);
+}
+
 // Split a multipole component key into its (normal/skew char, order digits),
 // e.g. "Bn2L" -> ('n', "2"). `prefixes` is the pair of accepted leading tokens
 // (magnetic "Bn"/"Bs"/"Kn"/"Ks" collapse to the field forms here; electric
@@ -2087,8 +2132,11 @@ static void compute_dependent(ryml::Tree& t, size_t ele, const std::string& kind
     }
 
     std::string ename = ele_name(t, ele);
-    if (kind == "Bend")
+    if (kind == "Bend") {
         resolve_bend(t, ele, length, has_factor, factor, ename, problems);
+        // Before the multipoles: this seeds the dipole component they resolve.
+        resolve_bend_actual_field(t, ele);
+    }
     resolve_magnetic_multipoles(t, ele, length, has_factor, factor, ename,
                                 problems);
     resolve_electric_multipoles(t, ele, length, ename, problems);
@@ -2120,9 +2168,11 @@ static void compute_rf_dependent(ryml::Tree& t, size_t ele, double length,
 // Parameters with a non-zero (or enum/boolean) default, filled in for any group
 // that is *present* in the element. The expanded lattice holds every non-zero
 // parameter, so an author who writes a group but omits these gets the defaults
-// made explicit. A group absent from the element is left untouched -- only
-// ReferenceP and FloorP are added by the parser. Parameters whose default is
-// zero/null/false are not listed: they are not "held".
+// made explicit. A group absent from the element is left untouched -- it is
+// added only by the parser (ReferenceP, FloorP) or to hold a derived value with
+// nowhere else to go (MagneticMultipoleP on a curved bend, see
+// resolve_bend_actual_field). Parameters whose default is zero/null/false are
+// not listed: they are not "held".
 struct GroupDefault {
     const char* group;
     const char* key;
@@ -2133,6 +2183,7 @@ static const GroupDefault kGroupDefaults[] = {
     {"RFP", "zero_phase", "ACCELERATING"},
     {"BendP", "ref_geometry", "ARC"},
     {"BendP", "multipole_geometry", "FOLLOWS_REF_GEOMETRY"},
+    {"BendP", "Kn0_from_g_ref", "true"},
     {"ApertureP", "shape", "ELLIPTICAL"},
     {"ApertureP", "location", "ENTRANCE_END"},
     {"ApertureP", "aperture_active", "true"},
