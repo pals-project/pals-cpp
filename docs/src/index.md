@@ -34,13 +34,15 @@ document:
    inline.
 3. **`expanded`** — the selected lattice fully expanded, and nothing else:
    elements substituted with their definitions, `repeat`ed beamlines unrolled,
-   `inherit`ed ancestors merged, forks resolved, and every mathematical
-   expression evaluated to a number. It is rooted at the lattice entry itself,
-   without the `PALS`/`facility` scaffolding it was defined under.
+   `inherit`ed ancestors merged, forks resolved, every mathematical expression
+   evaluated to a number, `set` commands executed, and the ABSOLUTE controllers
+   applied to the parameters they drive. It is rooted at the lattice entry
+   itself, without the `PALS`/`facility` scaffolding it was defined under.
 4. **`leftover`** — everything the expanded tree does not carry, keeping that
    scaffolding: element and beamline definitions, `use` statements, constants,
-   controllers, and any lattice that was not the one expanded. A definition
-   substituted into the lattice is copied, so it appears in both views.
+   controllers, `set` commands, and any lattice that was not the one expanded.
+   A definition substituted into the lattice is copied, so it appears in both
+   views.
 
 See [Building and using the library](guide/usage.md) to get started,
 [Evaluating expressions](guide/expressions.md) for the expression grammar and

@@ -1,9 +1,9 @@
 // PALS lattice expansion pipeline: builds the four-tree representation
 // (original / combined / expanded / leftover) from a PALS YAML file. Splices
-// includes, expands the selected lattice (repeats, inherits, forks), and
-// evaluates expression/controller values into the expanded tree. Name matching
-// and parameter lookup live in pals_match.cpp; the generic YAML tree wrapper in
-// yaml_c_wrapper.cpp.
+// includes, expands the selected lattice (repeats, inherits, forks), evaluates
+// expressions into the expanded tree, and applies the controllers that drive
+// its parameters. Name matching and parameter lookup live in pals_match.cpp;
+// the generic YAML tree wrapper in yaml_c_wrapper.cpp.
 
 #include "yaml_c_wrapper.h"
 #include "yaml_tree.h"
@@ -1008,12 +1008,107 @@ static std::string format_double(double v) {
     return std::string(buf);
 }
 
+// ------------------------------------------------------------
+// Tree-writing helpers, shared by the controller pass and the element
+// bookkeeper: both fill parameters into element definitions, creating the
+// enclosing parameter group when it is not already there.
+// ------------------------------------------------------------
+
+// A keyed sequence child of `parent`, created (empty) if absent.
+static size_t find_or_add_seq_child(ryml::Tree& t, size_t parent,
+                                    const char* key) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c != ryml::NONE) return c;
+    ensure_capacity(t, 2);
+    c = t.append_child(parent);
+    t.ref(c) |= ryml::KEY | ryml::SEQ;
+    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    return c;
+}
+
+// A keyed map child of `parent`, created (empty) if absent. An existing scalar
+// placeholder of the same key is converted to a map in place.
+static size_t find_or_add_map_child(ryml::Tree& t, size_t parent,
+                                    const char* key) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c != ryml::NONE) {
+        if (!t.is_map(c)) {
+            t.change_type(c, ryml::KEYMAP);
+            t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+        }
+        return c;
+    }
+    ensure_capacity(t, 2);
+    c = t.append_child(parent);
+    t.ref(c) |= ryml::KEY | ryml::MAP;
+    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    return c;
+}
+
+// Set (or create) a keyed scalar child to the shortest round-tripping decimal.
+static void set_num_child(ryml::Tree& t, size_t parent, const char* key,
+                          double v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(format_double(v))));
+}
+
+// Overwrite a scalar value node in place with a number.
+static void set_scalar_num(ryml::Tree& t, size_t node, double v) {
+    t.set_val(node, t.to_arena(ryml::to_csubstr(format_double(v))));
+}
+
+// Set (or create) a keyed scalar child to a string. Double-quoted so a leading
+// '#' in a species name survives YAML's comment rule on re-emit.
+static void set_str_child(ryml::Tree& t, size_t parent, const char* key,
+                          const std::string& v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
+    t.set_val_style(c, ryml::VAL_DQUO);
+}
+
+// Set (or create) a keyed scalar child to a bare (unquoted) token. Used for
+// enum and boolean defaults (e.g. `cavity_type: STANDING_WAVE`, `direction:
+// FORWARDS`, `aperture_active: true`), which are plain YAML scalars, not strings.
+static void set_plain_child(ryml::Tree& t, size_t parent, const char* key,
+                            const char* v) {
+    size_t c = t.find_child(parent, ryml::to_csubstr(key));
+    if (c == ryml::NONE) {
+        ensure_capacity(t, 2);
+        c = t.append_child(parent);
+        t.ref(c) |= ryml::KEY | ryml::VAL;
+        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+    }
+    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
+}
+
 // True if `node` is a map defining a `kind: Controller` element.
 static bool is_controller(const ryml::Tree& t, size_t node) {
     if (node == ryml::NONE || !t.is_map(node)) return false;
     size_t kind = t.find_child(node, ryml::to_csubstr("kind"));
     if (kind == ryml::NONE || !t.has_val(kind)) return false;
     return t.val(kind) == ryml::to_csubstr("Controller");
+}
+
+// True if `node` is a facility `set` or `sets` node. Their `parameter` targets
+// are name-matching strings and their `value`s are expressions evaluated once
+// per matched element, both handled by the set pass, so the generic pass has to
+// leave the whole subtree alone.
+static bool is_set_node(const ryml::Tree& t, size_t node) {
+    if (node == ryml::NONE || !t.has_key(node)) return false;
+    ryml::csubstr k = t.key(node);
+    return k == ryml::to_csubstr("set") || k == ryml::to_csubstr("sets");
 }
 
 // Collects user constant/variable definitions (name -> defining expression),
@@ -1088,15 +1183,16 @@ static bool looks_like_expression(const std::string& body, bool was_expr) {
 }
 
 // Replaces every evaluable scalar value in the subtree with its numeric value.
-// Controller subtrees are skipped: their variables and control expressions use
-// a controller-scoped symbol table and are handled by evaluate_controllers.
+// Controller and `set` subtrees are skipped: their expressions are evaluated
+// against a scope of their own, by evaluate_controllers and execute_set.
 // A value that looks like an expression but cannot be evaluated is recorded in
 // `problems`.
 static void substitute_values(ryml::Tree& t, size_t node,
                               const pals::SymbolLookup& resolve,
                               const pals::SpeciesLookup& species,
                               ProblemList& problems) {
-    if (node == ryml::NONE || is_controller(t, node)) return;
+    if (node == ryml::NONE || is_controller(t, node) || is_set_node(t, node))
+        return;
 
     if (t.has_val(node)) {
         bool skip = false;
@@ -1156,154 +1252,494 @@ static void collect_controllers(const ryml::Tree& t, size_t node,
 
 // A controller `variables` entry awaiting evaluation.
 struct CtrlVar {
-    size_t node;         // scalar value node to overwrite in place
-    size_t ctrl;         // index into the controllers vector
-    std::string qname;   // fully-qualified name, `controller>variable`
-    std::string bare;    // unqualified name, as used within the controller
-    std::string text;    // defining expression
+    size_t node = ryml::NONE;  // scalar value node to overwrite in place
+    size_t ctrl = 0;           // index into the controllers vector
+    std::string name;          // unqualified name, as used in the controller
+    std::string text;          // initial-value expression ("" = the default, 0)
     bool done = false;
+    // Set when an ABSOLUTE controller above this one in the hierarchy drives
+    // this variable: the driving value replaces the initial value.
+    bool driven = false;
+    double driven_value = 0.0;
+};
+
+// A controller `controls` entry: a `parameter` target and the `expression`
+// giving the value it is driven to.
+struct CtrlControl {
+    size_t expr_node = ryml::NONE;  // `expression` scalar, rewritten in place
+    std::string param;              // `parameter` target spec
+    std::string text;               // expression source
+    bool ok = false;                // evaluated to a number
+    double value = 0.0;
+    // Set when `param` names another controller's variable rather than a
+    // lattice parameter; that is what makes controllers a hierarchy.
+    size_t target_ctrl = SIZE_MAX;
+    std::string target_var;
+};
+
+// One `kind: Controller` element.
+struct Ctrl {
+    size_t node = ryml::NONE;
+    std::string name;
+    bool absolute = true;      // control_type: ABSOLUTE, the default
+    std::vector<size_t> vars;  // indices into the flat CtrlVar list
+    std::vector<CtrlControl> controls;
 };
 
 // Iterates the `variables` of a controller, in both the documented map form
 // (`cur1: 0.023`) and the compact seq-of-single-key-maps form, invoking `emit`
-// with each (name, value-node) pair.
+// with each (name, value-node) pair. A variable written with no value at all
+// (`cur1:`) is emitted too: its value is the default, zero.
 template <typename F>
 static void for_each_ctrl_var(const ryml::Tree& t, size_t vars, F&& emit) {
+    auto visit = [&](size_t kv) {
+        if (t.has_key(kv) && !t.is_map(kv) && !t.is_seq(kv))
+            emit(std::string(t.key(kv).str, t.key(kv).len), kv);
+    };
     if (vars == ryml::NONE) return;
     if (t.is_map(vars)) {
         for (size_t kv = t.first_child(vars); kv != ryml::NONE;
              kv = t.next_sibling(kv))
-            if (t.has_key(kv) && t.has_val(kv))
-                emit(std::string(t.key(kv).str, t.key(kv).len), kv);
+            visit(kv);
     } else if (t.is_seq(vars)) {
         for (size_t el = t.first_child(vars); el != ryml::NONE;
              el = t.next_sibling(el))
             for (size_t kv = t.first_child(el); kv != ryml::NONE;
                  kv = t.next_sibling(kv))
-                if (t.has_key(kv) && t.has_val(kv))
-                    emit(std::string(t.key(kv).str, t.key(kv).len), kv);
+                visit(kv);
     }
 }
 
-// Evaluates controllers. Each controller's `variables` form a controller-scoped
-// symbol table (variables may reference earlier variables of the same
-// controller and, via the `controller>variable` syntax, variables of another
-// controller). Once the tables are resolved, every control `expression` is
-// computed with its controller's table and the numeric value is written into
-// the control entry. Controller expressions are "delayed" in the standard, but
-// per the PALS expansion model the expanded tree carries the computed value.
-static void evaluate_controllers(ryml::Tree& t,
-                                 const pals::SymbolLookup& global_resolve,
-                                 const pals::SpeciesLookup& species,
-                                 ProblemList& problems) {
-    std::vector<size_t> controllers;
-    collect_controllers(t, t.root_id(), controllers);
-    if (controllers.empty()) return;
+// Trimmed scalar value of a node; "" when the node holds nothing. A YAML null
+// (`~`, `null`) reads as "no value given" the same as an empty scalar does.
+static std::string scalar_text(const ryml::Tree& t, size_t node) {
+    if (node == ryml::NONE || !t.has_val(node)) return "";
+    std::string v(t.val(node).str, t.val(node).len);
+    size_t a = v.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return "";
+    v = v.substr(a, v.find_last_not_of(" \t\r\n") - a + 1);
+    if (v == "~" || v == "null") return "";
+    return v;
+}
 
-    std::vector<std::string> names(controllers.size());
-    for (size_t i = 0; i < controllers.size(); ++i)
-        if (t.has_key(controllers[i]))
-            names[i].assign(t.key(controllers[i]).str,
-                            t.key(controllers[i]).len);
+// The identifiers appearing in an expression: maximal runs of name characters
+// that do not start with a digit. Used to spot a name an expression is not
+// allowed to use, which a plain substring search would get wrong (`c_light`
+// does not reference a variable named `light`).
+static std::vector<std::string> expression_identifiers(const std::string& s) {
+    std::vector<std::string> out;
+    auto name_char = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    };
+    for (size_t i = 0; i < s.size();) {
+        if (!name_char(s[i])) {
+            ++i;
+            continue;
+        }
+        size_t j = i;
+        while (j < s.size() && name_char(s[j])) ++j;
+        if (!std::isdigit(static_cast<unsigned char>(s[i])))
+            out.push_back(s.substr(i, j - i));
+        i = j;
+    }
+    return out;
+}
 
-    // Symbol tables, filled in as variables resolve.
-    std::vector<std::map<std::string, double>> locals(controllers.size());
-    std::map<std::string, double> qualified;  // `controller>variable` -> value
+// Reads every `kind: Controller` in the tree into `ctrls` (and their variables
+// into the flat `vars` list), materializing the `control_type` default and
+// rejecting the expressions the standard does not allow.
+static void collect_controller_defs(ryml::Tree& t, std::vector<Ctrl>& ctrls,
+                                    std::vector<CtrlVar>& vars,
+                                    ProblemList& problems) {
+    std::vector<size_t> nodes;
+    collect_controllers(t, t.root_id(), nodes);
 
-    // Resolver scoped to controller `ci`: unqualified names come from that
-    // controller's table, `>`-qualified names from any controller, and anything
-    // else falls through to the global resolver (built-in / user constants).
-    auto make_resolver = [&locals, &qualified, &global_resolve](
-                             size_t ci) -> pals::SymbolLookup {
-        return [ci, &locals, &qualified, &global_resolve](
-                   const std::string& name, double& out) -> bool {
-            if (name.find('>') != std::string::npos) {
-                auto it = qualified.find(name);
-                if (it == qualified.end()) return false;
-                out = it->second;
-                return true;
-            }
-            auto& lv = locals[ci];
-            auto it = lv.find(name);
-            if (it != lv.end()) {
-                out = it->second;
-                return true;
-            }
-            return global_resolve ? global_resolve(name, out) : false;
-        };
+    // Neither an initial value nor a control expression may reach outside its
+    // own controller (miscellaneous.md, s:controller). Every such reference --
+    // a lattice parameter, another controller's variable -- is spelled with
+    // `>`, so one test covers both, and it is what keeps evaluation order
+    // decidable from the `controls` hierarchy alone.
+    auto reject_refs = [&problems](const std::string& what,
+                                   const std::string& text) {
+        if (text.find('>') == std::string::npos) return false;
+        add_problem(problems,
+                    what + " may not reference a lattice parameter or another "
+                           "controller's variable: " + text);
+        return true;
     };
 
-    // Gather every variable definition across all controllers.
-    std::vector<CtrlVar> vars;
-    for (size_t ci = 0; ci < controllers.size(); ++ci) {
-        size_t vnode = t.find_child(controllers[ci], ryml::to_csubstr("variables"));
+    for (size_t node : nodes) {
+        Ctrl c;
+        c.node = node;
+        if (t.has_key(node)) c.name.assign(t.key(node).str, t.key(node).len);
+
+        std::string ct = scalar_text(t, t.find_child(node, ryml::to_csubstr(
+                                                               "control_type")));
+        if (ct.empty()) {
+            set_plain_child(t, node, "control_type", "ABSOLUTE");
+        } else if (ct == "RELATIVE") {
+            c.absolute = false;
+        } else if (ct != "ABSOLUTE") {
+            add_problem(problems, "controller '" + c.name +
+                                      "': control_type must be ABSOLUTE or "
+                                      "RELATIVE, not " + ct);
+        }
+
+        size_t vnode = t.find_child(node, ryml::to_csubstr("variables"));
         for_each_ctrl_var(t, vnode, [&](const std::string& vname, size_t vn) {
             CtrlVar v;
             v.node = vn;
-            v.ctrl = ci;
-            v.bare = vname;
-            v.qname = names[ci] + ">" + vname;
-            v.text = std::string(t.val(vn).str, t.val(vn).len);
+            v.ctrl = ctrls.size();
+            v.name = vname;
+            v.text = scalar_text(t, vn);
+            if (reject_refs("controller '" + c.name + "' variable '" + vname +
+                                "'",
+                            v.text))
+                v.text.clear();
+            c.vars.push_back(vars.size());
             vars.push_back(std::move(v));
         });
+
+        // An initial value may not name a variable at all, not even one of this
+        // controller's own: it is a constant expression, so no variable has to
+        // be evaluated before any other. Only the control `expression`s use the
+        // variables. Checked here, once every name of this controller is known,
+        // so it does not matter which order the variables are written in.
+        std::set<std::string> vnames;
+        for (size_t vi : c.vars) vnames.insert(vars[vi].name);
+        for (size_t vi : c.vars) {
+            for (const std::string& id : expression_identifiers(vars[vi].text)) {
+                if (!vnames.count(id)) continue;
+                add_problem(problems, "controller '" + c.name + "' variable '" +
+                                          vars[vi].name +
+                                          "': an initial value may not "
+                                          "reference the variable '" + id + "'");
+                vars[vi].text.clear();
+                break;
+            }
+        }
+
+        size_t controls = t.find_child(node, ryml::to_csubstr("controls"));
+        if (controls != ryml::NONE) {
+            for (size_t entry = t.first_child(controls); entry != ryml::NONE;
+                 entry = t.next_sibling(entry)) {
+                if (!t.is_map(entry)) continue;
+                CtrlControl cc;
+                cc.param = scalar_text(
+                    t, t.find_child(entry, ryml::to_csubstr("parameter")));
+                cc.expr_node = t.find_child(entry, ryml::to_csubstr("expression"));
+                cc.text = scalar_text(t, cc.expr_node);
+                if (cc.param.empty()) {
+                    add_problem(problems, "controller '" + c.name +
+                                              "': a controls entry has no "
+                                              "`parameter` target");
+                    continue;
+                }
+                if (cc.expr_node == ryml::NONE) {
+                    add_problem(problems,
+                                "controller '" + c.name + "': controls entry '" +
+                                    cc.param + "' has no `expression`");
+                    continue;
+                }
+                if (reject_refs("controller '" + c.name + "' control expression",
+                                cc.text))
+                    continue;
+                c.controls.push_back(std::move(cc));
+            }
+        }
+        ctrls.push_back(std::move(c));
+    }
+}
+
+// Orders the controllers so that every controller comes before the ones whose
+// variables it drives, which is the "start at the top of the hierarchy and work
+// downwards" evaluation the standard calls for. Controllers not related by
+// `controls` keep their file order, so the result does not depend on how the
+// file is written. A cycle is a file error: it is reported, and the controllers
+// caught in it are appended in file order so evaluation still produces
+// something for everything outside the cycle.
+static std::vector<size_t> controller_order(const std::vector<Ctrl>& ctrls,
+                                            ProblemList& problems) {
+    std::vector<std::vector<size_t>> below(ctrls.size());
+    std::vector<size_t> indeg(ctrls.size(), 0);
+    for (size_t ci = 0; ci < ctrls.size(); ++ci)
+        for (const CtrlControl& c : ctrls[ci].controls)
+            if (c.target_ctrl != SIZE_MAX) {
+                below[ci].push_back(c.target_ctrl);
+                ++indeg[c.target_ctrl];
+            }
+
+    std::vector<size_t> order;
+    std::vector<bool> queued(ctrls.size(), false);
+    for (size_t pass = 0; pass < ctrls.size(); ++pass) {
+        bool progress = false;
+        for (size_t ci = 0; ci < ctrls.size(); ++ci) {
+            if (queued[ci] || indeg[ci] != 0) continue;
+            queued[ci] = true;
+            order.push_back(ci);
+            for (size_t cj : below[ci]) --indeg[cj];
+            progress = true;
+        }
+        if (!progress) break;
     }
 
-    // Fixed-point evaluation resolves acyclic dependencies regardless of the
-    // order variables are written (within a controller or across controllers).
-    for (size_t pass = 0, limit = vars.size() + 1; pass <= limit; ++pass) {
-        bool changed = false;
-        for (CtrlVar& v : vars) {
-            if (v.done) continue;
-            pals::SymbolLookup res = make_resolver(v.ctrl);
+    if (order.size() != ctrls.size()) {
+        std::string names;
+        for (size_t ci = 0; ci < ctrls.size(); ++ci)
+            if (!queued[ci]) {
+                if (!names.empty()) names += ", ";
+                names += "'" + ctrls[ci].name + "'";
+                order.push_back(ci);
+            }
+        add_problem(problems,
+                    "controllers form a circular control hierarchy: " + names);
+    }
+    return order;
+}
+
+// What the ABSOLUTE controllers add up to for one lattice parameter, keyed on
+// (element definition, dotted path) so a parameter an element does not carry
+// yet still has an identity.
+struct CtrlTarget {
+    double sum = 0.0;
+    bool has_absolute = false;
+    bool has_relative = false;
+    bool deferred = false;  // some driving expression stayed unevaluated
+};
+
+// Evaluates the controllers and applies them to the expanded lattice.
+//
+// Each controller's `variables` are a symbol table scoped to that controller:
+// an initial value may use the controller's own variables, the built-in and
+// user constants, and nothing else. A variable written with no value is zero.
+// Controllers are walked from the top of the hierarchy downwards, so a variable
+// driven from above already holds its driving value by the time the controller
+// owning it is evaluated. Every control `expression` is then computed with its
+// controller's table and the number written back into the control entry, and
+// the ABSOLUTE controllers are applied to the lattice parameters they drive.
+//
+// `lat_node` is the expanded lattice; parameter targets are matched inside it,
+// which is what keeps a controller from also driving the unexpanded element
+// definitions still sitting in `facility`. Passing ryml::NONE evaluates the
+// controllers without applying them.
+static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
+                                 const pals::SymbolLookup& global_resolve,
+                                 const pals::SpeciesLookup& species,
+                                 ProblemList& problems) {
+    std::vector<Ctrl> ctrls;
+    std::vector<CtrlVar> vars;
+    collect_controller_defs(t, ctrls, vars, problems);
+    if (ctrls.empty()) return;
+
+    std::map<std::string, size_t> by_name;
+    for (size_t ci = 0; ci < ctrls.size(); ++ci) by_name[ctrls[ci].name] = ci;
+
+    // (controller, variable) -> index into `vars`.
+    std::map<std::pair<size_t, std::string>, size_t> var_of;
+    for (size_t vi = 0; vi < vars.size(); ++vi)
+        var_of[{vars[vi].ctrl, vars[vi].name}] = vi;
+
+    // Split each `parameter` target into the two things it can name. A target
+    // whose part before the `>` is a controller name is a controller variable
+    // (`ps27>cur1`); anything else is a lattice parameter.
+    for (Ctrl& c : ctrls) {
+        for (CtrlControl& cc : c.controls) {
+            size_t gt = cc.param.find('>');
+            if (gt == std::string::npos) continue;
+            auto it = by_name.find(cc.param.substr(0, gt));
+            if (it == by_name.end()) continue;
+            std::string var = cc.param.substr(gt + 1);
+            if (!var_of.count({it->second, var})) {
+                add_problem(problems, "controller '" + c.name + "' controls '" +
+                                          cc.param + "': controller '" +
+                                          it->first + "' has no variable '" +
+                                          var + "'");
+                continue;
+            }
+            cc.target_ctrl = it->second;
+            cc.target_var = var;
+        }
+    }
+
+    std::vector<size_t> order = controller_order(ctrls, problems);
+
+    // Symbol tables, filled in as each controller is reached.
+    std::vector<std::map<std::string, double>> locals(ctrls.size());
+    auto resolver_for = [&locals, &global_resolve](size_t ci) {
+        return pals::SymbolLookup(
+            [ci, &locals, &global_resolve](const std::string& name,
+                                           double& out) -> bool {
+                auto it = locals[ci].find(name);
+                if (it != locals[ci].end()) {
+                    out = it->second;
+                    return true;
+                }
+                return global_resolve ? global_resolve(name, out) : false;
+            });
+    };
+
+    std::map<std::pair<size_t, std::string>, CtrlTarget> targets;
+
+    for (size_t ci : order) {
+        Ctrl& c = ctrls[ci];
+        pals::SymbolLookup res = resolver_for(ci);
+
+        // Build this controller's symbol table. A driven variable takes the
+        // value the controllers above set -- that is what it replaced its own
+        // initial value with. Every other initial value is a constant
+        // expression (no variable may appear in one), so a single pass in any
+        // order settles the table.
+        for (size_t vi : c.vars) {
+            CtrlVar& v = vars[vi];
+            if (v.driven) {
+                locals[ci][v.name] = v.driven_value;
+                set_scalar_num(t, v.node, v.driven_value);
+                v.done = true;
+                continue;
+            }
+            if (v.text.empty()) {  // no value given: the default is zero
+                locals[ci][v.name] = 0.0;
+                set_scalar_num(t, v.node, 0.0);
+                v.done = true;
+                continue;
+            }
             bool was_expr = false;
             std::string body = strip_expr_wrapper(v.text, was_expr);
-            pals::EvalOutcome r = pals::eval_expression(body, res, species);
+            // `global_resolve`, not `res`: an initial value sees the built-in
+            // and user constants, never the variables.
+            pals::EvalOutcome r =
+                pals::eval_expression(body, global_resolve, species);
             if (r.ok) {
-                locals[v.ctrl][v.bare] = r.value;
-                qualified[v.qname] = r.value;
-                t.set_val(v.node,
-                          t.to_arena(ryml::to_csubstr(format_double(r.value))));
+                locals[ci][v.name] = r.value;
+                set_scalar_num(t, v.node, r.value);
                 v.done = true;
-                changed = true;
             } else if (r.deferred) {
                 v.done = true;  // random(); leave the text untouched
             }
         }
-        if (!changed) break;
-    }
 
-    // Any variable still unresolved is a genuine problem (unknown symbol or a
-    // dependency cycle); random()-deferred ones were marked done above.
-    for (const CtrlVar& v : vars)
-        if (!v.done)
-            add_problem(problems, "controller '" + names[v.ctrl] +
-                                      "' variable '" + v.bare +
-                                      "': could not evaluate '" + v.text + "'");
+        for (size_t vi : c.vars)
+            if (!vars[vi].done)
+                add_problem(problems, "controller '" + c.name + "' variable '" +
+                                          vars[vi].name +
+                                          "': could not evaluate '" +
+                                          vars[vi].text + "'");
 
-    // Compute each control `expression` with its controller's table and store
-    // the value back in the control entry.
-    for (size_t ci = 0; ci < controllers.size(); ++ci) {
-        size_t controls =
-            t.find_child(controllers[ci], ryml::to_csubstr("controls"));
-        if (controls == ryml::NONE) continue;
-        pals::SymbolLookup res = make_resolver(ci);
-        for (size_t entry = t.first_child(controls); entry != ryml::NONE;
-             entry = t.next_sibling(entry)) {
-            if (!t.is_map(entry)) continue;
-            size_t enode = t.find_child(entry, ryml::to_csubstr("expression"));
-            if (enode == ryml::NONE || !t.has_val(enode)) continue;
+        for (CtrlControl& cc : c.controls) {
             bool was_expr = false;
-            std::string body = strip_expr_wrapper(
-                std::string(t.val(enode).str, t.val(enode).len), was_expr);
+            std::string body = strip_expr_wrapper(cc.text, was_expr);
             pals::EvalOutcome r = pals::eval_expression(body, res, species);
-            if (r.ok)
-                t.set_val(enode,
-                          t.to_arena(ryml::to_csubstr(format_double(r.value))));
-            else if (!r.deferred)
-                add_problem(problems, "controller '" + names[ci] +
+            if (r.ok) {
+                cc.ok = true;
+                cc.value = r.value;
+                set_scalar_num(t, cc.expr_node, r.value);
+            } else if (!r.deferred) {
+                add_problem(problems, "controller '" + c.name +
                                           "' control expression could not be "
                                           "evaluated: " + body);
+            }
+            // Deferred (random()) expressions keep their text, as everywhere
+            // else, and so drive nothing: the expanded tree stays reproducible.
+
+            if (cc.target_ctrl == SIZE_MAX) continue;
+            // Only ABSOLUTE control reaches the variable now. A RELATIVE
+            // controller describes how the variable *changes* once the program
+            // varies the knob, which is outside lattice expansion.
+            if (!c.absolute || !cc.ok) continue;
+            CtrlVar& tv = vars[var_of[{cc.target_ctrl, cc.target_var}]];
+            if (!tv.driven) {
+                tv.driven = true;
+                tv.driven_value = 0.0;
+            }
+            tv.driven_value += cc.value;  // several ABSOLUTE controllers sum
         }
+    }
+
+    if (lat_node == ryml::NONE) return;
+
+    // Gather what drives each lattice parameter. Targets are keyed on the
+    // element and the path rather than on a parameter node, so a parameter the
+    // element does not carry yet is still recognised as the same target.
+    for (const Ctrl& c : ctrls) {
+        for (const CtrlControl& cc : c.controls) {
+            if (cc.target_ctrl != SIZE_MAX) continue;
+            ElementMatches m = match_element_parameters(t, lat_node, cc.param);
+            if (!m.valid) {
+                add_problem(problems, "controller '" + c.name +
+                                          "': malformed parameter target '" +
+                                          cc.param + "'");
+                continue;
+            }
+            bool named = m.has_param;
+            for (const std::string& p : m.path)
+                if (p.empty()) named = false;
+            if (!named) {
+                add_problem(problems, "controller '" + c.name + "': target '" +
+                                          cc.param +
+                                          "' names no element parameter");
+                continue;
+            }
+            if (m.elements.empty()) {
+                add_problem(problems, "controller '" + c.name + "': target '" +
+                                          cc.param +
+                                          "' matches nothing in the expanded "
+                                          "lattice");
+                continue;
+            }
+            std::string path;
+            for (const std::string& p : m.path)
+                path += (path.empty() ? "" : ".") + p;
+            for (size_t def : m.elements) {
+                CtrlTarget& tg = targets[{def, path}];
+                if (c.absolute) {
+                    tg.has_absolute = true;
+                    if (cc.ok)
+                        tg.sum += cc.value;
+                    else
+                        tg.deferred = true;
+                } else {
+                    tg.has_relative = true;
+                }
+            }
+        }
+    }
+
+    for (const auto& kv : targets) {
+        size_t def = kv.first.first;
+        const CtrlTarget& tg = kv.second;
+        std::vector<std::string> path = split_dots(kv.first.second);
+        std::string where = std::string(t.key(def).str, t.key(def).len) + ">" +
+                            kv.first.second;
+
+        // "A given lattice parameter may not be assigned a delayed evaluation
+        // expression and be controlled by a controller." This runs before
+        // substitute_values, while the `expr(...)` wrapper is still there to see.
+        size_t existing = resolve_param_path(t, def, path);
+        if (existing != ryml::NONE && t.has_val(existing)) {
+            bool was_expr = false;
+            strip_expr_wrapper(std::string(t.val(existing).str,
+                                           t.val(existing).len),
+                               was_expr);
+            if (was_expr)
+                add_problem(problems, where +
+                                          " is both controlled and assigned a "
+                                          "delayed evaluation expression");
+        }
+
+        if (tg.has_absolute && tg.has_relative) {
+            add_problem(problems, where +
+                                      " is controlled by both an ABSOLUTE and a "
+                                      "RELATIVE controller");
+            continue;
+        }
+        // A RELATIVE controller leaves the parameter at the value the element
+        // itself gives; only the sum of the ABSOLUTE ones is applied here.
+        if (!tg.has_absolute || tg.deferred) continue;
+
+        size_t parent = def;
+        for (size_t i = 0; i + 1 < path.size(); ++i)
+            parent = find_or_add_map_child(t, parent, path[i].c_str());
+        set_num_child(t, parent, path.back().c_str(), tg.sum);
     }
 }
 
@@ -1329,25 +1765,31 @@ static size_t resolve_ele_param_ref(const ryml::Tree& t,
     return node;
 }
 
-// Evaluates all expressions in the (already expanded) tree in place. Records
-// any that could not be evaluated in `problems`.
-static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
-    std::map<std::string, std::string> defs;
-    collect_defs(t, t.root_id(), defs);
+// Builds the expression-evaluation context for `t`: a resolver for user
+// constants/variables and element-parameter references, and the species-name
+// lookup that lets a particle-data function take a symbol. The tables the two
+// read are held by shared_ptr, so the returned functions stay usable after this
+// returns -- `set` commands need a context per command, since each one runs
+// against a tree the previous ones have written to.
+static void make_expression_context(const ryml::Tree& t,
+                                    pals::SymbolLookup& resolve_out,
+                                    pals::SpeciesLookup& species_out) {
+    auto defs = std::make_shared<std::map<std::string, std::string>>();
+    collect_defs(t, t.root_id(), *defs);
 
     // Element name -> definition map, so expressions may reference another
     // element's parameter via `element>group. ... .param`.
-    std::map<std::string, size_t> emap;
-    make_ele_map(emap, t, t.root_id());
+    auto emap = std::make_shared<std::map<std::string, size_t>>();
+    make_ele_map(*emap, t, t.root_id());
 
     // Resolves a symbol whose value is a species-name string (e.g.
     // `species: "#3He"`), so a particle-data function may take it by name:
     // `mass_of(species)`. The stored value is returned verbatim (trimmed, with
     // any surrounding quotes stripped); the expression evaluator validates it.
-    pals::SpeciesLookup species = [&defs](const std::string& name,
-                                          std::string& out) -> bool {
-        auto di = defs.find(name);
-        if (di == defs.end()) return false;
+    pals::SpeciesLookup species = [defs](const std::string& name,
+                                         std::string& out) -> bool {
+        auto di = defs->find(name);
+        if (di == defs->end()) return false;
         std::string v = di->second;
         size_t a = v.find_first_not_of(" \t\r\n");
         size_t b = v.find_last_not_of(" \t\r\n");
@@ -1367,7 +1809,8 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
     auto active = std::make_shared<std::set<std::string>>();
     std::shared_ptr<pals::SymbolLookup> resolve =
         std::make_shared<pals::SymbolLookup>();
-    *resolve = [&defs, &t, &emap, cache, active, resolve, species](
+    const ryml::Tree* tp = &t;
+    *resolve = [defs, tp, emap, cache, active, resolve, species](
                    const std::string& name, double& out) -> bool {
         auto ci = cache->find(name);
         if (ci != cache->end()) {
@@ -1378,12 +1821,12 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
         // to that parameter's value, evaluated as an expression in turn.
         std::string body;
         if (name.find('>') != std::string::npos) {
-            size_t vn = resolve_ele_param_ref(t, emap, name);
+            size_t vn = resolve_ele_param_ref(*tp, *emap, name);
             if (vn == ryml::NONE) return false;
-            body = std::string(t.val(vn).str, t.val(vn).len);
+            body = std::string(tp->val(vn).str, tp->val(vn).len);
         } else {
-            auto di = defs.find(name);
-            if (di == defs.end()) return false;
+            auto di = defs->find(name);
+            if (di == defs->end()) return false;
             body = di->second;
         }
         if (!active->insert(name).second) return false;  // cycle
@@ -1397,10 +1840,21 @@ static void evaluate_expressions(ryml::Tree& t, ProblemList& problems) {
         return true;
     };
 
-    // Controllers first (controller-scoped symbol tables), then the generic
-    // pass over the rest of the tree (which skips controller subtrees).
-    evaluate_controllers(t, *resolve, species, problems);
-    substitute_values(t, t.root_id(), *resolve, species, problems);
+    resolve_out = *resolve;
+    species_out = species;
+}
+
+// Evaluates all expressions in the (already expanded) tree in place, and
+// applies the controllers to `lat_node`. Records anything that could not be
+// evaluated in `problems`.
+static void evaluate_expressions(ryml::Tree& t, size_t lat_node,
+                                 ProblemList& problems) {
+    pals::SymbolLookup resolve;
+    pals::SpeciesLookup species;
+    make_expression_context(t, resolve, species);
+
+    evaluate_controllers(t, lat_node, resolve, species, problems);
+    substitute_values(t, t.root_id(), resolve, species, problems);
 }
 
 // ============================================================
@@ -1464,78 +1918,457 @@ static bool get_str_child(const ryml::Tree& t, size_t parent, const char* key,
     return true;
 }
 
-// A keyed sequence child of `parent`, created (empty) if absent.
-static size_t find_or_add_seq_child(ryml::Tree& t, size_t parent,
-                                    const char* key) {
-    size_t c = t.find_child(parent, ryml::to_csubstr(key));
-    if (c != ryml::NONE) return c;
-    ensure_capacity(t, 2);
-    c = t.append_child(parent);
-    t.ref(c) |= ryml::KEY | ryml::SEQ;
-    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
-    return c;
+// ============================================================
+// SET COMMANDS AND THE expand_lattice SPLIT
+// ============================================================
+//
+// A `set` (miscellaneous.md, s:set) writes a value into every parameter its
+// `parameter` name-matching string selects:
+//
+//   - set:
+//       parameter: B1.*>BendP.e1
+//       value: 2*PARAMETER + atan(SELF.BendP.g_ref)
+//
+// In the `value` expression `PARAMETER` stands for the current value of the
+// parameter being written and `SELF` for the element that owns it. The compact
+// `sets:` form is a list of `target: value` pairs with no error terms.
+//
+// Where a set acts depends on where it sits relative to the `expand_lattice`
+// node (lattice-construction.md, s:expand.lat), which divides the `facility`
+// list in two. A set in the pre-expansion list acts on the element
+// *definitions*, and only on those defined before it in the list, so one
+// definition is written once and every expanded copy inherits the value. A set
+// in the post-expansion list acts on the already-expanded lattice, so each copy
+// of a repeated element is written separately -- which is the point of
+// `expand_lattice`.
+
+// The `facility` sequence of the PALS node, or ryml::NONE. Includes have already
+// been spliced into it in place, so there is one list holding every node of
+// every file, in order.
+static size_t find_facility(const ryml::Tree& t) {
+    size_t pals = t.find_child(t.root_id(), ryml::to_csubstr("PALS"));
+    if (pals == ryml::NONE) return ryml::NONE;
+    size_t fac = t.find_child(pals, ryml::to_csubstr("facility"));
+    return (fac != ryml::NONE && t.is_seq(fac)) ? fac : ryml::NONE;
 }
 
-// A keyed map child of `parent`, created (empty) if absent. An existing scalar
-// placeholder of the same key is converted to a map in place.
-static size_t find_or_add_map_child(ryml::Tree& t, size_t parent,
-                                    const char* key) {
-    size_t c = t.find_child(parent, ryml::to_csubstr(key));
-    if (c != ryml::NONE) {
-        if (!t.is_map(c)) {
-            t.change_type(c, ryml::KEYMAP);
-            t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+// The keyed child of a facility entry (the entry is an anonymous wrapper map
+// holding one keyed node), or ryml::NONE for a bare scalar entry such as
+// `- expand_lattice`.
+static size_t entry_content(const ryml::Tree& t, size_t entry) {
+    if (entry == ryml::NONE || !t.is_map(entry)) return ryml::NONE;
+    size_t c = t.first_child(entry);
+    return (c != ryml::NONE && t.has_key(c)) ? c : ryml::NONE;
+}
+
+// True for the `expand_lattice` node that splits the facility list. Written as
+// a bare scalar (`- expand_lattice`); the keyed form is accepted too, since a
+// trailing colon is an easy thing to write.
+static bool is_expand_lattice(const ryml::Tree& t, size_t entry) {
+    if (entry == ryml::NONE) return false;
+    if (!t.has_key(entry) && t.has_val(entry))
+        return t.val(entry) == ryml::to_csubstr("expand_lattice");
+    size_t c = entry_content(t, entry);
+    return c != ryml::NONE && t.key(c) == ryml::to_csubstr("expand_lattice");
+}
+
+// The parameters that are computed from one another, so that writing one leaves
+// the rest of the family stale. A magnetic multipole component has four
+// interchangeable forms (BnN, BnNL, KnN, KnNL, tied by the length and the
+// reference momentum); an electric one has two; a bend's geometry is tied
+// together through BendP. Returns the family including `key` itself, or an empty
+// set for a parameter that stands alone.
+//
+// This is also what tells a value expression that a parameter is *not yet
+// computable* rather than zero: before the bookkeeper has run, an absent
+// parameter with a written family member is one whose value is still to be
+// derived (lattice-construction.md, s:lattice.expand).
+static std::set<std::string> linked_family(const std::string& group,
+                                           const std::string& key) {
+    // `<letter><n|s><digits>[L]`, the shape both multipole groups use.
+    auto split_component = [](const std::string& k, const char* letters,
+                              std::string& comp) {
+        if (k.size() < 3 || !std::strchr(letters, k[0])) return false;
+        if (k[1] != 'n' && k[1] != 's') return false;
+        size_t i = 2;
+        while (i < k.size() && std::isdigit(static_cast<unsigned char>(k[i])))
+            ++i;
+        if (i == 2) return false;
+        if (i != k.size() && !(i + 1 == k.size() && k[i] == 'L')) return false;
+        comp = k.substr(1, i - 1);  // e.g. "n1"
+        return true;
+    };
+
+    std::string comp;
+    if (group == "MagneticMultipoleP" && split_component(key, "BK", comp))
+        return {"B" + comp, "B" + comp + "L", "K" + comp, "K" + comp + "L"};
+    if (group == "ElectricMultipoleP" && split_component(key, "E", comp))
+        return {"E" + comp, "E" + comp + "L"};
+
+    static const std::set<std::string> bend = {
+        "g_ref",     "radius_ref", "Bn0_ref",
+        "angle_ref", "L_chord",    "L_rectangle"};
+    if (group == "BendP" && bend.count(key)) return bend;
+
+    return {};
+}
+
+// Everything a `set` needs to know about where it is writing: the element, the
+// group node holding the parameter (ryml::NONE until it is created), the
+// parameter key, and the group name for the family lookup.
+struct SetTarget {
+    size_t ele = ryml::NONE;
+    std::vector<std::string> path;
+    std::string group;  // "" for an ungrouped parameter such as `length`
+    std::string key;
+};
+
+static SetTarget make_target(size_t ele, const std::vector<std::string>& path) {
+    SetTarget tg;
+    tg.ele = ele;
+    tg.path = path;
+    tg.key = path.empty() ? "" : path.back();
+    if (path.size() >= 2) tg.group = path[path.size() - 2];
+    return tg;
+}
+
+// True when `path` names a parameter of `ele` that is not written but is still
+// to be derived from a family member that is -- reading it is an error rather
+// than reading zero. Only meaningful before the bookkeeper has run.
+static bool awaits_derivation(const ryml::Tree& t, size_t ele,
+                              const std::vector<std::string>& path) {
+    if (path.empty()) return false;
+    if (resolve_param_path(t, ele, path) != ryml::NONE) return false;
+    SetTarget tg = make_target(ele, path);
+    std::set<std::string> family = linked_family(tg.group, tg.key);
+    if (family.empty()) return false;
+    std::vector<std::string> sib = path;
+    for (const std::string& member : family) {
+        if (member == tg.key) continue;
+        sib.back() = member;
+        if (resolve_param_path(t, ele, sib) != ryml::NONE) return true;
+    }
+    return false;
+}
+
+// Reads the value a `set` expression sees for a parameter: the written value if
+// there is one, otherwise zero (an unwritten parameter of a known element is
+// zero, per s:lattice.expand). `pending` reports the third case -- the value is
+// still to be derived, so reading it is an error.
+static bool read_set_operand(const ryml::Tree& t, size_t ele,
+                             const std::vector<std::string>& path,
+                             const pals::SymbolLookup& resolve,
+                             const pals::SpeciesLookup& species, bool pre,
+                             double& out, bool& pending) {
+    pending = false;
+    if (ele == ryml::NONE || path.empty()) return false;
+    size_t node = resolve_param_path(t, ele, path);
+    if (node != ryml::NONE && t.has_val(node)) {
+        bool was_expr = false;
+        std::string body = strip_expr_wrapper(
+            std::string(t.val(node).str, t.val(node).len), was_expr);
+        pals::EvalOutcome r = pals::eval_expression(body, resolve, species);
+        if (!r.ok) return false;
+        out = r.value;
+        return true;
+    }
+    if (pre && awaits_derivation(t, ele, path)) {
+        pending = true;
+        return false;
+    }
+    out = 0.0;
+    return true;
+}
+
+// Delete the rest of a parameter's family, so the bookkeeper derives it again
+// from the value just written instead of flagging the two as inconsistent.
+// Provenance entries go with them: ryml reuses freed ids, and a stale link would
+// then point the correspondence map at the wrong node.
+static void invalidate_family(ryml::Tree& t, const SetTarget& tg,
+                              std::map<size_t, size_t>& prov) {
+    std::set<std::string> family = linked_family(tg.group, tg.key);
+    if (family.empty()) return;
+    std::vector<std::string> sib = tg.path;
+    for (const std::string& member : family) {
+        if (member == tg.key) continue;
+        sib.back() = member;
+        size_t node = resolve_param_path(t, tg.ele, sib);
+        if (node == ryml::NONE) continue;
+        erase_prov_subtree(t, node, prov);
+        t.remove(node);
+    }
+}
+
+// One `set` command, read out of the tree.
+struct SetCommand {
+    std::string param;   // `parameter`: the name-matching target
+    std::string value;   // `value`: the expression to write
+    double abs_error = 0.0;
+    double rel_error = 0.0;
+    bool has_error = false;
+};
+
+// Execute one `set` against the elements `matches` selected. `pre` distinguishes
+// a pre-expansion set (acting on definitions, where a derived value is not yet
+// available) from a post-expansion one (acting on the expanded lattice, where
+// writing a parameter makes its family stale).
+static void execute_set(ryml::Tree& t, const SetCommand& cmd,
+                        const ElementMatches& matches, bool pre,
+                        const pals::SymbolLookup& resolve,
+                        const pals::SpeciesLookup& species,
+                        std::map<size_t, size_t>& prov, ProblemList& problems) {
+    std::string what = "set '" + cmd.param + "'";
+
+    if (!matches.valid) {
+        add_problem(problems, what + ": malformed parameter target");
+        return;
+    }
+    if (!matches.has_param || matches.path.empty() ||
+        matches.path.back().empty()) {
+        add_problem(problems, what + ": target names no element parameter");
+        return;
+    }
+    if (matches.elements.empty()) {
+        add_problem(problems, what + ": target matches nothing" +
+                                  (pre ? " defined before it" : ""));
+        return;
+    }
+    // "the true error is absolute_error + relative_error * |value|" -- but the
+    // standard does not say how that error is distributed, and this library
+    // never invents randomness (random()/random_gauss() are deferred for the
+    // same reason). The deterministic value is written and the error is not.
+    if (cmd.has_error)
+        add_problem(problems, what +
+                                  ": absolute_error/relative_error are not "
+                                  "applied -- the standard does not specify "
+                                  "the error distribution");
+
+    // Only a pre-expansion set needs the element map, to spot a reference to a
+    // parameter whose value has still to be derived.
+    std::map<std::string, size_t> emap;
+    if (pre) make_ele_map(emap, t, t.root_id());
+
+    for (size_t ele : matches.elements) {
+        SetTarget tg = make_target(ele, matches.path);
+        std::string ename(t.key(ele).str, t.key(ele).len);
+        std::string where = what + " on '" + ename + "'";
+
+        // `PARAMETER` is the value being replaced; `SELF.<path>` reaches the
+        // rest of the element. Both are scoped to this one element, so the
+        // resolver is rebuilt for each.
+        bool pending = false;
+        std::string pending_name;
+        pals::SymbolLookup scoped = [&](const std::string& name,
+                                        double& out) -> bool {
+            if (name == "PARAMETER") {
+                bool p = false;
+                bool ok = read_set_operand(t, ele, tg.path, resolve, species,
+                                           pre, out, p);
+                if (p) {
+                    pending = true;
+                    pending_name = matches.path.back();
+                }
+                return ok;
+            }
+            if (name.compare(0, 5, "SELF.") == 0) {
+                std::vector<std::string> path = split_dots(name.substr(5));
+                bool p = false;
+                bool ok =
+                    read_set_operand(t, ele, path, resolve, species, pre, out, p);
+                if (p) {
+                    pending = true;
+                    pending_name = name;
+                }
+                return ok;
+            }
+            // An `element>path` reference reads by the same rules: the written
+            // value, else zero, else -- when a family member is written, so the
+            // value is still to be derived -- an error.
+            size_t gt = name.find('>');
+            if (pre && gt != std::string::npos) {
+                auto it = emap.find(name.substr(0, gt));
+                if (it != emap.end()) {
+                    std::vector<std::string> ref =
+                        split_dots(name.substr(gt + 1));
+                    bool p = false;
+                    bool ok = read_set_operand(t, it->second, ref, resolve,
+                                               species, pre, out, p);
+                    if (p) {
+                        pending = true;
+                        pending_name = name;
+                    }
+                    return ok;
+                }
+            }
+            return resolve ? resolve(name, out) : false;
+        };
+
+        bool was_expr = false;
+        std::string body = strip_expr_wrapper(cmd.value, was_expr);
+        pals::EvalOutcome r = pals::eval_expression(body, scoped, species);
+        if (pending) {
+            add_problem(problems, where + ": '" + pending_name +
+                                      "' has no value yet -- it is derived "
+                                      "during lattice expansion");
+            continue;
         }
-        return c;
+        if (r.deferred) continue;  // random(); leave the parameter alone
+        if (!r.ok) {
+            add_problem(problems,
+                        where + ": could not evaluate value: " + cmd.value);
+            continue;
+        }
+
+        size_t parent = ele;
+        for (size_t i = 0; i + 1 < tg.path.size(); ++i)
+            parent = find_or_add_map_child(t, parent, tg.path[i].c_str());
+        set_num_child(t, parent, tg.key.c_str(), r.value);
+        // After the bookkeeper has run the rest of the family holds values
+        // derived from the old one; drop them so the next pass rebuilds them.
+        if (!pre) invalidate_family(t, tg, prov);
     }
-    ensure_capacity(t, 2);
-    c = t.append_child(parent);
-    t.ref(c) |= ryml::KEY | ryml::MAP;
-    t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
-    return c;
 }
 
-// Set (or create) a keyed scalar child to the shortest round-tripping decimal.
-static void set_num_child(ryml::Tree& t, size_t parent, const char* key,
-                          double v) {
-    size_t c = t.find_child(parent, ryml::to_csubstr(key));
-    if (c == ryml::NONE) {
-        ensure_capacity(t, 2);
-        c = t.append_child(parent);
-        t.ref(c) |= ryml::KEY | ryml::VAL;
-        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+// Read a `set` node into a SetCommand. Returns false (with a problem recorded)
+// when the required components are missing.
+static bool read_set_command(const ryml::Tree& t, size_t node, SetCommand& cmd,
+                             ProblemList& problems) {
+    cmd.param = child_val_str(t, node, "parameter");
+    cmd.value = child_val_str(t, node, "value");
+    if (cmd.param.empty()) {
+        add_problem(problems, "set: no `parameter` target");
+        return false;
     }
-    t.set_val(c, t.to_arena(ryml::to_csubstr(format_double(v))));
+    if (cmd.value.empty()) {
+        add_problem(problems, "set '" + cmd.param + "': no `value`");
+        return false;
+    }
+    double e = 0.0;
+    if (get_num_child(t, node, "absolute_error", e) && e != 0.0) {
+        cmd.abs_error = e;
+        cmd.has_error = true;
+    }
+    if (get_num_child(t, node, "relative_error", e) && e != 0.0) {
+        cmd.rel_error = e;
+        cmd.has_error = true;
+    }
+    return true;
 }
 
-// Set (or create) a keyed scalar child to a string. Double-quoted so a leading
-// '#' in a species name survives YAML's comment rule on re-emit.
-static void set_str_child(ryml::Tree& t, size_t parent, const char* key,
-                          const std::string& v) {
-    size_t c = t.find_child(parent, ryml::to_csubstr(key));
-    if (c == ryml::NONE) {
-        ensure_capacity(t, 2);
-        c = t.append_child(parent);
-        t.ref(c) |= ryml::KEY | ryml::VAL;
-        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+// The set commands a facility entry holds: one for a `set` node, one per pair
+// for the compact `sets` list. Anything else yields none.
+static std::vector<SetCommand> entry_set_commands(const ryml::Tree& t,
+                                                  size_t entry,
+                                                  ProblemList& problems) {
+    std::vector<SetCommand> out;
+    size_t c = entry_content(t, entry);
+    if (c == ryml::NONE) return out;
+    std::string key(t.key(c).str, t.key(c).len);
+
+    if (key == "set") {
+        SetCommand cmd;
+        if (read_set_command(t, c, cmd, problems)) out.push_back(std::move(cmd));
+        return out;
     }
-    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
-    t.set_val_style(c, ryml::VAL_DQUO);
+    if (key != "sets") return out;
+
+    // Compact form: a list of `target: value` pairs (written as a sequence of
+    // single-key maps, or as a plain map).
+    auto emit = [&](size_t kv) {
+        if (!t.has_key(kv) || !t.has_val(kv)) return;
+        SetCommand cmd;
+        cmd.param.assign(t.key(kv).str, t.key(kv).len);
+        cmd.value.assign(t.val(kv).str, t.val(kv).len);
+        out.push_back(std::move(cmd));
+    };
+    if (t.is_map(c)) {
+        for (size_t kv = t.first_child(c); kv != ryml::NONE;
+             kv = t.next_sibling(kv))
+            emit(kv);
+    } else if (t.is_seq(c)) {
+        for (size_t el = t.first_child(c); el != ryml::NONE;
+             el = t.next_sibling(el))
+            for (size_t kv = t.first_child(el); kv != ryml::NONE;
+                 kv = t.next_sibling(kv))
+                emit(kv);
+    }
+    return out;
 }
 
-// Set (or create) a keyed scalar child to a bare (unquoted) token. Used for
-// enum and boolean defaults (e.g. `cavity_type: STANDING_WAVE`, `direction:
-// FORWARDS`, `aperture_active: true`), which are plain YAML scalars, not strings.
-static void set_plain_child(ryml::Tree& t, size_t parent, const char* key,
-                            const char* v) {
-    size_t c = t.find_child(parent, ryml::to_csubstr(key));
-    if (c == ryml::NONE) {
-        ensure_capacity(t, 2);
-        c = t.append_child(parent);
-        t.ref(c) |= ryml::KEY | ryml::VAL;
-        t.set_key(c, t.to_arena(ryml::to_csubstr(key)));
+// The facility list split at `expand_lattice`, in order. `post` is empty when
+// there is no such node, which is the usual case.
+struct FacilitySplit {
+    std::vector<size_t> pre;
+    std::vector<size_t> post;
+};
+
+static FacilitySplit split_facility(const ryml::Tree& t) {
+    FacilitySplit out;
+    size_t fac = find_facility(t);
+    if (fac == ryml::NONE) return out;
+    bool after = false;
+    for (size_t e = t.first_child(fac); e != ryml::NONE; e = t.next_sibling(e)) {
+        if (!after && is_expand_lattice(t, e)) {
+            after = true;
+            continue;
+        }
+        (after ? out.post : out.pre).push_back(e);
     }
-    t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
+    return out;
+}
+
+// Run the `set` commands of the pre-expansion list, in list order. Each acts on
+// the element definitions that precede it, which is why the entries are walked
+// rather than the tree: `Q2` defined after a set is not touched by it.
+static void run_pre_expansion_sets(ryml::Tree& t,
+                                   const std::vector<size_t>& entries,
+                                   std::map<size_t, size_t>& prov,
+                                   ProblemList& problems) {
+    std::vector<std::vector<SetCommand>> cmds(entries.size());
+    bool any = false;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        cmds[i] = entry_set_commands(t, entries[i], problems);
+        if (!cmds[i].empty()) any = true;
+    }
+    if (!any) return;  // the usual case: no sets at all
+
+    std::vector<size_t> defined;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (cmds[i].empty()) {
+            defined.push_back(entries[i]);
+            continue;
+        }
+        // A fresh context per command: each set writes to the tree the next one
+        // reads, so a memoized value from before it would be stale.
+        for (const SetCommand& cmd : cmds[i]) {
+            pals::SymbolLookup resolve;
+            pals::SpeciesLookup species;
+            make_expression_context(t, resolve, species);
+            execute_set(t, cmd,
+                        match_definition_parameters(t, defined, cmd.param), true,
+                        resolve, species, prov, problems);
+        }
+    }
+}
+
+// Run the `set` commands of the post-expansion list against the expanded
+// lattice. Order still matters -- a later set sees what an earlier one wrote --
+// but every set sees the whole lattice, since it has already been built.
+static void run_post_expansion_sets(ryml::Tree& t, size_t lat_node,
+                                    const std::vector<size_t>& entries,
+                                    std::map<size_t, size_t>& prov,
+                                    ProblemList& problems) {
+    if (lat_node == ryml::NONE) return;
+    for (size_t e : entries) {
+        for (const SetCommand& cmd : entry_set_commands(t, e, problems)) {
+            pals::SymbolLookup resolve;
+            pals::SpeciesLookup species;
+            make_expression_context(t, resolve, species);
+            execute_set(t, cmd,
+                        match_element_parameters(t, lat_node, cmd.param), false,
+                        resolve, species, prov, problems);
+        }
+    }
 }
 
 // Reference parameters at one end of an element (ReferenceP). Energy and
@@ -2411,8 +3244,12 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
 
         // An empty branch has no final state to record; otherwise cap it with a
         // `branch_end` Placeholder carrying the downstream end of the last
-        // element.
-        if (prev != ryml::NONE)
+        // element. A second pass (after post-expansion sets) walks a branch that
+        // already carries the one the first pass appended: the loop above has
+        // just bookkept it like any other element, so there is nothing to add.
+        bool capped = prev != ryml::NONE &&
+                      t.key(prev) == ryml::to_csubstr("branch_end");
+        if (prev != ryml::NONE && !capped)
             _element_bookkeeper(t, prev, append_branch_end(t, line), problems);
     }
 }
@@ -2603,6 +3440,15 @@ static void make_expanded_and_leftover(ParsedData* comb,
     deep_copy_tracked(t, t.root_id(), comb->tree, comb->tree.root_id(),
                       work.provenance);
 
+    // The `facility` list divided at `expand_lattice` (lattice-construction.md,
+    // s:lattice.expand). With no such node everything is the pre-expansion list
+    // and `post` is empty, which is the usual case.
+    FacilitySplit facility = split_facility(t);
+
+    // The pre-expansion `set` commands run first, on the element definitions,
+    // so expansion copies the values they write into every use of a definition.
+    run_pre_expansion_sets(t, facility.pre, work.provenance, problems);
+
     std::map<std::string, size_t> emap;
     make_ele_map(emap, t, t.root_id());
 
@@ -2636,9 +3482,13 @@ static void make_expanded_and_leftover(ParsedData* comb,
         number_multipass_branches(t, lat_node, work.provenance);
 
         // Evaluate every mathematical expression to a number (immediate and
-        // expr()-delayed alike). Node ids are unchanged -- only scalar text is
-        // rewritten -- so provenance stays valid.
-        evaluate_expressions(t, problems);
+        // expr()-delayed alike), and apply the ABSOLUTE controllers to the
+        // parameters they drive -- both before the bookkeeper, so the reference
+        // and dependent parameters below are computed from the driven values.
+        // Node ids of existing nodes are unchanged -- only scalar text is
+        // rewritten -- so provenance stays valid; a parameter a controller
+        // creates is new and simply has no provenance, like ReferenceP/FloorP.
+        evaluate_expressions(t, lat_node, problems);
 
         // With every input now a plain number, walk each branch element-by-
         // element to fill in the reference, floor, s-position, and field-
@@ -2646,6 +3496,19 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // which carry no provenance (like destination_pointer) and so simply do not
         // appear in the correspondence map.
         run_element_bookkeeper(t, lat_node, problems);
+
+        // Anything after `expand_lattice` acts on the lattice just built: its
+        // sets reach each expanded copy of an element separately, and the
+        // controllers are then applied again (over both lists) so they stay
+        // authoritative over any parameter a set touched. The bookkeeper runs a
+        // second time to recompute what those writes invalidated -- reference
+        // and floor parameters, and the family members execute_set dropped.
+        if (!facility.post.empty()) {
+            run_post_expansion_sets(t, lat_node, facility.post, work.provenance,
+                                    problems);
+            evaluate_expressions(t, lat_node, problems);
+            run_element_bookkeeper(t, lat_node, problems);
+        }
 
         // Last, so the line indices it records are the finished ones -- the
         // bookkeeper caps every branch with a `branch_end` element.

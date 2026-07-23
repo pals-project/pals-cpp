@@ -160,9 +160,7 @@ A `Controller` element bundles expressions that drive lattice parameters. Its
 `variables:` form a symbol table *scoped to that controller*, and each
 `controls:` entry pairs a `parameter` target with an `expression`. During
 expansion the controller variables are evaluated against that scoped table, and
-each control `expression` is computed and written back into its control entry.
-Controller variables may reference one another and, via the
-`controller>variable` syntax, variables of another controller:
+each control `expression` is computed and written back into its control entry:
 
 ```yaml
 - ps27:
@@ -170,14 +168,157 @@ Controller variables may reference one another and, via the
     control_type: ABSOLUTE
     variables:
       cur1: 0.023
-      cur2: cur1 / c_light      # references an earlier controller variable
+      cur2: 1e8 / c_light       # a constant expression, as initial values are
     controls:
       - parameter: Qa.*>MagneticMultipoleP.Ks2L
         expression: 0.075*sin(cur1) + 0.3*cur2   # → a number in `expanded`
 ```
 
-The `parameter` target specification and `control_type` are names, not
-expressions, and are left untouched.
+A variable's **initial value is a constant expression**: it may use the built-in
+and user-defined constants and the functions, but no variable at all — not even
+another variable of the same controller. That is what makes the initial values
+independent of the order they are written in. A variable written with no value
+is zero.
+
+A control **`expression` uses its own controller's variables**, and nothing from
+outside the controller: neither an initial value nor a control expression may
+reference a lattice parameter or another controller's variable. Both of those
+are spelled with `>`, and keeping them out is what makes the evaluation order
+well defined. The `parameter` target specification and `control_type` are names,
+not expressions, and are left untouched.
+
+### How controllers are applied
+
+The `parameter` target is a [name-matching string](../api.md#name-matching), so one entry
+drives every element it matches. What happens to those parameters depends on
+`control_type`:
+
+- **`ABSOLUTE`** (the default, materialized into the tree when the key is
+  omitted) means the controllers determine the parameter outright. Each matched
+  parameter is set to the **sum** of the values of every ABSOLUTE controller
+  driving it, replacing whatever the element itself gave. A parameter the
+  element does not carry is created, group and all.
+- **`RELATIVE`** describes a knob — an orbit bump, a chromaticity family —
+  whose *changes* the simulation program applies after the file is read. It
+  changes nothing during expansion: the parameter keeps the value its element
+  gives, and only the control expression is evaluated, for the program's use.
+
+The controllers are applied after the branches are expanded and before the
+element bookkeeper runs, so the reference, floor and dependent parameters are
+computed from the driven values — a driven `Kn1L` yields the matching `Bn1L`.
+
+A controller may also drive another controller's variable, which is named
+`controller>variable`:
+
+```yaml
+- high:
+    kind: Controller
+    variables:
+      knob: 3
+    controls:
+      - parameter: low>cur       # a variable of the `low` controller
+        expression: knob / 4
+```
+
+Controllers therefore form a hierarchy, which is evaluated from the top
+downwards; a driven variable takes its driving value instead of its own initial
+value. The order controllers are written in the file does not matter. These are
+reported as problems: a circular control hierarchy, a parameter driven by both
+an ABSOLUTE and a RELATIVE controller, a parameter that is both controlled and
+assigned a delayed (`expr(...)`) expression, a target that matches nothing in
+the expanded lattice, and a `control_type` that is neither `ABSOLUTE` nor
+`RELATIVE`.
+
+A control expression containing `random()`/`random_gauss()` is deferred like any
+other, keeping its text — and so drives nothing, leaving the expanded tree
+reproducible.
+
+## Set commands
+
+A `set` writes a value into every parameter its `parameter` name-matching string
+selects. In the `value` expression, `PARAMETER` stands for the current value of
+the parameter being written and `SELF` for the element that owns it:
+
+```yaml
+- set:
+    parameter: B1.*>BendP.e1
+    value: 2*PARAMETER + atan(SELF.BendP.g_ref)
+```
+
+Pattern matching applies to the `parameter` target only, never inside `value`.
+The compact form is a list of `target: value` pairs with no error terms:
+
+```yaml
+- sets:
+    - Q1>MagneticMultipoleP.Kn1L: 0.25
+    - D1>length: 2 * 1.5
+```
+
+A parameter of a known element that has not been written reads as **zero**, so
+`PARAMETER + 0.02` works on an element that carries no such group yet — the
+group is created. The exception is a parameter that is *still to be derived*:
+if any member of its linked family is written (the four interchangeable forms
+`BnN`/`BnNL`/`KnN`/`KnNL` of a magnetic multipole component, the two forms of an
+electric one, or the tied BendP geometry), then its value comes from the
+bookkeeper and reading it before that is an error:
+
+```yaml
+- Q1:
+    kind: Quadrupole
+    MagneticMultipoleP:
+      Ks1: 0.34
+- set:
+    parameter: Q2>MagneticMultipoleP.Bs1
+    value: Q1>MagneticMultipoleP.Bs1   # error: Bs1 needs the reference momentum
+```
+
+`absolute_error` and `relative_error` are read but **not applied**: the standard
+gives the error magnitude (`absolute_error + relative_error * |value|`) but not
+its distribution, and this library never invents randomness. The deterministic
+`value` is written and a problem is reported. A `value` that itself calls
+`random()`/`random_gauss()` is deferred like any other, leaving its parameter
+untouched.
+
+### `expand_lattice` and where a set acts
+
+An `expand_lattice` node divides the `facility` list in two, and which side a
+set sits on decides what it writes:
+
+```yaml
+facility:
+  - q1:
+      kind: Quadrupole
+      MagneticMultipoleP:
+        Kn1L: 0.375
+  - bline:
+      kind: BeamLine
+      line:
+        - q1:
+            repeat: 3
+  - lat: {kind: Lattice, branches: bline}
+
+  - expand_lattice
+
+  - set:
+      parameter: lat>>>q1>MagneticMultipoleP.Kn1L
+      value: PARAMETER * (1 + 1e-4*random_gauss())
+```
+
+- **Before** `expand_lattice` a set acts on the element *definitions*, and only
+  on those defined earlier in the list — an element defined after it is
+  untouched. One definition is written once, so all three copies of `q1` would
+  inherit the same value.
+- **After** `expand_lattice` a set acts on the already-expanded lattice, so each
+  of the three copies is a separate element and is written separately. The
+  bookkeeper has already run at this point, so a value may use computed
+  parameters such as `SELF.s_position`.
+
+The full expansion order is: pre-expansion sets → branch and fork expansion →
+ABSOLUTE controllers → bookkeeper → post-expansion sets → ABSOLUTE controllers
+again → bookkeeper again. Applying the controllers last is what keeps a
+controller authoritative over a parameter a later set also writes; the second
+bookkeeper pass recomputes the reference, floor and s-position values, and the
+family members a post-expansion set invalidated.
 
 ## Evaluating a single expression
 
