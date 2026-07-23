@@ -387,16 +387,26 @@ TEST_CASE("Bookkeeper propagates floor coordinates through a bend",
 TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
           "[bookkeeper]") {
     // b1 gives only angle_ref 0.15 over length 1.5. The expanded lattice holds
-    // every equivalent form: g_ref = angle/length = 0.1, rho_ref = 1/g_ref = 10,
-    // and bend_field_ref = g_ref / factor (factor = -c/pc for the electron).
+    // every equivalent form: g_ref = angle/length = 0.1, radius_ref = 1/g_ref =
+    // 10, and Bn0_ref = g_ref / factor (factor = -c/pc for the electron).
     struct lattices lat = expand_bookkeeper();
     YAMLTreeHandle t = lat.expanded;
 
     REQUIRE(close(param_num(t, "b1", "BendP", "angle_ref"), 0.15));
     REQUIRE(close(param_num(t, "b1", "BendP", "g_ref"), 0.1));
-    REQUIRE(close(param_num(t, "b1", "BendP", "rho_ref"), 10.0));
-    REQUIRE(close_rel(param_num(t, "b1", "BendP", "bend_field_ref"),
+    REQUIRE(close(param_num(t, "b1", "BendP", "radius_ref"), 10.0));
+    REQUIRE(close_rel(param_num(t, "b1", "BendP", "Bn0_ref"),
                       0.1 / electron_factor()));
+
+    // ...and the lengths that go with that shape (bend.md): the chord between
+    // the entrance and exit origins, its projection on the entrance axis, and
+    // the sagitta out to the arc. rho = 10, angle = 0.15.
+    REQUIRE(close_rel(param_num(t, "b1", "BendP", "L_chord"),
+                      2.0 * 10.0 * std::sin(0.075)));
+    REQUIRE(close_rel(param_num(t, "b1", "BendP", "L_rectangle"),
+                      10.0 * std::sin(0.15)));
+    REQUIRE(close_rel(param_num(t, "b1", "BendP", "L_sagitta"),
+                      10.0 * (1.0 - std::cos(0.075))));
 
     // The non-zero enum defaults of the present BendP group are made explicit.
     YAMLNodeId bp = get_child_by_key(t, find_by_key(t, "b1"), "BendP");
@@ -446,6 +456,136 @@ TEST_CASE("Bookkeeper derives the integrated electric multipole", "[bookkeeper]"
     REQUIRE(close(param_num(t, "em", "ElectricMultipoleP", "En2"), 5.0));
     REQUIRE(close(param_num(t, "em", "ElectricMultipoleP", "En2L"), 2.5));
     REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper derives the bend length from its angle and radius",
+          "[bookkeeper]") {
+    // The angle and the radius are enough on their own: the arc length follows,
+    // and with it the chord, the rectangle and the sagitta. bend.md lets an
+    // author give any two of {curvature, a length, the angle}.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              BendP:\n"
+        "                angle_ref: 0.2\n"
+        "                radius_ref: 5.0\n"
+        "          - after:\n"
+        "              kind: Marker\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", nullptr, "length"), 1.0));
+    // The derived length carries downstream: the marker sits at the far end.
+    REQUIRE(close(param_num(t, "after", nullptr, "s_position"), 1.0));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "g_ref"), 0.2));
+    REQUIRE(close_rel(param_num(t, "bnd", "BendP", "L_chord"),
+                      2.0 * 5.0 * std::sin(0.1)));
+    REQUIRE(close_rel(param_num(t, "bnd", "BendP", "L_rectangle"),
+                      5.0 * std::sin(0.2)));
+    REQUIRE(close_rel(param_num(t, "bnd", "BendP", "L_sagitta"),
+                      5.0 * (1.0 - std::cos(0.1))));
+    REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper derives the bend angle from its chord", "[bookkeeper]") {
+    // L_chord = 2 sin(angle/2) / g_ref inverts to the angle, which then gives
+    // the arc length the element never stated.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              BendP:\n"
+        "                g_ref: 0.25\n"
+        "                L_chord: 1.9\n"));
+    YAMLTreeHandle t = lat.expanded;
+    const double angle = 2.0 * std::asin(0.25 * 1.9 / 2.0);
+
+    REQUIRE(close_rel(param_num(t, "bnd", "BendP", "angle_ref"), angle));
+    REQUIRE(close_rel(param_num(t, "bnd", nullptr, "length"), angle / 0.25));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "radius_ref"), 4.0));
+    REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper gives a straight bend three equal lengths",
+          "[bookkeeper]") {
+    // No curvature and no angle: the arc, the chord and the rectangle coincide.
+    // The sagitta is zero, and a zero is not held.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 0.8\n"
+        "              BendP:\n"
+        "                e1: 0.01\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "BendP", "L_chord"), 0.8));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "L_rectangle"), 0.8));
+    YAMLNodeId bp = get_child_by_key(t, find_by_key(t, "bnd"), "BendP");
+    REQUIRE(get_child_by_key(t, bp, "L_sagitta") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper keeps the sagitta of a nearly straight bend",
+          "[bookkeeper]") {
+    // The lengths are computed through sinc rather than 1/g_ref, so a bend this
+    // gentle is not a special case: angle = 2e-12 and the sagitta is
+    // length*angle/8 = 5e-13. Taken as radius*(1 - cos(angle/2)) instead, the
+    // subtraction would have cancelled it away to zero.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 1.0e-12\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "BendP", "angle_ref"), 2.0e-12));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "L_chord"), 2.0));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "L_rectangle"), 2.0));
+    REQUIRE(close_rel(param_num(t, "bnd", "BendP", "L_sagitta"), 5.0e-13));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper flags a chord that disagrees with the bend geometry",
+          "[bookkeeper]") {
+    // angle_ref 0.15 over length 1.5 puts the chord at ~1.4986, but L_chord is
+    // set to 1.8. The author's value is reported, not overwritten.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 1.5\n"
+        "              BendP:\n"
+        "                angle_ref: 0.15\n"
+        "                L_chord: 1.8\n"));
+
+    REQUIRE(any_problem_contains(lat, "'L_chord' is inconsistent"));
+    REQUIRE(close(param_num(lat.expanded, "bnd", "BendP", "L_chord"), 1.8));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
