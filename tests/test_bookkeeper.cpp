@@ -613,6 +613,162 @@ TEST_CASE("Bookkeeper flags an inconsistent bend strength", "[bookkeeper]") {
     delete_tree(lat.leftover);
 }
 
+TEST_CASE("Bookkeeper defaults the bend actual field from g_ref",
+          "[bookkeeper]") {
+    // Kn0_from_g_ref (bend.md) is true by default, so a bend that says nothing
+    // about its actual field bends its own reference particle along the
+    // reference curve: Kn0 = g_ref. The element carries no MagneticMultipoleP,
+    // so the group is created to hold it, and the other three forms of the
+    // dipole component follow as usual.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 0.1\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.1));
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0L"), 0.2));
+    REQUIRE(close_rel(param_num(t, "bnd", "MagneticMultipoleP", "Bn0"),
+                      0.1 / electron_factor()));
+    REQUIRE(close_rel(param_num(t, "bnd", "MagneticMultipoleP", "Bn0L"),
+                      0.2 / electron_factor()));
+    // The flag itself is a non-false default of a present group, so it is made
+    // explicit alongside the enum defaults.
+    YAMLNodeId bp = get_child_by_key(t, find_by_key(t, "bnd"), "BendP");
+    REQUIRE(val_eq(t, get_child_by_key(t, bp, "Kn0_from_g_ref"), "true"));
+    REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper writes no actual field when Kn0_from_g_ref is false",
+          "[bookkeeper]") {
+    // The author has said the actual field is not the reference one. Nothing is
+    // written, and the bend keeps no multipole group at all.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 0.1\n"
+        "                Kn0_from_g_ref: false\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(get_child_by_key(t, find_by_key(t, "bnd"),
+                             "MagneticMultipoleP") == YAML_NULL_ID);
+    // The reference bend is untouched: only the actual field is being declined.
+    REQUIRE(close(param_num(t, "bnd", "BendP", "angle_ref"), 0.2));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper keeps an actual bend field the author set",
+          "[bookkeeper]") {
+    // Kn0 is set to something other than g_ref -- a bend running off its
+    // reference field, which is exactly what the parameters are separate for.
+    // The default does not apply, and the difference is not an inconsistency.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 0.1\n"
+        "              MagneticMultipoleP:\n"
+        "                Kn0: 0.3\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.3));
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0L"), 0.6));
+    REQUIRE(close(param_num(t, "bnd", "BendP", "g_ref"), 0.1));
+    REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper counts an integrated actual field as set",
+          "[bookkeeper]") {
+    // Kn0L states the same field as Kn0, just integrated over the length, so
+    // the default does not apply: Kn0 comes from Kn0L / length = 0.3, not from
+    // g_ref. A Kn0 of 0.1 here would have contradicted the author's own value.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 0.1\n"
+        "              MagneticMultipoleP:\n"
+        "                Kn0L: 0.6\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.3));
+    REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper adds the actual field to a group of other multipoles",
+          "[bookkeeper]") {
+    // A different order says nothing about the dipole component: the quadrupole
+    // the author gave stays, and Kn0 joins it in the group already there.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                g_ref: 0.1\n"
+        "              MagneticMultipoleP:\n"
+        "                Kn1: 0.5\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.1));
+    REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn1"), 0.5));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("Bookkeeper gives a straight bend no actual field", "[bookkeeper]") {
+    // No curvature, so there is no reference field to copy and nothing to hold:
+    // a zero Kn0 is not written, and no group is created for it.
+    struct lattices lat = expand_src(one_ele_yaml(
+        "          - bnd:\n"
+        "              kind: Bend\n"
+        "              length: 2.0\n"
+        "              BendP:\n"
+        "                e1: 0.01\n"));
+    YAMLTreeHandle t = lat.expanded;
+
+    REQUIRE(get_child_by_key(t, find_by_key(t, "bnd"),
+                             "MagneticMultipoleP") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+}
+
 TEST_CASE("Bookkeeper flags an inconsistent multipole component",
           "[bookkeeper]") {
     // Bn1 1.2 over length 0.5 implies Bn1L 0.6, but Bn1L is set to 0.5.
@@ -654,7 +810,8 @@ TEST_CASE("Bookkeeper materializes RF enum defaults and L_active",
 
 TEST_CASE("Bookkeeper leaves absent parameter groups alone", "[bookkeeper]") {
     // Groups not present in the file are not materialized: a plain drift gains no
-    // BendP/RFP/multipole groups. Only ReferenceP and FloorP are parser-added.
+    // BendP/RFP/multipole groups. Only ReferenceP and FloorP are parser-added,
+    // and MagneticMultipoleP on a curved bend, which has an actual field to hold.
     struct lattices lat = expand_bookkeeper();
     YAMLTreeHandle t = lat.expanded;
     YAMLNodeId d1 = find_by_key(t, "d1");
