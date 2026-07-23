@@ -1968,9 +1968,6 @@ static void resolve_bend(ryml::Tree& t, size_t ele, double& length,
     // The element length may have just been derived; later resolvers integrate
     // multipole components over it.
     get_num_child(t, ele, "length", length);
-
-    if (has_factor)
-        link_pair(t, bp, "bend_field_actual", "g_actual", factor, ctx, problems);
 }
 
 // Split a multipole component key into its (normal/skew char, order digits),

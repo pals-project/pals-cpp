@@ -121,6 +121,29 @@ TEST_CASE("a misspelled parameter inside a group is reported",
     REQUIRE(!has(ps, "'e1'"));
 }
 
+TEST_CASE("the retired actual-field bend parameters are reported",
+          "[check][problems]") {
+    // bend.md decoupled the actual field from the reference one: the field the
+    // particle sees is `Bn0`/`Kn0` of MagneticMultipoleP, defaulted from
+    // `g_ref` when `Kn0_from_g_ref` is set. `g_actual` and `bend_field_actual`
+    // are gone from BendP, and a lattice still using them is told so.
+    auto ps = problems_for("tmp_check_actual.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - b1:\n"
+                           "        kind: Bend\n"
+                           "        length: 1\n"
+                           "        BendP:\n"
+                           "          g_ref: 0.1\n"
+                           "          g_actual: 0.12\n"
+                           "          bend_field_actual: 1.4\n");
+
+    REQUIRE(has(ps, "element 'b1' BendP: unknown parameter 'g_actual'"));
+    REQUIRE(
+        has(ps, "element 'b1' BendP: unknown parameter 'bend_field_actual'"));
+    REQUIRE(!has(ps, "unknown parameter 'g_ref'"));
+}
+
 TEST_CASE("multipole component names are accepted by shape, not by list",
           "[check][problems]") {
     // A multipole component name is generated from its order, so there is no
