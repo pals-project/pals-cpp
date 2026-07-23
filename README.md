@@ -100,8 +100,19 @@ The library sources live in `src/`, split by concern:
   low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
 - `pals_expand.cpp` — the lattice expansion pipeline that builds the four-tree
   representation (`original` / `combined` / `expanded` / `leftover`): include
-  splicing, structural expansion (repeats, inherits, forks), and expression /
-  controller evaluation.
+  splicing, structural expansion (repeats, inherits, forks), expression /
+  controller evaluation, and the element bookkeeper that walks each branch
+  filling in reference parameters, floor placement, s-positions and dependent
+  parameters.
+- `pals_check.{h,cpp}` — spelling checks against the fixed PALS vocabulary
+  (element kinds and parameter group names). A `FlorP` group parses as valid
+  YAML and would otherwise go unrecognised in silence, so it is reported here,
+  with a "did you mean" suggestion where a near match exists.
+- `pals_floor.{h,cpp}` — floor (global) coordinate geometry. A placement is a
+  position plus an orientation, carried as a unit quaternion rather than the
+  standard's W matrix; `floor_propagate` advances one along the reference
+  curve, and straight_LS / bend_LS / patch_LS build the (L, S) pair for the
+  three geometries PALS defines.
 - `pals_match.cpp` — PALS name matching and parameter lookup (the PCRE2-based
   `match_names` / `get_parameter_value` family).
 - `pals_util.{h,cpp}` — small helpers shared across the PALS split

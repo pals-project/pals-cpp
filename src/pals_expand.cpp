@@ -1800,7 +1800,7 @@ static bool link_pair(ryml::Tree& t, size_t group, const char* a_key,
 }
 
 // Relate two reciprocal parameters of a group, `b_key = 1 / a_key` (e.g.
-// `rho_ref = 1 / g_ref`). A zero value has no finite reciprocal, so it is
+// `radius_ref = 1 / g_ref`). A zero value has no finite reciprocal, so it is
 // neither a source nor a target. Consistency (a*b == 1) is only meaningful when
 // both are non-zero. Returns true if it wrote a value.
 static bool reciprocal_link(ryml::Tree& t, size_t group, const char* a_key,
@@ -1830,34 +1830,145 @@ static bool reciprocal_link(ryml::Tree& t, size_t group, const char* a_key,
     return false;
 }
 
-// Resolve the BendP dependent parameters (bend.md). The reference bend strength
-// has four equivalent forms tied together by the element length and the
-// reference momentum:
-//   angle_ref     = length * g_ref
-//   rho_ref       = 1 / g_ref
-//   g_ref         = factor * bend_field_ref     (factor = q*c/pc)
-// and the "actual" output pair g_actual = factor * bend_field_actual. The
-// geometric relations need no momentum; only the field<->strength legs do, so
-// they run only when `has_factor`. Iterated to a fixed point so a value given in
-// any one form fills the others.
-static void resolve_bend(ryml::Tree& t, size_t ele, double length,
+// Store a value the bend geometry determines, or check the author's against it.
+// Same contract as link_pair / reciprocal_link: an absent parameter is filled in
+// (a zero is not "held"), a present one is verified and an inconsistency
+// reported rather than silently overwritten.
+static void derive_or_check(ryml::Tree& t, size_t node, const char* key,
+                            double value, const std::string& ctx,
+                            ProblemList& problems) {
+    double have;
+    if (get_num_child(t, node, key, have)) {
+        if (!approx_eq(have, value)) {
+            std::ostringstream m;
+            m << ctx << ": '" << key
+              << "' is inconsistent with the rest of the bend geometry (" << key
+              << " = " << format_double(have) << ", but the geometry gives "
+              << format_double(value) << ").";
+            add_problem(problems, m.str());
+        }
+        return;
+    }
+    if (value != 0.0) set_num_child(t, node, key, value);
+}
+
+// sin(x)/x, continued through the removable singularity at the origin. The bend
+// lengths are all of this shape, and taking them this way keeps a bend that is
+// nearly (or exactly) straight on the same formulas as a curved one.
+static double sinc(double x) { return x == 0.0 ? 1.0 : std::sin(x) / x; }
+
+// Tie together the three interchangeable forms of a bend's curvature:
+//   radius_ref = 1 / g_ref
+//   g_ref      = factor * Bn0_ref     (factor = q*c/pc)
+// Any one of them fills the other two; two that disagree are flagged. The field
+// leg needs the reference momentum, so it runs only when `has_factor`.
+static void link_bend_curvature(ryml::Tree& t, size_t bp, bool has_factor,
+                                double factor, const std::string& ctx,
+                                ProblemList& problems) {
+    for (int pass = 0; pass < 3; ++pass) {
+        bool changed =
+            reciprocal_link(t, bp, "g_ref", "radius_ref", ctx, problems);
+        if (has_factor)
+            changed |=
+                link_pair(t, bp, "Bn0_ref", "g_ref", factor, ctx, problems);
+        if (!changed) break;
+    }
+}
+
+// Resolve the BendP dependent parameters (bend.md, "Dependent parameters
+// calculation").
+//
+// The shape of a bend is fixed by any two of: its curvature (`g_ref`,
+// `Bn0_ref` or `radius_ref`), one of its lengths (`length`, `L_chord` or
+// `L_rectangle`), and its bend angle (`angle_ref`) -- two taken from different
+// ones of those three sets, which is exactly what the standard lets an author
+// give. Reduced to the arc `length` and the `angle_ref` it turns through, the
+// rest are (with angle = g_ref * length):
+//   L_chord     = length * sinc(angle/2)     entrance origin to exit origin
+//   L_rectangle = length * sinc(angle)       that chord along the entrance axis
+//   L_sagitta   = length * angle/8 * sinc(angle/4)^2
+// Written this way nothing divides by the curvature, so the straight bend is not
+// a special case: at zero angle the three lengths collapse to `length`, `length`
+// and zero on their own.
+//
+// Two lengths on their own (an arc and a chord, say) are left alone: they do fix
+// the shape, but only through a transcendental inversion, and the standard does
+// not allow the pair anyway. A value the author set is never overwritten -- it
+// is checked against what the geometry gives, and an inconsistency reported.
+static void resolve_bend(ryml::Tree& t, size_t ele, double& length,
                          bool has_factor, double factor,
                          const std::string& ename, ProblemList& problems) {
     size_t bp = t.find_child(ele, ryml::to_csubstr("BendP"));
     if (bp == ryml::NONE) return;
     std::string ctx = "element '" + ename + "' BendP";
+    std::string ele_ctx = "element '" + ename + "'";
 
-    reciprocal_link(t, bp, "g_ref", "rho_ref", ctx, problems);
-    for (int pass = 0; pass < 4; ++pass) {
-        bool changed = false;
-        changed |= link_pair(t, bp, "g_ref", "angle_ref", length, ctx, problems);
-        if (has_factor)
-            changed |= link_pair(t, bp, "bend_field_ref", "g_ref", factor, ctx,
-                                 problems);
-        if (!changed) break;
+    link_bend_curvature(t, bp, has_factor, factor, ctx, problems);
+
+    // What the author gave. A zero is no constraint: a bend of zero curvature,
+    // zero angle or zero length says nothing about the rest of the geometry.
+    double g = 0.0, angle = 0.0, L = 0.0, chord = 0.0, rect = 0.0;
+    bool has_g = get_num_child(t, bp, "g_ref", g) && g != 0.0;
+    bool has_angle = get_num_child(t, bp, "angle_ref", angle) && angle != 0.0;
+    bool has_L = get_num_child(t, ele, "length", L) && L != 0.0;
+    bool has_chord = get_num_child(t, bp, "L_chord", chord) && chord != 0.0;
+    bool has_rect = get_num_child(t, bp, "L_rectangle", rect) && rect != 0.0;
+
+    // Reduce whichever pair was given to (length, angle_ref). The curvature and
+    // the arc give the angle directly; a chord or a rectangle needs an arcsine,
+    // taken on the principal branch -- the bend does not turn past a half circle
+    // (a quarter, for the rectangle).
+    if (!has_angle && has_g) {
+        if (has_L) {
+            angle = g * L;
+            has_angle = true;
+        } else if (has_chord || has_rect) {
+            // chord = 2 sin(angle/2) / g_ref;  rectangle = sin(angle) / g_ref
+            double part = has_chord ? 2.0 : 1.0;
+            double len = has_chord ? chord : rect;
+            const char* key = has_chord ? "L_chord" : "L_rectangle";
+            double sine = g * len / part;
+            if (std::fabs(sine) > 1.0) {
+                add_problem(problems,
+                            ctx + ": '" + key + "' (" + format_double(len) +
+                                ") is too long for the curvature 'g_ref' (" +
+                                format_double(g) +
+                                "); no bend of that radius reaches it.");
+            } else {
+                angle = part * std::asin(sine);
+                has_angle = angle != 0.0;
+            }
+        }
     }
-    // g_ref may have been derived above; fill rho_ref from it now.
-    reciprocal_link(t, bp, "g_ref", "rho_ref", ctx, problems);
+    // The arc that goes with the angle. A bend that has a length but neither
+    // curvature nor angle keeps it, and stays straight.
+    if (!has_L && has_angle) {
+        if (has_g)
+            L = angle / g;
+        else if (has_chord)
+            L = chord / sinc(angle / 2.0);
+        else if (has_rect)
+            L = rect / sinc(angle);
+        has_L = L != 0.0;
+    }
+
+    if (has_L) {
+        derive_or_check(t, ele, "length", L, ele_ctx, problems);
+        derive_or_check(t, bp, "angle_ref", angle, ctx, problems);
+        derive_or_check(t, bp, "g_ref", angle / L, ctx, problems);
+        // radius_ref and Bn0_ref follow from a g_ref the geometry just supplied.
+        link_bend_curvature(t, bp, has_factor, factor, ctx, problems);
+        derive_or_check(t, bp, "L_chord", L * sinc(angle / 2.0), ctx, problems);
+        derive_or_check(t, bp, "L_rectangle", L * sinc(angle), ctx, problems);
+        double quarter = sinc(angle / 4.0);
+        derive_or_check(t, bp, "L_sagitta",
+                        L * angle / 8.0 * quarter * quarter, ctx, problems);
+    }
+
+    // The element length may have just been derived; later resolvers integrate
+    // multipole components over it.
+    get_num_child(t, ele, "length", length);
+
     if (has_factor)
         link_pair(t, bp, "bend_field_actual", "g_actual", factor, ctx, problems);
 }
@@ -1961,8 +2072,11 @@ static void resolve_electric_multipoles(ryml::Tree& t, size_t ele, double length
 // K = factor * B; when the species/momentum is unknown the momentum-dependent
 // legs are skipped, but the purely geometric relations (bend angle/radius,
 // multipole length-integration) still run.
+//
+// `length` is in/out: a bend given its angle and curvature but no length has one
+// derived, and the multipole integrations that follow use it.
 static void compute_dependent(ryml::Tree& t, size_t ele, const std::string& kind,
-                              const RefState& up, double length,
+                              const RefState& up, double& length,
                               ProblemList& problems) {
     bool has_factor = false;
     double factor = 0.0;
