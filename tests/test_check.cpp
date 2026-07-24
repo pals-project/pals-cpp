@@ -110,11 +110,11 @@ TEST_CASE("a misspelled parameter inside a group is reported",
                            "          edge_int2: 0.02\n"
                            "          e1: 0.1\n");
 
-    REQUIRE(has(ps, "element 'f1' ForkP: unknown parameter 'xxx'"));
+    REQUIRE(has(ps, "element 'f1>ForkP': unknown parameter 'xxx'"));
     // `edge_int2` is Bmad's spelling of what bend.md calls `edge2_int`. It is
     // reported without a guess: two edits from `edge2_int` and equally two from
     // `edge1_int`, and a tie is not worth resolving by coin toss.
-    REQUIRE(has(ps, "element 'b1' BendP: unknown parameter 'edge_int2'"));
+    REQUIRE(has(ps, "element 'b1>BendP': unknown parameter 'edge_int2'"));
     REQUIRE(!has(ps, "'edge_int2'; did you mean"));
     // Correct names are left alone.
     REQUIRE(!has(ps, "'to_line'"));
@@ -138,9 +138,9 @@ TEST_CASE("the retired actual-field bend parameters are reported",
                            "          g_actual: 0.12\n"
                            "          bend_field_actual: 1.4\n");
 
-    REQUIRE(has(ps, "element 'b1' BendP: unknown parameter 'g_actual'"));
+    REQUIRE(has(ps, "element 'b1>BendP': unknown parameter 'g_actual'"));
     REQUIRE(
-        has(ps, "element 'b1' BendP: unknown parameter 'bend_field_actual'"));
+        has(ps, "element 'b1>BendP': unknown parameter 'bend_field_actual'"));
     REQUIRE(!has(ps, "unknown parameter 'g_ref'"));
 }
 
@@ -170,11 +170,11 @@ TEST_CASE("multipole component names are accepted by shape, not by list",
                            "          Bn3: 4\n");
 
     REQUIRE(count_with(ps, "unknown parameter") == 3);
-    REQUIRE(has(ps, "MagneticMultipoleP: unknown parameter 'Kn_bogus'"));
+    REQUIRE(has(ps, "MagneticMultipoleP': unknown parameter 'Kn_bogus'"));
     // `tilt` has no length-integrated form, so the trailing `L` is not one.
-    REQUIRE(has(ps, "MagneticMultipoleP: unknown parameter 'tiltL'"));
+    REQUIRE(has(ps, "MagneticMultipoleP': unknown parameter 'tiltL'"));
     // A magnetic component in the electric group is not an electric one.
-    REQUIRE(has(ps, "ElectricMultipoleP: unknown parameter 'Bn3'"));
+    REQUIRE(has(ps, "ElectricMultipoleP': unknown parameter 'Bn3'"));
     // No suggestion is offered: the nearest listed name would be a guess at a
     // different multipole order.
     REQUIRE(!has(ps, "'Kn_bogus'; did you mean"));
@@ -315,7 +315,7 @@ TEST_CASE("a parameter group defined on its own is checked as a group",
 
     REQUIRE(!has(ps, "unknown kind 'ApertureP'"));
     REQUIRE(has(ps,
-                "element 'ap1' ApertureP: unknown parameter 'x_mim'; did you "
+                "element 'ap1>ApertureP': unknown parameter 'x_mim'; did you "
                 "mean 'x_min'?"));
     // `inherit` is a group's own key, not one of ApertureP's components.
     REQUIRE(!has(ps, "'inherit'"));

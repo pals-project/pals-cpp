@@ -390,14 +390,14 @@ void add(std::vector<std::string>& problems, const std::string& msg) {
 }
 
 // "element 'q1': " when the map is keyed, "" when it is not. `group` names the
-// parameter group being looked at, and is empty at element level:
-// "element 'q1' ForkP: ".
+// parameter group being looked at, and is empty at element level; it joins the
+// element name with the same `>` the parameter paths use: "element 'q1>ForkP': ".
 std::string where(const ryml::Tree& t, size_t node, const std::string& group) {
-    std::string s;
-    if (t.has_key(node))
-        s = "element '" + std::string(t.key(node).str, t.key(node).len) + "'";
-    if (!group.empty()) s += (s.empty() ? "" : " ") + group;
-    return s.empty() ? "" : s + ": ";
+    std::string name;
+    if (t.has_key(node)) name = std::string(t.key(node).str, t.key(node).len);
+    if (name.empty()) return group.empty() ? "" : group + ": ";
+    if (!group.empty()) name += ">" + group;
+    return "element '" + name + "': ";
 }
 
 void report(std::vector<std::string>& problems, const ryml::Tree& t,
