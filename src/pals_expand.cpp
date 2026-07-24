@@ -1410,6 +1410,11 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 // avoids a stray collision between such a name and a constant (e.g. an element
 // literally named `pi`).
 //
+// `authors`, `notes` and `reminders` are free-form prose (fundamentals.md,
+// s:palsroot), so nothing in them is an expression. Prose that happens to carry
+// a `/` (a file path) or parentheses would otherwise be taken for arithmetic by
+// looks_like_expression and reported as a broken expression.
+//
 // `destination_pointer` is here for a different reason: it is a node id, and a
 // node id is a number, so evaluating it "succeeds" and rewrites it through
 // format_double. That is lossless as a number but not as text -- an id of 110
@@ -1422,7 +1427,8 @@ static const std::set<std::string>& non_expr_keys() {
         "inherit",    "zero_point",  "to_line",
         "destination_element", "new_branch", "multipass",
         "propagate_reference", "name", "multipass_index",
-        "destination_pointer", "forked_to"};
+        "destination_pointer", "forked_to",
+        "authors",    "notes",       "reminders"};
     return keys;
 }
 
@@ -1630,11 +1636,15 @@ static void substitute_values(ryml::Tree& t, size_t node,
             std::string k(t.key(node).str, t.key(node).len);
             skip = non_expr_keys().count(k) != 0;
         } else {
-            // Bare sequence element: skip beamline `line:` name references.
+            // Bare sequence element: it has no key of its own, so the decision
+            // belongs to the key of the list it sits in -- the entries of
+            // `notes` are prose for the same reason the key is. Beamline
+            // `line:` name references are skipped the same way.
             size_t p = t.parent(node);
-            if (p != ryml::NONE && t.has_key(p) &&
-                t.key(p) == ryml::to_csubstr("line"))
-                skip = true;
+            if (p != ryml::NONE && t.has_key(p)) {
+                std::string pk(t.key(p).str, t.key(p).len);
+                skip = pk == "line" || non_expr_keys().count(pk) != 0;
+            }
         }
         if (!skip) {
             bool was_expr = false;
