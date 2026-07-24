@@ -694,6 +694,99 @@ static void expand(ryml::Tree& t, size_t node,
 }
 
 /**
+ * Give every root branch written as `- name: {...}` the `inherit` it implies.
+ *
+ * A branch's `inherit` names its root BeamLine and is optional: "Default is the
+ * name of the Branch" (lattice-construction.md, s:lattice.construct). So
+ *
+ *     branches:
+ *       - ln:
+ *           periodic: false
+ *
+ * is the branch `ln` built from the BeamLine `ln`, overriding its `periodic`.
+ * Expansion reaches a definition only through a bare name or an explicit
+ * `inherit`, so the default is supplied here, before expand() runs, by writing
+ * the key back out as an `inherit`. Appending it leaves the entry's own keys
+ * ahead of the inherited ones, which is what makes `periodic` an override.
+ *
+ * Only root branches are written this way; a Fork builds its branch by copying
+ * the `to_line` definition outright and never arrives here.
+ */
+static void default_branch_inherit(ryml::Tree& t, size_t lat_node,
+                                   const std::map<std::string, size_t>& emap) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        // A bare `- this_line` is a scalar and needs nothing: name substitution
+        // already brings the definition in.
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch) || !t.has_key(branch))
+            continue;
+        // An explicit `inherit` is the root line, and a branch carrying its own
+        // `line` is already the finished article; neither wants a default.
+        if (t.find_child(branch, ryml::to_csubstr("inherit")) != ryml::NONE)
+            continue;
+        if (t.find_child(branch, ryml::to_csubstr("line")) != ryml::NONE)
+            continue;
+        std::string name(t.key(branch).str, t.key(branch).len);
+        // A name that is not defined is left alone: the empty branch it produces
+        // is reported by check_branches_expanded, which says so in those terms
+        // rather than as a failed inherit.
+        if (emap.find(name) == emap.end()) continue;
+
+        ensure_capacity(t, 2);
+        size_t inh = t.append_child(branch);
+        t.ref(inh) |= ryml::KEY | ryml::VAL;
+        t.set_key(inh, t.to_arena(ryml::to_csubstr("inherit")));
+        t.set_val(inh, t.to_arena(ryml::to_csubstr(name)));
+    }
+}
+
+/**
+ * Report every branch that came out of expansion holding no elements.
+ *
+ * A branch is the ordered element list its root BeamLine expands to, so an
+ * empty one is always a mistake in the file -- most often a root line that was
+ * never defined. Without this the emptiness is silent, and surfaces only
+ * indirectly, as whatever downstream check first goes looking for an element
+ * that should have been there.
+ */
+static void check_branches_expanded(const ryml::Tree& t, size_t lat_node,
+                                    const std::map<std::string, size_t>& emap,
+                                    ProblemList& problems) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry)) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch) || !t.has_key(branch))
+            continue;
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line != ryml::NONE && t.is_seq(line) && t.num_children(line) > 0)
+            continue;
+
+        std::string name(t.key(branch).str, t.key(branch).len);
+        // With no `inherit` the root line is the branch's own name. An explicit
+        // `inherit` that names nothing is already reported by expand(), so only
+        // the defaulted name is diagnosed here.
+        bool defaulted =
+            t.find_child(branch, ryml::to_csubstr("inherit")) == ryml::NONE;
+        if (defaulted && emap.find(name) == emap.end())
+            add_problem(problems, "branch '" + name +
+                                      "': no root BeamLine '" + name +
+                                      "' is defined");
+        else
+            add_problem(problems,
+                        "branch '" + name + "': expanded to no elements");
+    }
+}
+
+/**
  * Drop `kind: BeamLine` from every branch of the expanded lattice `lat_node`.
  *
  * A `branches:` entry is a branch, not a BeamLine. It is instantiated from a
@@ -3803,6 +3896,10 @@ static void make_expanded_and_leftover(ParsedData* comb,
                                   ? "no lattice found to expand"
                                   : "lattice '" + name_str + "' not found");
     } else {
+        // Before expand, so the root line a branch names only by its own key is
+        // in place as an `inherit` for expansion to follow.
+        default_branch_inherit(t, lat_node, emap);
+
         size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
         std::map<size_t, int> mp_pass;  // multipass line def -> traversals so far
         std::set<size_t> done;  // branches a Fork already expanded
@@ -3812,6 +3909,10 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // Runs after expand, not inside it: a Fork appends branches as it goes,
         // so only once expand has returned does `branches` hold them all.
         strip_branch_kinds(t, lat_node, work.provenance);
+
+        // Likewise after expand, so every branch -- root and forked alike -- has
+        // had its chance to fill in, and an empty one really is empty.
+        check_branches_expanded(t, lat_node, emap, problems);
 
         // A branch whose root line is itself `multipass` numbers its elements
         // here — the branch line is not reached through a sub-line flatten, so

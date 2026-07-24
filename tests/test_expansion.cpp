@@ -211,6 +211,197 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     rm_tmp(path);
 }
 
+// A branch's `inherit` is optional and defaults to the branch's own name
+// (lattice-construction.md, s:lattice.construct), so `- ln:` with nothing but a
+// `periodic` under it is the branch `ln` built from the BeamLine `ln`.
+TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
+          "[lattices]") {
+    const char* path = "tmp_branch_default_inherit.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: \"electron\"\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - q:\n"
+              "        kind: Quadrupole\n"
+              "        length: 1\n"
+              "    - ln:\n"
+              "        kind: BeamLine\n"
+              "        periodic: true\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - q\n"
+              "    - machine:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ln:\n"
+              "              periodic: false\n"
+              "    - use: \"machine\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    YAMLNodeId machine =
+        get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId branch = get_child_by_index(
+        lat.expanded,
+        get_child_by_index(lat.expanded,
+                           get_child_by_key(lat.expanded, machine, "branches"),
+                           0),
+        0);
+    REQUIRE(key_eq(lat.expanded, branch, "ln"));
+
+    // The root line's contents are here, not just the two keys the file wrote.
+    YAMLNodeId line = get_child_by_key(lat.expanded, branch, "line");
+    REQUIRE(line != YAML_NULL_ID);
+    REQUIRE(get_size(lat.expanded, line) >= 2);
+    REQUIRE(key_eq(lat.expanded,
+                   get_child_by_index(
+                       lat.expanded, get_child_by_index(lat.expanded, line, 1), 0),
+                   "q"));
+
+    // The branch's own `periodic` still overrides the root BeamLine's, so the
+    // defaulted inherit is merged on the same terms as a written one.
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, branch, "periodic"), "false"));
+
+    // Nothing about the branch is a problem.
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        REQUIRE(std::string(lat.problems.items[i]).find("branch 'ln'") ==
+                std::string::npos);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+// A written `inherit` names the root BeamLine outright, and the default must not
+// displace it even when the branch's own name is also a defined BeamLine.
+TEST_CASE("An explicit branch inherit wins over the branch name", "[lattices]") {
+    const char* path = "tmp_branch_explicit_inherit.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: \"electron\"\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - q_named:\n"
+              "        kind: Quadrupole\n"
+              "        length: 1\n"
+              "    - s_wanted:\n"
+              "        kind: Sextupole\n"
+              "        length: 2\n"
+              "    - alt:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - q_named\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - s_wanted\n"
+              "    - machine:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - alt:\n"
+              "              inherit: ring\n"
+              "    - use: \"machine\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    YAMLNodeId machine =
+        get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId branch = get_child_by_index(
+        lat.expanded,
+        get_child_by_index(lat.expanded,
+                           get_child_by_key(lat.expanded, machine, "branches"),
+                           0),
+        0);
+    YAMLNodeId line = get_child_by_key(lat.expanded, branch, "line");
+    REQUIRE(line != YAML_NULL_ID);
+    // `ring`'s element, not `alt`'s.
+    REQUIRE(key_eq(lat.expanded,
+                   get_child_by_index(
+                       lat.expanded, get_child_by_index(lat.expanded, line, 1), 0),
+                   "s_wanted"));
+    REQUIRE(val_eq(lat.expanded,
+                   get_child_by_key(lat.expanded, branch, "inherit"), "ring"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
+// A branch that comes out of expansion with no elements is reported in its own
+// right, rather than being left for some later check to trip over.
+TEST_CASE("An empty branch is reported", "[lattices][problems]") {
+    auto problems_for = [](const char* path, const std::string& yaml) {
+        write_tmp(path, yaml);
+        struct lattices lat = parse_and_expand_PALS(path, nullptr);
+        std::vector<std::string> msgs;
+        for (size_t i = 0; i < lat.problems.count; ++i)
+            msgs.emplace_back(lat.problems.items[i]);
+        free_lattice_problems(lat.problems);
+        delete_tree(lat.original);
+        delete_tree(lat.combined);
+        delete_tree(lat.expanded);
+        delete_tree(lat.leftover);
+        rm_tmp(path);
+        return msgs;
+    };
+    auto has = [](const std::vector<std::string>& msgs, const char* needle) {
+        for (const std::string& m : msgs)
+            if (m.find(needle) != std::string::npos) return true;
+        return false;
+    };
+
+    // No BeamLine named `ln` at all: the branch names its root line by its own
+    // key, and that key resolves to nothing.
+    SECTION("root BeamLine is not defined") {
+        auto msgs = problems_for("tmp_branch_no_root.pals.yaml",
+                                 "PALS:\n"
+                                 "  facility:\n"
+                                 "    - machine:\n"
+                                 "        kind: Lattice\n"
+                                 "        branches:\n"
+                                 "          - ln:\n"
+                                 "              periodic: false\n"
+                                 "    - use: \"machine\"\n");
+        REQUIRE(has(msgs, "branch 'ln': no root BeamLine 'ln' is defined"));
+    }
+
+    // The root line is defined, and empty. The name resolves, so the message is
+    // about the branch's contents rather than about a missing definition.
+    SECTION("root BeamLine has an empty line") {
+        auto msgs = problems_for("tmp_branch_empty_line.pals.yaml",
+                                 "PALS:\n"
+                                 "  facility:\n"
+                                 "    - ln:\n"
+                                 "        kind: BeamLine\n"
+                                 "        line: []\n"
+                                 "    - machine:\n"
+                                 "        kind: Lattice\n"
+                                 "        branches:\n"
+                                 "          - ln\n"
+                                 "    - use: \"machine\"\n");
+        REQUIRE(has(msgs, "branch 'ln': expanded to no elements"));
+        REQUIRE_FALSE(has(msgs, "no root BeamLine"));
+    }
+}
+
 TEST_CASE("parse_and_expand_PALS reports expansion problems",
           "[expr][lattices][problems]") {
     // Every silent failure of expansion/evaluation is surfaced in the

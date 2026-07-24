@@ -639,6 +639,55 @@ TEST_CASE("a controller target that matches nothing is reported",
     rm_tmp(path);
 }
 
+// A branch written as `- ln:` with no `inherit` used not to expand at all, so
+// every element in it was missing and the first sign of it was the controller
+// target failing to match. The target resolves, and drives its element.
+TEST_CASE("a controller reaches an element in a branch named by its key",
+          "[expr][lattices][controller][problems]") {
+    const char* path = "tmp_ctrl_default_branch.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: \"electron\"\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - q:\n"
+              "        kind: Quadrupole\n"
+              "        length: 1\n"
+              "        MagneticMultipoleP:\n"
+              "          Kn1: 256\n"
+              "    - ln:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin\n"
+              "          - q\n"
+              "    - machine:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ln:\n"
+              "              periodic: false\n"
+              "    - oo:\n"
+              "        kind: Controller\n"
+              "        control_type: ABSOLUTE\n"
+              "        variables:\n"
+              "          vv: 2\n"
+              "        controls:\n"
+              "          - parameter: q>MagneticMultipoleP.Kn1\n"
+              "            expression: 4^vv\n"
+              "    - use: \"machine\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE_FALSE(any_contains(problem_list(lat), "matches nothing"));
+    REQUIRE(joined(lat).find("branch 'ln'") == std::string::npos);
+    REQUIRE(close(expanded_param(lat.expanded, "q", "MagneticMultipoleP", "Kn1"),
+                  16.0));
+
+    free_all(lat);
+    rm_tmp(path);
+}
+
 TEST_CASE("an unknown control_type is reported",
           "[expr][lattices][controller][problems]") {
     const char* path = "tmp_ctrl_badtype.pals.yaml";
