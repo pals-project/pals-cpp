@@ -366,3 +366,47 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
+
+TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
+    // `authors`, `notes` and `reminders` are free-form prose (fundamentals.md,
+    // s:palsroot). Prose carrying a `/` or parentheses reads as arithmetic to
+    // looks_like_expression, so evaluating it at all would report a translated
+    // file's provenance note as a broken expression.
+    const char* path = "tmp_rootprose.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  authors:\n"
+              "    - \"D. Sagan (Cornell)\"\n"
+              "  notes:\n"
+              "    - \"Translated from /nfs/acc/user/lat.bmad\"\n"
+              "  reminders:\n"
+              "    - \"Phase the RF (west) before tracking\"\n"
+              "  facility:\n"
+              "    - DH1A:\n"
+              "        kind: Bend\n"
+              "        length: 0.2\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - DH1A\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.expanded != nullptr);
+
+    REQUIRE(lat.problems.count == 0);
+    free_lattice_problems(lat.problems);
+
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
