@@ -188,6 +188,16 @@ const std::set<std::string>& open_groups() {
     return g;
 }
 
+// The keys the `PALS` root node may carry: the six of fundamentals.md
+// (s:palsroot), `phase_space_coordinates` (coordinates.md), and the two ways a
+// file names another, `include` and `load` (fundamentals.md, s:include).
+const std::set<std::string>& known_pals_keys() {
+    static const std::set<std::string> k = {
+        "authors", "extension_labels",        "facility",  "include", "load",
+        "notes",   "phase_space_coordinates", "reminders", "version"};
+    return k;
+}
+
 // Keys any parameter group may carry: a group defined outside an element is
 // given a `kind` naming the group and may be given a `name`, and any group may
 // pull its values from another with `inherit` (lattice-element-parameters.md,
@@ -359,7 +369,11 @@ std::string lowered(const std::string& s) {
 // The known name `bad` was most likely meant to be, or "" if nothing is close.
 // A name that differs only in case is the answer outright -- `marker` for
 // `Marker` -- since that is the mistake the CamelCase convention invites.
-std::string suggest(const std::string& bad, const std::set<std::string>& known) {
+//
+// `max_edits` loosens the cap for a caller whose vocabulary is small and whose
+// names are nothing like each other, where a farther guess is still safe.
+std::string suggest(const std::string& bad, const std::set<std::string>& known,
+                    int max_edits = 2) {
     std::string low = lowered(bad);
     for (const std::string& k : known)
         if (lowered(k) == low) return k;
@@ -367,7 +381,7 @@ std::string suggest(const std::string& bad, const std::set<std::string>& known) 
     // Otherwise the nearest name within a couple of edits, and never more than
     // a third of the name's length, so short names are not matched to anything
     // and everything.
-    int cap = std::min(2, std::max(1, static_cast<int>(bad.size()) / 3));
+    int cap = std::min(max_edits, std::max(1, static_cast<int>(bad.size()) / 3));
     std::string best;
     int best_d = cap + 1;
     for (const std::string& k : known) {
@@ -543,8 +557,37 @@ void walk(const ryml::Tree& t, size_t node, const Extensions& ext,
     }
 }
 
+// Check the keys of the `PALS` root node itself. walk() judges what is below it
+// in context, but the root's own vocabulary is closed and small, and a
+// misspelling there is otherwise silent: `extension_names` registers no
+// extension at all, and the first sign of it is a complaint about whatever the
+// extension was meant to cover, an element away from the actual mistake.
+//
+// Anything outside the `PALS` node is outside the standard and ignored
+// (fundamentals.md, s:palsroot), so only this node's own keys are checked.
+void check_pals_root(const ryml::Tree& t, const Extensions& ext,
+                     std::vector<std::string>& problems) {
+    size_t pals = t.find_child(t.root_id(), ryml::to_csubstr("PALS"));
+    if (pals == ryml::NONE || !t.is_map(pals)) return;
+    for (size_t c = t.first_child(pals); c != ryml::NONE;
+         c = t.next_sibling(c)) {
+        if (!t.has_key(c)) continue;
+        std::string k(t.key(c).str, t.key(c).len);
+        if (ext.marks(k) || known_pals_keys().count(k)) continue;
+        // Nine names with nothing in common, so a cap of four edits still
+        // cannot match at random -- and it reaches the wrong word in a compound
+        // name, which is the mistake this vocabulary invites.
+        std::string msg = "PALS node: unknown key '" + k + "'";
+        std::string fix = suggest(k, known_pals_keys(), 4);
+        if (!fix.empty()) msg += "; did you mean '" + fix + "'?";
+        add(problems, msg);
+    }
+}
+
 }  // namespace
 
 void check_pals_names(const ryml::Tree& t, std::vector<std::string>& problems) {
-    walk(t, t.root_id(), collect_extensions(t), problems);
+    Extensions ext = collect_extensions(t);
+    check_pals_root(t, ext, problems);
+    walk(t, t.root_id(), ext, problems);
 }

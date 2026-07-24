@@ -379,6 +379,76 @@ TEST_CASE("extension data is exempt from the spelling checks",
     REQUIRE(count_with(ps, "unknown parameter group") == 0);
 }
 
+TEST_CASE("a misspelled key of the PALS root node is reported",
+          "[check][problems]") {
+    // The root's vocabulary is closed (fundamentals.md, s:palsroot), and a
+    // misspelling there is silent otherwise: `extension_names` registers no
+    // extension, so the only sign of it would be a complaint about the data the
+    // extension was meant to cover -- here `Bmad`, an element away.
+    auto ps = problems_for("tmp_check_root.pals.yaml",
+                           "PALS:\n"
+                           "  extension_names:\n"
+                           "    names:\n"
+                           "      Bmad: bmad-specific data\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        Bmad:\n"
+                           "          bmad_key: Quadrupole\n");
+
+    REQUIRE(has(ps,
+                "PALS node: unknown key 'extension_names'; did you mean "
+                "'extension_labels'?"));
+}
+
+TEST_CASE("the documented keys of the PALS root node are not reported",
+          "[check][problems]") {
+    // Every key of s:palsroot, plus `phase_space_coordinates` (coordinates.md)
+    // and `include` (fundamentals.md, s:include). `load` has its own tests.
+    auto ps = problems_for("tmp_check_root_ok.pals.yaml",
+                           "PALS:\n"
+                           "  version: 1\n"
+                           "  authors:\n"
+                           "    - author:\n"
+                           "        name: Lastname, Firstname\n"
+                           "  notes:\n"
+                           "    - a note\n"
+                           "  reminders:\n"
+                           "    - a reminder\n"
+                           "  phase_space_coordinates: standard\n"
+                           "  extension_labels:\n"
+                           "    names:\n"
+                           "      Bmad: bmad-specific data\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        Bmad:\n"
+                           "          bmad_key: Quadrupole\n");
+
+    REQUIRE(count_with(ps, "PALS node:") == 0);
+    // The registered name covers the element data it was registered for.
+    REQUIRE(count_with(ps, "unknown parameter") == 0);
+}
+
+TEST_CASE("a root key registered as an extension is left alone",
+          "[check][problems]") {
+    auto ps = problems_for("tmp_check_root_ext.pals.yaml",
+                           "PALS:\n"
+                           "  extension_labels:\n"
+                           "    prefixes:\n"
+                           "      Bmad_: bmad-specific data\n"
+                           "  Bmad_globals:\n"
+                           "    anything: at all\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n");
+
+    REQUIRE(count_with(ps, "PALS node:") == 0);
+}
+
 TEST_CASE("an unrecognisable name is reported without a guess",
           "[check][problems]") {
     // A suggestion is offered only when something is genuinely close; a name
