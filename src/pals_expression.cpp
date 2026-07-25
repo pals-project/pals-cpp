@@ -36,8 +36,19 @@ namespace {
 // std::numbers::pi is C++20; keep this a plain constant for C++17.
 constexpr double kPi = 3.14159265358979323846;
 
-// Thrown to abort a non-evaluable expression; caught at the top level.
-struct ParseError {};
+// Thrown to abort a non-evaluable expression; caught at the top level, where
+// `why` becomes EvalOutcome::error. Every throw site says what it saw, since
+// "could not evaluate" on its own leaves the reader to find the bad symbol.
+struct ParseError {
+  std::string why;
+};
+
+std::string lowered(const std::string& s) {
+  std::string out = s;
+  for (char& c : out)
+    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+  return out;
+}
 
 class Parser {
  public:
@@ -47,7 +58,9 @@ class Parser {
 
   double parse() {
     double v = expr();
-    if (peek() != '\0') throw ParseError{};  // trailing junk
+    if (peek() != '\0')  // trailing junk
+      throw ParseError{"unexpected '" + s_.substr(pos_) +
+                       "' after the expression"};
     return v;
   }
 
@@ -141,12 +154,15 @@ class Parser {
     if (c == '(') {
       ++pos_;
       double v = expr();
-      if (!consume(')')) throw ParseError{};
+      if (!consume(')')) throw ParseError{"missing ')'"};
       return v;
     }
     if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') return number();
     if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') return name();
-    throw ParseError{};
+    throw ParseError{c == '\0'
+                         ? "expression ends where a number or name is expected"
+                         : "expected a number or name, found '" +
+                               std::string(1, c) + "'"};
   }
 
   double number() {
@@ -154,7 +170,7 @@ class Parser {
     const char* start = s_.c_str() + pos_;
     char* end = nullptr;
     double v = std::strtod(start, &end);
-    if (end == start) throw ParseError{};
+    if (end == start) throw ParseError{"expected a number"};
     pos_ += static_cast<size_t>(end - start);
     return v;
   }
@@ -206,7 +222,7 @@ class Parser {
       out.push_back(c);
       ++pos_;
     }
-    if (depth != 0) throw ParseError{};
+    if (depth != 0) throw ParseError{"missing ')'"};
     size_t a = out.find_first_not_of(" \t");
     size_t b = out.find_last_not_of(" \t");
     return (a == std::string::npos) ? "" : out.substr(a, b - a + 1);
@@ -225,7 +241,8 @@ class Parser {
       }
     }
     if (!core.empty() && std::isdigit(static_cast<unsigned char>(core.front())))
-      throw ParseError{};
+      throw ParseError{"species '" + name +
+                       "' needs a leading '#' on its mass number"};
   }
 
   // Reads the species-name argument of a particle-data function. It is either a
@@ -241,7 +258,9 @@ class Parser {
     } else if (!species_ || !species_(arg, name)) {
       // Not quoted and not a known species symbol: an unquoted literal name is
       // an error, and an unknown symbol cannot be resolved.
-      throw ParseError{};
+      throw ParseError{"'" + arg +
+                       "' is neither a quoted species name nor a symbol naming "
+                       "one"};
     }
     check_mass_number(name);
     return name;
@@ -256,7 +275,26 @@ class Parser {
     double v;
     if (builtin_constant(id, v)) return v;
     if (lookup_ && lookup_(id, v)) return v;
-    throw ParseError{};  // unknown identifier
+    // A `>` in the name makes it a reference to a controller variable or an
+    // element parameter rather than a plain constant, so say which is missing.
+    std::string what = id.find('>') == std::string::npos
+                           ? "unknown constant or variable '"
+                           : "unknown reference '";
+    throw ParseError{what + id + "'" + case_hint(id)};
+  }
+
+  // "; did you mean 'c_light'?" when `id` differs from a name that does resolve
+  // only in case. Every built-in constant is lower case, so lowering `id` and
+  // retrying is the whole test -- no second table to drift out of step. The
+  // same retry catches a user constant written `MY_CONST` but defined
+  // `my_const`.
+  std::string case_hint(const std::string& id) const {
+    std::string low = lowered(id);
+    if (low == id) return "";
+    double v;
+    if (builtin_constant(low, v) || (lookup_ && lookup_(low, v)))
+      return "; did you mean '" + low + "'?";
+    return "";
   }
 
   std::vector<double> arg_list() {
@@ -270,7 +308,7 @@ class Parser {
       ++pos_;
       args.push_back(expr());
     }
-    if (!consume(')')) throw ParseError{};
+    if (!consume(')')) throw ParseError{"missing ')' after the arguments"};
     return args;
   }
 
@@ -284,7 +322,7 @@ class Parser {
         if (fn == "charge_of") return apc::charge_of(sp);
         return apc::anomalous_moment_of(sp);
       } catch (const std::exception&) {
-        throw ParseError{};  // unknown species
+        throw ParseError{"unknown species '" + sp + "'"};
       }
     }
     // random()/random_gauss() cannot be evaluated reproducibly: mark deferred
@@ -299,11 +337,15 @@ class Parser {
 
   static double apply(const std::string& fn, const std::vector<double>& a) {
     auto unary = [&]() -> double {
-      if (a.size() != 1) throw ParseError{};
+      if (a.size() != 1)
+        throw ParseError{"'" + fn + "' takes one argument, got " +
+                         std::to_string(a.size())};
       return a[0];
     };
     auto binary = [&](int i) -> double {
-      if (a.size() != 2) throw ParseError{};
+      if (a.size() != 2)
+        throw ParseError{"'" + fn + "' takes two arguments, got " +
+                         std::to_string(a.size())};
       return a[i];
     };
 
@@ -338,7 +380,21 @@ class Parser {
       double x = binary(0), p = binary(1);
       return x - std::floor(x / p) * p;
     }
-    throw ParseError{};  // unknown function
+    // Whether the lower-case spelling is a function is settled by trying it:
+    // the names live in the chain above and nowhere else, so probing keeps the
+    // hint from going stale. The result is thrown away -- a miscased name is
+    // still an error, not a silent correction -- and the recursion stops
+    // because a lowered name lowers to itself.
+    std::string hint;
+    std::string low = lowered(fn);
+    if (low != fn) {
+      try {
+        apply(low, a);
+        hint = "; did you mean '" + low + "'?";
+      } catch (const ParseError&) {
+      }
+    }
+    throw ParseError{"unknown function '" + fn + "'" + hint};
   }
 };
 
@@ -384,11 +440,17 @@ EvalOutcome eval_expression(const std::string& text, const SymbolLookup& lookup,
       r.deferred = true;
       return r;
     }
-    if (!std::isfinite(v)) return r;  // ok stays false
+    if (!std::isfinite(v)) {  // ok stays false
+      r.error = "the result is not a finite number";
+      return r;
+    }
     r.ok = true;
     r.value = v;
+  } catch (const ParseError& e) {
+    r.error = e.why;
   } catch (...) {
     // Not an evaluable expression; r.ok stays false.
+    r.error = "not a valid expression";
   }
   return r;
 }

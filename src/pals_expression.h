@@ -32,12 +32,20 @@ namespace pals {
  *     tree reproducible. `value` is unspecified.
  *   - `ok=false, deferred=false` -> not a (valid) evaluable expression: parse
  *     error, unknown identifier, unknown species, or a non-finite result. The
- *     caller should leave the original text untouched.
+ *     caller should leave the original text untouched, and @ref error says
+ *     which of those it was.
  */
 struct EvalOutcome {
   bool ok = false;        ///< True when @ref value holds a finite result.
   bool deferred = false;  ///< True when evaluation was deferred (random()).
   double value = 0.0;     ///< The result; valid only when @ref ok is true.
+  /**
+   * Why evaluation failed, naming the offending symbol -- "unknown constant or
+   * variable 'C_LIGHT'; did you mean 'c_light'?". A lower-case sentence
+   * fragment, meant to be appended to a caller's own message. Empty when @ref
+   * ok or @ref deferred.
+   */
+  std::string error;
 };
 
 /**
