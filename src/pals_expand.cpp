@@ -1667,6 +1667,7 @@ static void substitute_values(ryml::Tree& t, size_t node,
                 std::string msg = "could not evaluate expression";
                 if (!loc.empty()) msg += " for " + loc;
                 msg += ": " + body;
+                if (!r.error.empty()) msg += " -- " + r.error;
                 add_problem(problems, msg);
             }
         }
@@ -1696,6 +1697,7 @@ struct CtrlVar {
     size_t ctrl = 0;           // index into the controllers vector
     std::string name;          // unqualified name, as used in the controller
     std::string text;          // initial-value expression ("" = the default, 0)
+    std::string error;         // why `text` did not evaluate, for the report
     bool done = false;
     // Set when an ABSOLUTE controller above this one in the hierarchy drives
     // this variable: the driving value replaces the initial value.
@@ -2055,15 +2057,19 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
                 v.done = true;
             } else if (r.deferred) {
                 v.done = true;  // random(); leave the text untouched
+            } else {
+                v.error = r.error;
             }
         }
 
         for (size_t vi : c.vars)
-            if (!vars[vi].done)
-                add_problem(problems, "controller '" + c.name + "' variable '" +
-                                          vars[vi].name +
-                                          "': could not evaluate '" +
-                                          vars[vi].text + "'");
+            if (!vars[vi].done) {
+                std::string msg = "controller '" + c.name + "' variable '" +
+                                  vars[vi].name + "': could not evaluate '" +
+                                  vars[vi].text + "'";
+                if (!vars[vi].error.empty()) msg += " -- " + vars[vi].error;
+                add_problem(problems, msg);
+            }
 
         for (CtrlControl& cc : c.controls) {
             bool was_expr = false;
@@ -2074,9 +2080,11 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
                 cc.value = r.value;
                 set_scalar_num(t, cc.expr_node, r.value);
             } else if (!r.deferred) {
-                add_problem(problems, "controller '" + c.name +
-                                          "' control expression could not be "
-                                          "evaluated: " + body);
+                std::string msg = "controller '" + c.name +
+                                  "' control expression could not be "
+                                  "evaluated: " + body;
+                if (!r.error.empty()) msg += " -- " + r.error;
+                add_problem(problems, msg);
             }
             // Deferred (random()) expressions keep their text, as everywhere
             // else, and so drive nothing: the expanded tree stays reproducible.
@@ -2654,8 +2662,9 @@ static void execute_set(ryml::Tree& t, const SetCommand& cmd,
         }
         if (r.deferred) continue;  // random(); leave the parameter alone
         if (!r.ok) {
-            add_problem(problems,
-                        where + ": could not evaluate value: " + cmd.value);
+            std::string msg = where + ": could not evaluate value: " + cmd.value;
+            if (!r.error.empty()) msg += " -- " + r.error;
+            add_problem(problems, msg);
             continue;
         }
 

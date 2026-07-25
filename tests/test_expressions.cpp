@@ -410,3 +410,132 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
+
+namespace {
+
+// Every problem reported for a one-element lattice whose `h1` is `value`.
+std::vector<std::string> problems_for_value(const char* path,
+                                            const std::string& value) {
+    write_tmp(path, "PALS:\n"
+                    "  facility:\n"
+                    "    - DH1A:\n"
+                    "        kind: Bend\n"
+                    "        length: 0.2\n"
+                    "        ReferenceP:\n"
+                    "          species_ref: proton\n"
+                    "          E_tot_ref: 1.0e9\n"
+                    "        BendP:\n"
+                    "          h1: " + value + "\n"
+                    "    - main_line:\n"
+                    "        kind: BeamLine\n"
+                    "        line:\n"
+                    "          - DH1A\n"
+                    "    - lat1:\n"
+                    "        kind: Lattice\n"
+                    "        branches:\n"
+                    "          - main_line\n"
+                    "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    std::vector<std::string> out;
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        out.push_back(lat.problems.items[i]);
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+    return out;
+}
+
+bool any_has(const std::vector<std::string>& ps, const char* needle) {
+    for (const std::string& p : ps)
+        if (p.find(needle) != std::string::npos) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("an expression that fails to evaluate says why", "[expr][lattices]") {
+    const char* path = "tmp_evalwhy.pals.yaml";
+
+    // The offending symbol is named. Without it the reader is left to find it
+    // in the expression themselves, which is the whole difficulty when the
+    // expression came out of a translator.
+    std::vector<std::string> ps = problems_for_value(path, "1.0 / C_LIGHT");
+    REQUIRE(any_has(ps, "unknown constant or variable 'C_LIGHT'"));
+    // Every built-in constant is lower case, so a miscased one is a spelling
+    // the reader can act on.
+    REQUIRE(any_has(ps, "did you mean 'c_light'?"));
+
+    // A name that is nothing like a constant gets no invented suggestion.
+    ps = problems_for_value(path, "1.0 / bogus_thing");
+    REQUIRE(any_has(ps, "unknown constant or variable 'bogus_thing'"));
+    REQUIRE(!any_has(ps, "did you mean"));
+
+    ps = problems_for_value(path, "SQRT(2.0)");
+    REQUIRE(any_has(ps, "unknown function 'SQRT'; did you mean 'sqrt'?"));
+
+    // Arity is reported against the function, not as an unknown name.
+    ps = problems_for_value(path, "atan2(1.0)");
+    REQUIRE(any_has(ps, "'atan2' takes two arguments, got 1"));
+
+    ps = problems_for_value(path, "mass_of(\"bogusium\")");
+    REQUIRE(any_has(ps, "unknown species 'bogusium'"));
+
+    ps = problems_for_value(path, "mass_of(\"3He\")");
+    REQUIRE(any_has(ps, "needs a leading '#' on its mass number"));
+
+    ps = problems_for_value(path, "2.0 * (3.0 + 4.0");
+    REQUIRE(any_has(ps, "missing ')'"));
+}
+
+TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
+    // The reason reaches the controller messages too, which is where a
+    // translated lattice tends to put its expressions.
+    const char* path = "tmp_ctrlwhy.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - oo:\n"
+              "        kind: Controller\n"
+              "        control_type: ABSOLUTE\n"
+              "        variables:\n"
+              "          vv: -1.0 / C_LIGHT\n"
+              "        controls:\n"
+              "          - parameter: q1>MagneticMultipoleP.Kn1\n"
+              "            expression: 4 ^ PI\n"
+              "    - q1:\n"
+              "        kind: Quadrupole\n"
+              "        length: 0.2\n"
+              "        ReferenceP:\n"
+              "          species_ref: proton\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - q1\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    std::vector<std::string> ps;
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        ps.push_back(lat.problems.items[i]);
+
+    REQUIRE(any_has(ps, "variable 'vv': could not evaluate"));
+    REQUIRE(any_has(ps, "unknown constant or variable 'C_LIGHT'"));
+    REQUIRE(any_has(ps, "control expression could not be evaluated"));
+    REQUIRE(any_has(ps, "unknown constant or variable 'PI'; did you mean 'pi'?"));
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
