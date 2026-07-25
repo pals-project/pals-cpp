@@ -50,29 +50,30 @@ TEST_CASE("Multipass sub-lines are numbered with a multipass_index",
               "    - use: lat1\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // Flat line: mark, cavA, cavA, cavA, cavA (5 elements), plus the appended
     // `branch_end` Placeholder the bookkeeper caps every branch with (6 total).
-    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+    YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
     YAMLNodeId branch = get_child_by_index(
-        lat.expanded,
-        get_child_by_index(lat.expanded,
-                           get_child_by_key(lat.expanded, lat1, "branches"), 0),
+        lat.full_expanded,
+        get_child_by_index(lat.full_expanded,
+                           get_child_by_key(lat.full_expanded, lat1, "branches"), 0),
         0);
-    REQUIRE(get_size(lat.expanded, get_child_by_key(lat.expanded, branch, "line")) == 6);
+    REQUIRE(get_size(lat.full_expanded, get_child_by_key(lat.full_expanded, branch, "line")) == 6);
 
     // mark, from the non-multipass inj, carries no index.
-    REQUIRE(mp_index_at(lat.expanded, 0) == YAML_NULL_ID);
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 1), "1"));  // linac pass 1
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 2), "1"));
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 3), "2"));  // linac pass 2
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 4), "2"));
+    REQUIRE(mp_index_at(lat.full_expanded, 0) == YAML_NULL_ID);
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 1), "1"));  // linac pass 1
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 2), "1"));
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 3), "2"));  // linac pass 2
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 4), "2"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -114,20 +115,21 @@ TEST_CASE("Nested multipass lines: the nearest multipass line wins",
               "    - use: lat1\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // Flat line: x, y, y, y, y, x.
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 0), "1"));  // outer, pass 1
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 1), "1"));  // inner instance 1
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 2), "1"));  // inner instance 1
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 3), "2"));  // inner instance 2
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 4), "2"));  // inner instance 2
-    REQUIRE(val_eq(lat.expanded, mp_index_at(lat.expanded, 5), "1"));  // outer, pass 1
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 0), "1"));  // outer, pass 1
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 1), "1"));  // inner instance 1
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 2), "1"));  // inner instance 1
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 3), "2"));  // inner instance 2
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 4), "2"));  // inner instance 2
+    REQUIRE(val_eq(lat.full_expanded, mp_index_at(lat.full_expanded, 5), "1"));  // outer, pass 1
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }

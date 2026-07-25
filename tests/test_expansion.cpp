@@ -8,11 +8,12 @@ TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
     REQUIRE(lat.original != nullptr);
     REQUIRE(lat.combined != nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.leftover != nullptr);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -20,22 +21,23 @@ TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
 // wrapper, and only the one entry.
 TEST_CASE("expanded holds only the root lattice", "[lattices]") {
     struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
-    YAMLNodeId root = get_root(lat.expanded);
+    YAMLNodeId root = get_root(lat.full_expanded);
 
-    REQUIRE(is_map(lat.expanded, root));
-    REQUIRE(get_size(lat.expanded, root) == 1);
-    REQUIRE(get_child_by_key(lat.expanded, root, "PALS") == YAML_NULL_ID);
+    REQUIRE(is_map(lat.full_expanded, root));
+    REQUIRE(get_size(lat.full_expanded, root) == 1);
+    REQUIRE(get_child_by_key(lat.full_expanded, root, "PALS") == YAML_NULL_ID);
 
-    YAMLNodeId entry = get_child_by_index(lat.expanded, root, 0);
-    char* key = get_node_key(lat.expanded, entry);
+    YAMLNodeId entry = get_child_by_index(lat.full_expanded, root, 0);
+    char* key = get_node_key(lat.full_expanded, entry);
     REQUIRE(std::string(key) == "lat1");
     yaml_free_string(key);
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, entry, "kind"),
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, entry, "kind"),
                    "Lattice"));
 
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     free_lattice_problems(lat.problems);
 }
@@ -67,6 +69,7 @@ TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     free_lattice_problems(lat.problems);
 }
@@ -79,30 +82,31 @@ TEST_CASE("destination_pointer resolves inside the expanded tree", "[lattices]")
 
     // Find the destination_pointer scalar anywhere in the expanded tree.
     YAMLNodeId fp = YAML_NULL_ID;
-    std::vector<YAMLNodeId> stack{get_root(lat.expanded)};
+    std::vector<YAMLNodeId> stack{get_root(lat.full_expanded)};
     while (!stack.empty()) {
         YAMLNodeId n = stack.back();
         stack.pop_back();
-        char* key = get_node_key(lat.expanded, n);
+        char* key = get_node_key(lat.full_expanded, n);
         if (key && std::string(key) == "destination_pointer") fp = n;
         yaml_free_string(key);
-        for (size_t i = 0; i < get_size(lat.expanded, n); i++)
-            stack.push_back(get_child_by_index(lat.expanded, n, i));
+        for (size_t i = 0; i < get_size(lat.full_expanded, n); i++)
+            stack.push_back(get_child_by_index(lat.full_expanded, n, i));
     }
     REQUIRE(fp != YAML_NULL_ID);
 
-    char* val = as_string(lat.expanded, fp);
+    char* val = as_string(lat.full_expanded, fp);
     YAMLNodeId target = (YAMLNodeId)std::stoull(val);
     yaml_free_string(val);
 
     // It names the fork's destination_element in the branch expansion created.
-    char* dest = as_string(lat.expanded, target);
+    char* dest = as_string(lat.full_expanded, target);
     REQUIRE(std::string(dest) == "dump_begin");
     yaml_free_string(dest);
 
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     free_lattice_problems(lat.problems);
 }
@@ -154,33 +158,33 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
               "    - use: lat1\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
-    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
-    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
-    REQUIRE(get_size(lat.expanded, branches) == 3);
+    YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.full_expanded, lat1, "branches");
+    REQUIRE(get_size(lat.full_expanded, branches) == 3);
 
     // The lattice itself is not a branch and keeps its kind.
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, lat1, "kind"),
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, lat1, "kind"),
                    "Lattice"));
 
     const char* names[] = {"main", "alt", "to_dump"};
     for (size_t i = 0; i < 3; i++) {
         YAMLNodeId branch = get_child_by_index(
-            lat.expanded, get_child_by_index(lat.expanded, branches, i), 0);
-        REQUIRE(key_eq(lat.expanded, branch, names[i]));
-        REQUIRE(get_child_by_key(lat.expanded, branch, "kind") == YAML_NULL_ID);
-        REQUIRE(get_child_by_key(lat.expanded, branch, "line") != YAML_NULL_ID);
+            lat.full_expanded, get_child_by_index(lat.full_expanded, branches, i), 0);
+        REQUIRE(key_eq(lat.full_expanded, branch, names[i]));
+        REQUIRE(get_child_by_key(lat.full_expanded, branch, "kind") == YAML_NULL_ID);
+        REQUIRE(get_child_by_key(lat.full_expanded, branch, "line") != YAML_NULL_ID);
     }
 
     // A branch keeps the components that are its own. `periodic: true` also
     // survives the merge of `ring`'s `periodic: false`, as the branch setting
     // overrides the root BeamLine's.
     YAMLNodeId alt = get_child_by_index(
-        lat.expanded, get_child_by_index(lat.expanded, branches, 1), 0);
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, alt, "inherit"),
+        lat.full_expanded, get_child_by_index(lat.full_expanded, branches, 1), 0);
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, alt, "inherit"),
                    "ring"));
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, alt, "periodic"),
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, alt, "periodic"),
                    "true"));
 
     // `sub` sits inside a `line:`, so it is a sub-line: expansion splices its
@@ -188,12 +192,12 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     // `alt` inherits `ring`, whose line is `[sub, f1]`; after flattening,
     // `sub`'s only element `q1` takes its place, so line[0] is `q1` itself.
     YAMLNodeId first = get_child_by_index(
-        lat.expanded,
-        get_child_by_index(lat.expanded,
-                           get_child_by_key(lat.expanded, alt, "line"), 0),
+        lat.full_expanded,
+        get_child_by_index(lat.full_expanded,
+                           get_child_by_key(lat.full_expanded, alt, "line"), 0),
         0);
-    REQUIRE(key_eq(lat.expanded, first, "q1"));
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, first, "kind"),
+    REQUIRE(key_eq(lat.full_expanded, first, "q1"));
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, first, "kind"),
                    "Quadrupole"));
 
     // Expansion copies a definition rather than moving it, and the definition
@@ -207,6 +211,7 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -242,31 +247,31 @@ TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
               "    - use: \"machine\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId machine =
-        get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+        get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
     YAMLNodeId branch = get_child_by_index(
-        lat.expanded,
-        get_child_by_index(lat.expanded,
-                           get_child_by_key(lat.expanded, machine, "branches"),
+        lat.full_expanded,
+        get_child_by_index(lat.full_expanded,
+                           get_child_by_key(lat.full_expanded, machine, "branches"),
                            0),
         0);
-    REQUIRE(key_eq(lat.expanded, branch, "ln"));
+    REQUIRE(key_eq(lat.full_expanded, branch, "ln"));
 
     // The root line's contents are here, not just the two keys the file wrote.
-    YAMLNodeId line = get_child_by_key(lat.expanded, branch, "line");
+    YAMLNodeId line = get_child_by_key(lat.full_expanded, branch, "line");
     REQUIRE(line != YAML_NULL_ID);
-    REQUIRE(get_size(lat.expanded, line) >= 2);
-    REQUIRE(key_eq(lat.expanded,
+    REQUIRE(get_size(lat.full_expanded, line) >= 2);
+    REQUIRE(key_eq(lat.full_expanded,
                    get_child_by_index(
-                       lat.expanded, get_child_by_index(lat.expanded, line, 1), 0),
+                       lat.full_expanded, get_child_by_index(lat.full_expanded, line, 1), 0),
                    "q"));
 
     // The branch's own `periodic` still overrides the root BeamLine's, so the
     // defaulted inherit is merged on the same terms as a written one.
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, branch, "periodic"), "false"));
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, branch, "periodic"), "false"));
 
     // Nothing about the branch is a problem.
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -277,6 +282,7 @@ TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -317,30 +323,31 @@ TEST_CASE("An explicit branch inherit wins over the branch name", "[lattices]") 
               "    - use: \"machine\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId machine =
-        get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
+        get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
     YAMLNodeId branch = get_child_by_index(
-        lat.expanded,
-        get_child_by_index(lat.expanded,
-                           get_child_by_key(lat.expanded, machine, "branches"),
+        lat.full_expanded,
+        get_child_by_index(lat.full_expanded,
+                           get_child_by_key(lat.full_expanded, machine, "branches"),
                            0),
         0);
-    YAMLNodeId line = get_child_by_key(lat.expanded, branch, "line");
+    YAMLNodeId line = get_child_by_key(lat.full_expanded, branch, "line");
     REQUIRE(line != YAML_NULL_ID);
     // `ring`'s element, not `alt`'s.
-    REQUIRE(key_eq(lat.expanded,
+    REQUIRE(key_eq(lat.full_expanded,
                    get_child_by_index(
-                       lat.expanded, get_child_by_index(lat.expanded, line, 1), 0),
+                       lat.full_expanded, get_child_by_index(lat.full_expanded, line, 1), 0),
                    "s_wanted"));
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, branch, "inherit"), "ring"));
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, branch, "inherit"), "ring"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -358,6 +365,7 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
         delete_tree(lat.original);
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
+        delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
         rm_tmp(path);
         return msgs;
@@ -438,7 +446,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // Collect the messages so the assertions do not depend on their order.
     std::vector<std::string> msgs;
@@ -471,6 +479,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -505,7 +514,7 @@ TEST_CASE("repeat with an unusable count keeps the entry",
         write_tmp(path, doc.c_str());
 
         struct lattices lat = parse_and_expand_PALS(path, nullptr);
-        REQUIRE(lat.expanded != nullptr);
+        REQUIRE(lat.full_expanded != nullptr);
 
         bool reported = false;
         for (size_t i = 0; i < lat.problems.count; ++i)
@@ -515,13 +524,14 @@ TEST_CASE("repeat with an unusable count keeps the entry",
 
         // The `line` under main_line must still hold the cell entry rather than
         // having been emptied.
-        YAMLNodeId line = find_by_key(lat.expanded, "line");
-        bool kept = line != YAML_NULL_ID && get_size(lat.expanded, line) > 0;
+        YAMLNodeId line = find_by_key(lat.full_expanded, "line");
+        bool kept = line != YAML_NULL_ID && get_size(lat.full_expanded, line) > 0;
 
         free_lattice_problems(lat.problems);
         delete_tree(lat.original);
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
+        delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
         rm_tmp(path);
         return reported && kept;
@@ -548,15 +558,16 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
 
     // With no lattice to expand, expanded is an empty map and the whole document
     // is leftover — both handles are still valid.
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.leftover != nullptr);
-    REQUIRE(get_size(lat.expanded, get_root(lat.expanded)) == 0);
+    REQUIRE(get_size(lat.full_expanded, get_root(lat.full_expanded)) == 0);
     REQUIRE(facility_of(lat.leftover) != YAML_NULL_ID);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -590,7 +601,7 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     bool wrong_shape = false;
     bool missing = false;
@@ -608,6 +619,7 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -648,7 +660,7 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
         REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
@@ -658,20 +670,21 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     // destination_pointer and the defaulted branch (named after to_line)
     // exists. The pointer is a parameter of the group, not a key loose on the
     // element.
-    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
-    REQUIRE(get_child_by_key(lat.expanded, forkp, "destination_pointer") !=
+    YAMLNodeId forkp = find_by_key(lat.full_expanded, "ForkP");
+    REQUIRE(get_child_by_key(lat.full_expanded, forkp, "destination_pointer") !=
             YAML_NULL_ID);
 
     // Expansion resolves ForkP.new_branch to the name of the branch it made,
     // which for the default is the to_line name.
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, forkp, "new_branch"),
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, forkp, "new_branch"),
                    "dump_line"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -733,33 +746,34 @@ TEST_CASE("a Fork propagates reference and floor into its new branch",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // Branch 1 is `extraction`; its first (destination) element is `m1`.
-    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
-    REQUIRE(key_eq(lat.expanded, dest, "m1"));
+    YAMLNodeId dest = first_element_of_branch(lat.full_expanded, 1);
+    REQUIRE(key_eq(lat.full_expanded, dest, "m1"));
 
-    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
+    YAMLNodeId refp = get_child_by_key(lat.full_expanded, dest, "ReferenceP");
     REQUIRE(refp != YAML_NULL_ID);
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, refp, "species_ref"),
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, refp, "species_ref"),
                    "proton"));
     // Energy carried through the zero-length Fork unchanged, and completion
     // filled in the momentum from it.
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, refp, "E_tot_ref"), "1e+09"));
-    REQUIRE(get_child_by_key(lat.expanded, refp, "pc_ref") != YAML_NULL_ID);
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, refp, "E_tot_ref"), "1e+09"));
+    REQUIRE(get_child_by_key(lat.full_expanded, refp, "pc_ref") != YAML_NULL_ID);
 
     // Floor placement of the source (x = 1.5) reaches the destination too.
-    YAMLNodeId floorp = get_child_by_key(lat.expanded, dest, "FloorP");
+    YAMLNodeId floorp = get_child_by_key(lat.full_expanded, dest, "FloorP");
     REQUIRE(floorp != YAML_NULL_ID);
-    REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, floorp, "x"),
+    REQUIRE(val_eq(lat.full_expanded, get_child_by_key(lat.full_expanded, floorp, "x"),
                    "1.5"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -803,15 +817,15 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
-    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
-    REQUIRE(key_eq(lat.expanded, dest, "m1"));
+    YAMLNodeId dest = first_element_of_branch(lat.full_expanded, 1);
+    REQUIRE(key_eq(lat.full_expanded, dest, "m1"));
 
-    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
+    YAMLNodeId refp = get_child_by_key(lat.full_expanded, dest, "ReferenceP");
     // A ReferenceP is still written (time_ref), but no species/energy propagated.
-    REQUIRE(get_child_by_key(lat.expanded, refp, "species_ref") == YAML_NULL_ID);
-    REQUIRE(get_child_by_key(lat.expanded, refp, "E_tot_ref") == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(lat.full_expanded, refp, "species_ref") == YAML_NULL_ID);
+    REQUIRE(get_child_by_key(lat.full_expanded, refp, "E_tot_ref") == YAML_NULL_ID);
 
     // `ring` has its reference from `begin`; only `extraction` is reported.
     REQUIRE(lat.problems.count == 1);
@@ -824,6 +838,7 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -873,7 +888,7 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     std::vector<std::string> msgs;
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -889,6 +904,7 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -935,39 +951,40 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
         REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
                 std::string::npos);
 
     // Exactly the two declared branches: the Fork added none.
-    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
-    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
-    REQUIRE(get_size(lat.expanded, branches) == 2);
+    YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.full_expanded, lat1, "branches");
+    REQUIRE(get_size(lat.full_expanded, branches) == 2);
 
     // The Fork still connects: it carries a destination_pointer.
-    REQUIRE(find_by_key(lat.expanded, "destination_pointer") != YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.full_expanded, "destination_pointer") != YAML_NULL_ID);
 
     // ForkP.new_branch stays `null` — no branch was made.
-    YAMLNodeId forkp = find_by_key(lat.expanded, "ForkP");
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, forkp, "new_branch"),
+    YAMLNodeId forkp = find_by_key(lat.full_expanded, "ForkP");
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, forkp, "new_branch"),
                    "null"));
 
     // `other` (branch 0) keeps its own reference — the Fork's proton/1e9 was not
     // propagated into an existing branch.
-    YAMLNodeId dest = first_element_of_branch(lat.expanded, 0);
-    REQUIRE(key_eq(lat.expanded, dest, "eb"));
-    YAMLNodeId refp = get_child_by_key(lat.expanded, dest, "ReferenceP");
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, refp, "species_ref"),
+    YAMLNodeId dest = first_element_of_branch(lat.full_expanded, 0);
+    REQUIRE(key_eq(lat.full_expanded, dest, "eb"));
+    YAMLNodeId refp = get_child_by_key(lat.full_expanded, dest, "ReferenceP");
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, refp, "species_ref"),
                    "electron"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1011,7 +1028,7 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     int reported = 0;
     for (size_t i = 0; i < lat.problems.count; ++i) {
@@ -1025,14 +1042,15 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
     REQUIRE(reported == 2);
 
     // Neither Fork resolved, so nothing was linked in either direction.
-    REQUIRE(find_by_key(lat.expanded, "destination_pointer") == YAML_NULL_ID);
-    REQUIRE(find_by_key(lat.expanded, "ForkFromP") == YAML_NULL_ID);
-    REQUIRE(find_by_key(lat.expanded, "forked_to") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.full_expanded, "destination_pointer") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.full_expanded, "ForkFromP") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.full_expanded, "forked_to") == YAML_NULL_ID);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1077,35 +1095,36 @@ TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // f1 built the `dump_line` branch; f2 (new_branch: null) pointed into it.
-    YAMLNodeId dest = first_element_of_branch(lat.expanded, 1);
-    REQUIRE(key_eq(lat.expanded, dest, "dump_begin"));
+    YAMLNodeId dest = first_element_of_branch(lat.full_expanded, 1);
+    REQUIRE(key_eq(lat.full_expanded, dest, "dump_begin"));
 
-    YAMLNodeId group = get_child_by_key(lat.expanded, dest, "ForkFromP");
+    YAMLNodeId group = get_child_by_key(lat.full_expanded, dest, "ForkFromP");
     REQUIRE(group != YAML_NULL_ID);
-    REQUIRE(get_size(lat.expanded, group) == 2);
+    REQUIRE(get_size(lat.full_expanded, group) == 2);
 
     // f1 is the 2nd element of ring, f2 the 4th.
     YAMLNodeId e0 = get_child_by_index(
-        lat.expanded, get_child_by_index(lat.expanded, group, 0), 0);
-    REQUIRE(key_eq(lat.expanded, e0, "ring>>f1"));
-    REQUIRE(val_eq(lat.expanded, e0, "2"));
+        lat.full_expanded, get_child_by_index(lat.full_expanded, group, 0), 0);
+    REQUIRE(key_eq(lat.full_expanded, e0, "ring>>f1"));
+    REQUIRE(val_eq(lat.full_expanded, e0, "2"));
 
     YAMLNodeId e1 = get_child_by_index(
-        lat.expanded, get_child_by_index(lat.expanded, group, 1), 0);
-    REQUIRE(key_eq(lat.expanded, e1, "ring>>f2"));
-    REQUIRE(val_eq(lat.expanded, e1, "4"));
+        lat.full_expanded, get_child_by_index(lat.full_expanded, group, 1), 0);
+    REQUIRE(key_eq(lat.full_expanded, e1, "ring>>f2"));
+    REQUIRE(val_eq(lat.full_expanded, e1, "4"));
 
     // The group is built only for elements a Fork actually points at.
-    REQUIRE(get_child_by_key(lat.expanded, first_element_of_branch(lat.expanded, 0),
+    REQUIRE(get_child_by_key(lat.full_expanded, first_element_of_branch(lat.full_expanded, 0),
                              "ForkFromP") == YAML_NULL_ID);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1175,25 +1194,26 @@ TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.problems.count == 0);
 
     // f1 renamed the branch it built, so `forked_to` names `proton_dump` where
     // `to_line` said `dump_line`.
-    REQUIRE(forked_to_of(lat.expanded, 0, 1) == "proton_dump>>dump_begin");
+    REQUIRE(forked_to_of(lat.full_expanded, 0, 1) == "proton_dump>>dump_begin");
 
     // f2 took the default (SELF): the branch is named after the beam line, and
     // the destination defaults to that line's first element.
-    REQUIRE(forked_to_of(lat.expanded, 0, 2) == "alt_line>>alt_begin");
+    REQUIRE(forked_to_of(lat.full_expanded, 0, 2) == "alt_line>>alt_begin");
 
     // f3 pointed into the branch f1 had already built, and names the same
     // destination as f1 does.
-    REQUIRE(forked_to_of(lat.expanded, 0, 3) == "proton_dump>>dump_begin");
+    REQUIRE(forked_to_of(lat.full_expanded, 0, 3) == "proton_dump>>dump_begin");
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1249,23 +1269,23 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     // Exactly four branches: the two listed, and one each from the two Forks.
-    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
-    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
-    REQUIRE(get_size(lat.expanded, branches) == 4);
+    YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
+    YAMLNodeId branches = get_child_by_key(lat.full_expanded, lat1, "branches");
+    REQUIRE(get_size(lat.full_expanded, branches) == 4);
 
     // f2, the Fork in the branch that f1 built, ran once: its ForkP holds one
     // destination_pointer. A second run would append a second one to the same
     // group, since handle_fork reuses the ForkP it finds.
-    YAMLNodeId f2 = first_element_of_branch(lat.expanded, 2);
-    REQUIRE(key_eq(lat.expanded, f2, "f2"));
-    YAMLNodeId forkp = get_child_by_key(lat.expanded, f2, "ForkP");
+    YAMLNodeId f2 = first_element_of_branch(lat.full_expanded, 2);
+    REQUIRE(key_eq(lat.full_expanded, f2, "f2"));
+    YAMLNodeId forkp = get_child_by_key(lat.full_expanded, f2, "ForkP");
     int pointers = 0;
-    for (size_t i = 0; i < get_size(lat.expanded, forkp); ++i) {
-        char* k = get_node_key(lat.expanded,
-                               get_child_by_index(lat.expanded, forkp, i));
+    for (size_t i = 0; i < get_size(lat.full_expanded, forkp); ++i) {
+        char* k = get_node_key(lat.full_expanded,
+                               get_child_by_index(lat.full_expanded, forkp, i));
         if (k && std::string(k) == "destination_pointer") pointers++;
         yaml_free_string(k);
     }
@@ -1275,6 +1295,7 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1380,12 +1401,12 @@ TEST_CASE("a destination_pointer survives expression substitution intact",
               "    - use: \"root_lat\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.problems.count == 0);
 
     // Five Forks resolve: two chains of three (zero_line -> a_line -> b_line,
     // one_line -> c_line -> a_line -> b_line), sharing no branch instances.
-    std::vector<std::string> ptrs = all_values_for(lat.expanded, "destination_pointer");
+    std::vector<std::string> ptrs = all_values_for(lat.full_expanded, "destination_pointer");
     REQUIRE(ptrs.size() == 5);
     for (const std::string& p : ptrs) {
         INFO("destination_pointer: " << p);
@@ -1395,12 +1416,13 @@ TEST_CASE("a destination_pointer survives expression substitution intact",
 
     // Each of those Forks reaches its destination, so each destination carries
     // the reverse link. A misparsed pointer drops the entry without a word.
-    REQUIRE(all_values_for(lat.expanded, "ForkFromP").size() == 5);
+    REQUIRE(all_values_for(lat.full_expanded, "ForkFromP").size() == 5);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1435,7 +1457,7 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     bool reported = false;
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -1448,6 +1470,7 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -1470,7 +1493,7 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
     // No usable tree: every handle is NULL.
     REQUIRE(lat.original == nullptr);
     REQUIRE(lat.combined == nullptr);
-    REQUIRE(lat.expanded == nullptr);
+    REQUIRE(lat.full_expanded == nullptr);
     REQUIRE(lat.leftover == nullptr);
 
     // A single problem, naming the file and the offending line.
@@ -1483,6 +1506,7 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
     delete_tree(lat.original);  // all NULL — delete_tree(NULL) is a safe no-op
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }

@@ -32,6 +32,7 @@ void free_all(struct lattices& lat) {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -195,13 +196,13 @@ TEST_CASE("ABSOLUTE controllers drive the parameters they match",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(expanded_param(lat.expanded, "Qa1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Qa1", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.8));
-    REQUIRE(close(expanded_param(lat.expanded, "Qa2", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Qa2", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.8));
-    REQUIRE(close(expanded_param(lat.expanded, "Qb1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Qb1", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.33));
 
@@ -241,7 +242,7 @@ TEST_CASE("several ABSOLUTE controllers on one parameter sum",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(expanded_param(lat.expanded, "a_kicker", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "a_kicker", "MagneticMultipoleP",
                                  "Kn0"),
                   0.075 * std::sin(0.023) + 0.123 * 0.044));
 
@@ -273,7 +274,7 @@ TEST_CASE("an ABSOLUTE controller creates the parameter it drives",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(expanded_param(lat.expanded, "a_kicker", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "a_kicker", "MagneticMultipoleP",
                                  "Kn0L"),
                   0.25));
 
@@ -309,8 +310,8 @@ TEST_CASE("a driven parameter feeds the dependent-parameter bookkeeping",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    double b1 = expanded_param(lat.expanded, "Q1", "MagneticMultipoleP", "Bn1L");
-    double b2 = expanded_param(lat.expanded, "Q2", "MagneticMultipoleP", "Bn1L");
+    double b1 = expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Bn1L");
+    double b2 = expanded_param(lat.full_expanded, "Q2", "MagneticMultipoleP", "Bn1L");
     REQUIRE(b1 != 0.0);
     REQUIRE(close_rel(b1, b2));
 
@@ -342,7 +343,7 @@ TEST_CASE("a RELATIVE controller leaves the lattice alone",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(expanded_param(lat.expanded, "S1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "S1", "MagneticMultipoleP",
                                  "Kn2L"),
                   0.33));
 
@@ -389,7 +390,7 @@ TEST_CASE("a controller drives another controller's variable",
     REQUIRE(joined(lat) == "");
 
     // low>cur becomes 3/4, so Q1's Kn1L is 10 * 0.75.
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   7.5));
     YAMLNodeId low = facility_param(lat.leftover, "low");
@@ -420,7 +421,7 @@ TEST_CASE("a variable with no value defaults to zero",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   5.0));
 
@@ -460,7 +461,7 @@ TEST_CASE("controller expressions may not reach outside their controller",
     REQUIRE(any_contains(msgs, "control expression may not reference"));
 
     // Q1 keeps its own value: the rejected entry drives nothing.
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.0));
 
@@ -495,7 +496,7 @@ TEST_CASE("a variable initial value may not reference a variable",
 
     // The rejected initial value falls back to the default, zero, so the
     // control expression is still evaluated: cur1 + 0.
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.023));
 
@@ -524,7 +525,7 @@ TEST_CASE("a constant is not mistaken for a variable in an initial value",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   2.0 * (1e8 / 2.99792458e8)));
 
@@ -587,7 +588,7 @@ TEST_CASE("a parameter may not be driven by both controller types",
                          "Q1>MagneticMultipoleP.Kn1L is controlled by both an "
                          "ABSOLUTE and a RELATIVE controller"));
     // Neither is applied, so the element keeps its own value.
-    REQUIRE(close(expanded_param(lat.expanded, "Q1", "MagneticMultipoleP",
+    REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   0.11));
 
@@ -681,7 +682,7 @@ TEST_CASE("a controller reaches an element in a branch named by its key",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE_FALSE(any_contains(problem_list(lat), "matches nothing"));
     REQUIRE(joined(lat).find("branch 'ln'") == std::string::npos);
-    REQUIRE(close(expanded_param(lat.expanded, "q", "MagneticMultipoleP", "Kn1"),
+    REQUIRE(close(expanded_param(lat.full_expanded, "q", "MagneticMultipoleP", "Kn1"),
                   16.0));
 
     free_all(lat);

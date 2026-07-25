@@ -100,13 +100,13 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     // order they were written in.
     const std::vector<std::string> expected_branch = {"multipass", "length",
                                                       "zero_point", "line"};
-    YAMLNodeId lat1 = get_child_by_index(lat.expanded, get_root(lat.expanded), 0);
-    REQUIRE(key_eq(lat.expanded, lat1, "lat1"));
-    YAMLNodeId branches = get_child_by_key(lat.expanded, lat1, "branches");
+    YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
+    REQUIRE(key_eq(lat.full_expanded, lat1, "lat1"));
+    YAMLNodeId branches = get_child_by_key(lat.full_expanded, lat1, "branches");
     YAMLNodeId e_line = get_child_by_index(
-        lat.expanded, get_child_by_index(lat.expanded, branches, 0), 0);
-    REQUIRE(key_eq(lat.expanded, e_line, "main_line"));
-    REQUIRE(keys_of(lat.expanded, e_line) == expected_branch);
+        lat.full_expanded, get_child_by_index(lat.full_expanded, branches, 0), 0);
+    REQUIRE(key_eq(lat.full_expanded, e_line, "main_line"));
+    REQUIRE(keys_of(lat.full_expanded, e_line) == expected_branch);
 
     // Merging `inherit: thingB` brings the parent's keys in ahead of the
     // child's own, rather than sorting the merged result. `main_line` is a
@@ -114,22 +114,23 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     // `multipass_index`, appended after the inherited keys. Finally, the element
     // bookkeeper appends its computed output groups (`ReferenceP`, `FloorP`) and
     // `s_position`, in that order, after everything the file supplied.
-    YAMLNodeId line_seq = get_child_by_key(lat.expanded, e_line, "line");
+    YAMLNodeId line_seq = get_child_by_key(lat.full_expanded, e_line, "line");
     YAMLNodeId thingZ = get_child_by_index(
-        lat.expanded, get_child_by_index(lat.expanded, line_seq, 0), 0);
-    REQUIRE(key_eq(lat.expanded, thingZ, "thingZ"));
+        lat.full_expanded, get_child_by_index(lat.full_expanded, line_seq, 0), 0);
+    REQUIRE(key_eq(lat.full_expanded, thingZ, "thingZ"));
     const std::vector<std::string> inherited = {
         "kind",           "length",     "inherit", "multipass_index",
         "ReferenceP",     "FloorP",     "s_position"};
-    REQUIRE(keys_of(lat.expanded, thingZ) == inherited);
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, thingZ, "multipass_index"),
+    REQUIRE(keys_of(lat.full_expanded, thingZ) == inherited);
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, thingZ, "multipass_index"),
                    "1"));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }

@@ -2560,11 +2560,16 @@ struct SetCommand {
 // a pre-expansion set (acting on definitions, where a derived value is not yet
 // available) from a post-expansion one (acting on the expanded lattice, where
 // writing a parameter makes its family stale).
+//
+// `written`, when given, collects one target per parameter actually written --
+// what the `expanded` tree needs in order to tell a post-expansion set's input
+// apart from a value the bookkeeper derived from it (see AuthoredParams).
 static void execute_set(ryml::Tree& t, const SetCommand& cmd,
                         const ElementMatches& matches, bool pre,
                         const pals::SymbolLookup& resolve,
                         const pals::SpeciesLookup& species,
-                        std::map<size_t, size_t>& prov, ProblemList& problems) {
+                        std::map<size_t, size_t>& prov, ProblemList& problems,
+                        std::vector<SetTarget>* written = nullptr) {
     std::string what = "set '" + cmd.param + "'";
 
     if (!matches.valid) {
@@ -2672,6 +2677,7 @@ static void execute_set(ryml::Tree& t, const SetCommand& cmd,
         for (size_t i = 0; i + 1 < tg.path.size(); ++i)
             parent = find_or_add_map_child(t, parent, tg.path[i].c_str());
         set_num_child(t, parent, tg.key.c_str(), r.value);
+        if (written) written->push_back(tg);
         // After the bookkeeper has run the rest of the family holds values
         // derived from the old one; drop them so the next pass rebuilds them.
         if (!pre) invalidate_family(t, tg, prov);
@@ -2806,7 +2812,8 @@ static void run_pre_expansion_sets(ryml::Tree& t,
 static void run_post_expansion_sets(ryml::Tree& t, size_t lat_node,
                                     const std::vector<size_t>& entries,
                                     std::map<size_t, size_t>& prov,
-                                    ProblemList& problems) {
+                                    ProblemList& problems,
+                                    std::vector<SetTarget>* written = nullptr) {
     if (lat_node == ryml::NONE) return;
     for (size_t e : entries) {
         for (const SetCommand& cmd : entry_set_commands(t, e, problems)) {
@@ -2815,7 +2822,7 @@ static void run_post_expansion_sets(ryml::Tree& t, size_t lat_node,
             make_expression_context(t, resolve, species);
             execute_set(t, cmd,
                         match_element_parameters(t, lat_node, cmd.param), false,
-                        resolve, species, prov, problems);
+                        resolve, species, prov, problems, written);
         }
     }
 }
@@ -3825,6 +3832,194 @@ static void link_fork_connections(ryml::Tree& t, size_t lat_node) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The `expanded` tree: the finished lattice minus everything the bookkeeper
+// computed.
+//
+// What counts as computed is recorded as the set of *authored* parameter paths,
+// taken before any bookkeeping runs, rather than as a list of what the
+// bookkeeper writes. Node ids cannot serve: a post-expansion `set` invalidates a
+// parameter family with t.remove(), ryml recycles the freed ids, and a recorded
+// id would then name a different node -- the hazard invalidate_family already
+// guards provenance against. And recording writes would be wrong even so:
+// set_num_child overwrites an existing key in place, so write_ref writes an
+// author's `E_tot_ref` without creating it, and it would be lost.
+//
+// A path is `branch-index/line-index/key` for an element's own parameter and
+// `branch-index/line-index/group/key` for one inside a parameter group, which is
+// as deep as a PALS element nests. Positions rather than names because names
+// repeat: one definition used three times gives three elements called `q1`.
+// Positions survive bookkeeping -- forks append their branches during expand(),
+// before the snapshot, and the only element the bookkeeper adds is the
+// `branch_end` it appends after the last one of a branch.
+
+// The authored shape of a lattice: which elements it held, and which parameters
+// each of those carried.
+struct AuthoredParams {
+    std::set<std::string> elements;  // "branch/line"
+    std::set<std::string> params;    // "branch/line[/group]/key"
+};
+
+static std::string ele_path(size_t branch, size_t line) {
+    return std::to_string(branch) + "/" + std::to_string(line);
+}
+
+// Visit every element definition of every branch line, in the order the paths
+// number them. `fn(branch_index, line_index, def, entry)` receives the element
+// definition and the anonymous seq-entry map wrapping it. The callback must not
+// add or remove nodes: the walk holds sibling ids across the call.
+template <typename F>
+static void for_each_line_element(ryml::Tree& t, size_t lat_node, F fn) {
+    size_t branches = t.find_child(lat_node, ryml::to_csubstr("branches"));
+    if (branches == ryml::NONE || !t.is_seq(branches)) return;
+
+    size_t b = 0;
+    for (size_t entry = t.first_child(branches); entry != ryml::NONE;
+         entry = t.next_sibling(entry), ++b) {
+        if (!t.is_map(entry)) continue;
+        size_t branch = t.first_child(entry);
+        if (branch == ryml::NONE || !t.is_map(branch)) continue;
+        size_t line = t.find_child(branch, ryml::to_csubstr("line"));
+        if (line == ryml::NONE || !t.is_seq(line)) continue;
+
+        size_t l = 0;
+        for (size_t le = t.first_child(line); le != ryml::NONE;
+             le = t.next_sibling(le), ++l) {
+            // A line entry is a wrapper map whose first child is the keyed
+            // element definition; bare unresolved references have no parameters.
+            if (!t.is_map(le)) continue;
+            size_t def = t.first_child(le);
+            if (def == ryml::NONE || !t.has_key(def)) continue;
+            fn(b, l, def, le);
+        }
+    }
+}
+
+// Record the lattice's authored shape. Run after expansion and expression
+// evaluation but before the bookkeeper, so what it sees is the author's inputs,
+// resolved: substituted, unrolled, evaluated, and driven by any ABSOLUTE
+// controller.
+static void collect_authored(ryml::Tree& t, size_t lat_node,
+                             AuthoredParams& out) {
+    for_each_line_element(
+        t, lat_node, [&](size_t b, size_t l, size_t ele, size_t) {
+            const std::string ep = ele_path(b, l);
+            out.elements.insert(ep);
+            for (size_t c = t.first_child(ele); c != ryml::NONE;
+                 c = t.next_sibling(c)) {
+                if (!t.has_key(c)) continue;
+                const std::string key(t.key(c).str, t.key(c).len);
+                if (!t.is_map(c)) {
+                    // A scalar (`length`) or a sequence (`ForkFromP`), held or
+                    // dropped whole.
+                    out.params.insert(ep + "/" + key);
+                    continue;
+                }
+                // The group is recorded in its own right as well as by its
+                // members: writing the group is meaningful even when it holds
+                // nothing the author set, since presence is what makes the
+                // bookkeeper materialize its defaults.
+                out.params.insert(ep + "/" + key);
+                for (size_t g = t.first_child(c); g != ryml::NONE;
+                     g = t.next_sibling(g))
+                    if (t.has_key(g))
+                        out.params.insert(ep + "/" + key + "/" +
+                                          std::string(t.key(g).str,
+                                                      t.key(g).len));
+            }
+        });
+}
+
+// Fold the parameters a post-expansion `set` wrote into the authored set. Those
+// sets run after the first bookkeeper pass, so the snapshot taken before it has
+// not seen them -- without this, `expanded` would drop the very value the set
+// wrote and keep what the second pass derived from it. The targets name their
+// element by node id, which is still live (nothing removes an element), so the
+// branch/line position is read back off the tree.
+static void add_set_targets(ryml::Tree& t, size_t lat_node,
+                            const std::vector<SetTarget>& writes,
+                            AuthoredParams& out) {
+    if (writes.empty()) return;
+
+    std::map<size_t, std::string> where;
+    for_each_line_element(
+        t, lat_node, [&](size_t b, size_t l, size_t ele, size_t) {
+            where[ele] = ele_path(b, l);
+        });
+
+    for (const SetTarget& tg : writes) {
+        auto it = where.find(tg.ele);
+        if (it == where.end() || tg.path.empty()) continue;
+        // `path` is the parameter's route within the element: [key] for one of
+        // the element's own, [group, key] for one inside a group.
+        std::string p = it->second;
+        for (const std::string& step : tg.path) p += "/" + step;
+        out.params.insert(p);
+        if (tg.path.size() >= 2) out.params.insert(it->second + "/" + tg.path[0]);
+    }
+}
+
+// Cut every computed parameter out of a copy of the finished lattice, leaving
+// the authored inputs. Nodes are gathered first and removed afterwards: removal
+// frees ids, which would invalidate the walk that is still using them.
+static void prune_computed_params(ryml::Tree& t, size_t lat_node,
+                                  const AuthoredParams& authored,
+                                  std::map<size_t, size_t>& prov) {
+    std::vector<size_t> drop;
+
+    for_each_line_element(
+        t, lat_node, [&](size_t b, size_t l, size_t ele, size_t entry) {
+            const std::string ep = ele_path(b, l);
+            if (!authored.elements.count(ep)) {
+                // An element the bookkeeper added: the `branch_end` Placeholder
+                // capping the branch, which exists only to carry the final
+                // reference and floor. Drop the seq entry rather than just the
+                // definition, so the line is not left holding an empty slot.
+                drop.push_back(entry);
+                return;
+            }
+            for (size_t c = t.first_child(ele); c != ryml::NONE;
+                 c = t.next_sibling(c)) {
+                if (!t.has_key(c)) continue;
+                const std::string key(t.key(c).str, t.key(c).len);
+                // `kind` says what the element is rather than how it is set up;
+                // it is held whatever the snapshot saw.
+                if (key == "kind") continue;
+
+                const std::string path = ep + "/" + key;
+                if (!t.is_map(c)) {
+                    if (!authored.params.count(path)) drop.push_back(c);
+                    continue;
+                }
+
+                std::vector<size_t> stale;
+                bool any_authored = false;
+                for (size_t g = t.first_child(c); g != ryml::NONE;
+                     g = t.next_sibling(g)) {
+                    if (!t.has_key(g)) continue;
+                    if (authored.params.count(
+                            path + "/" +
+                            std::string(t.key(g).str, t.key(g).len)))
+                        any_authored = true;
+                    else
+                        stale.push_back(g);
+                }
+                // A group with nothing authored left in it goes too -- unless
+                // the author wrote the group itself, in which case it stays,
+                // empty, as written.
+                if (!any_authored && !authored.params.count(path))
+                    drop.push_back(c);
+                else
+                    drop.insert(drop.end(), stale.begin(), stale.end());
+            }
+        });
+
+    for (size_t n : drop) {
+        erase_prov_subtree(t, n, prov);
+        t.remove(n);
+    }
+}
+
 // Rewrite the `destination_pointer` scalars of a freshly split-out tree.
 // handle_fork stores the raw node id of the fork's destination element, but it
 // runs while expansion is still on the work tree; cutting the lattice out into
@@ -3862,20 +4057,52 @@ static void remap_destination_pointers(ryml::Tree& t, size_t node,
         remap_destination_pointers(t, c, from_work, problems);
 }
 
-// Builds the `expanded` and `leftover` trees from `combined`.
+// Copy the lattice out of the work tree into a tree of its own: a map holding
+// the single `name: {...}` entry. The root is synthesised (a ryml root cannot
+// itself carry a key), so it has no counterpart in combined and no provenance
+// entry. When there is no lattice the tree stays an empty map.
+static ParsedData* split_out_lattice(ryml::Tree& t, size_t lat_node,
+                                     const std::map<size_t, size_t>& work_prov,
+                                     ProblemList& problems) {
+    ParsedData* out = new ParsedData();
+    out->tree.reserve(out->tree.capacity() + t.capacity() + 16);
+    out->tree.reserve_arena(out->tree.arena_capacity() + t.arena_capacity());
+    out->tree.ref(out->tree.root_id()) |= ryml::MAP;
+    if (lat_node == ryml::NONE) return out;
+
+    ensure_capacity(out->tree);
+    size_t entry = out->tree.append_child(out->tree.root_id());
+    deep_copy_tracked(out->tree, entry, t, lat_node, out->provenance);
+
+    // Before provenance is chained up to combined it still reads
+    // this-tree->work, which inverts into exactly the renaming the fork
+    // pointers need.
+    std::map<size_t, size_t> from_work;
+    for (const auto& kv : out->provenance) from_work[kv.second] = kv.first;
+    remap_destination_pointers(out->tree, out->tree.root_id(), from_work,
+                               problems);
+
+    chain_prov(out->provenance, work_prov);
+    return out;
+}
+
+// Builds the `expanded`, `full_expanded` and `leftover` trees from `combined`.
 //
 // Expansion has to run on the whole document at once — the lattice pulls in
 // element and beamline definitions from the rest of the file — so it happens on
-// a single throwaway work tree, which is then cut in two: `expanded` takes the
-// root lattice and nothing else, `leftover` takes everything the lattice left
-// behind. Both record provenance straight back to `combined`, so the work tree
-// can be discarded.
+// a single throwaway work tree, which is then cut up: the root lattice is taken
+// twice, once whole as `full_expanded` and once pruned back to the author's
+// inputs as `expanded`, and `leftover` takes everything the lattice left behind.
+// All three record provenance straight back to `combined`, so the work tree can
+// be discarded.
 static void make_expanded_and_leftover(ParsedData* comb,
                                        const char* root_lattice,
                                        ProblemList& problems,
                                        YAMLTreeHandle& expanded_out,
+                                       YAMLTreeHandle& full_expanded_out,
                                        YAMLTreeHandle& leftover_out) {
     expanded_out = nullptr;
+    full_expanded_out = nullptr;
     leftover_out = nullptr;
     if (!comb) return;
 
@@ -3909,6 +4136,10 @@ static void make_expanded_and_leftover(ParsedData* comb,
     // an empty entry. A lattice that is not a lone entry under a wrapper (e.g.
     // one keyed directly into a map) is skipped on its own.
     size_t skip = ryml::NONE;
+
+    // What the author asked for, against which the bookkeeper's output is told
+    // apart further down; filled in just before the bookkeeper runs.
+    AuthoredParams authored;
 
     if (lat_node == ryml::NONE) {
         add_problem(problems, name_str.empty()
@@ -3947,6 +4178,12 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // creates is new and simply has no provenance, like ReferenceP/FloorP.
         evaluate_expressions(t, lat_node, problems);
 
+        // The last point at which the lattice holds the author's inputs and
+        // nothing else. Record their paths now; everything the finished lattice
+        // carries that is not among them was computed, and is what tells
+        // `expanded` apart from `full_expanded`.
+        collect_authored(t, lat_node, authored);
+
         // With every input now a plain number, walk each branch element-by-
         // element to fill in the reference, floor, s-position, and field-
         // dependent output parameters. This adds new ReferenceP/FloorP nodes,
@@ -3961,8 +4198,13 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // second time to recompute what those writes invalidated -- reference
         // and floor parameters, and the family members execute_set dropped.
         if (!facility.post.empty()) {
+            std::vector<SetTarget> set_writes;
             run_post_expansion_sets(t, lat_node, facility.post, work.provenance,
-                                    problems);
+                                    problems, &set_writes);
+            // These writes are inputs like any other, but they land after the
+            // snapshot above; join them to it before the second bookkeeper pass
+            // derives their families again.
+            add_set_targets(t, lat_node, set_writes, authored);
             evaluate_expressions(t, lat_node, problems);
             run_element_bookkeeper(t, lat_node, problems);
         }
@@ -3978,31 +4220,23 @@ static void make_expanded_and_leftover(ParsedData* comb,
                    : lat_node;
     }
 
-    // expanded: a map holding just the lattice entry, keyed by its name. The
-    // root is synthesised (a ryml root cannot itself carry a key), so it has no
-    // counterpart in combined and no provenance entry. When no lattice was
-    // found the tree stays an empty map.
-    ParsedData* exp = new ParsedData();
-    exp->tree.reserve(exp->tree.capacity() + t.capacity() + 16);
-    exp->tree.reserve_arena(exp->tree.arena_capacity() + t.arena_capacity());
-    exp->tree.ref(exp->tree.root_id()) |= ryml::MAP;
+    // full_expanded: the lattice as the bookkeeper left it, everything computed.
+    ParsedData* full = split_out_lattice(t, lat_node, work.provenance, problems);
+
+    // expanded: the same lattice, pruned back to what the author wrote. It is
+    // cut from the same work tree rather than from `full`, so the two are
+    // independent -- freeing one leaves the other whole. Its faults are `full`'s
+    // faults and have just been reported, so the second split's problems are
+    // dropped rather than said twice.
+    ProblemList said_already;
+    ParsedData* mini =
+        split_out_lattice(t, lat_node, work.provenance, said_already);
     if (lat_node != ryml::NONE) {
-        ensure_capacity(exp->tree);
-        size_t entry = exp->tree.append_child(exp->tree.root_id());
-        deep_copy_tracked(exp->tree, entry, t, lat_node, exp->provenance);
-
-        // Before provenance is chained up to combined it still reads
-        // expanded->work, which inverts into exactly the renaming the fork
-        // pointers need.
-        std::map<size_t, size_t> from_work;
-        for (const auto& kv : exp->provenance) from_work[kv.second] = kv.first;
-        remap_destination_pointers(exp->tree, exp->tree.root_id(), from_work,
-                                   problems);
-
-        chain_prov(exp->provenance, work.provenance);
+        size_t entry = mini->tree.first_child(mini->tree.root_id());
+        prune_computed_params(mini->tree, entry, authored, mini->provenance);
     }
 
-    // leftover: the whole document minus what went to expanded.
+    // leftover: the whole document minus what went to the expanded trees.
     ParsedData* left = new ParsedData();
     left->tree.reserve(left->tree.capacity() + t.capacity() + 16);
     left->tree.reserve_arena(left->tree.arena_capacity() + t.arena_capacity());
@@ -4010,7 +4244,8 @@ static void make_expanded_and_leftover(ParsedData* comb,
                              skip, left->provenance);
     chain_prov(left->provenance, work.provenance);
 
-    expanded_out = exp;
+    expanded_out = mini;
+    full_expanded_out = full;
     leftover_out = left;
 }
 
@@ -4122,7 +4357,7 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
     ProblemList problems;
     // Built as a derivation chain so provenance can be recorded at each step:
     //   original --(splice includes, merge loads)--> combined
-    //   combined  --(expand, split)--> expanded, leftover
+    //   combined  --(expand, split)--> expanded, full_expanded, leftover
     //
     // Every file is keyed in `original` by its folded path, so folding the
     // top-level one here is what makes it agree with the paths the files
@@ -4132,7 +4367,7 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
     lat.original = make_original(top_path, parse_error);
     if (!parse_error.empty()) {
         // The top-level file is not valid YAML: there is no tree to expand.
-        // Free the empty stand-in, leave all four handles NULL, and report the
+        // Free the empty stand-in, leave all five handles NULL, and report the
         // location as the single problem so the caller can pinpoint the fault.
         delete_tree(lat.original);
         lat.original = nullptr;
@@ -4150,7 +4385,7 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
 
         make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
                                    root_lattice, problems, lat.expanded,
-                                   lat.leftover);
+                                   lat.full_expanded, lat.leftover);
     }
 
     // Hand the problem list to the caller as an owning C string array (freed
@@ -4184,11 +4419,11 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok) {
 }
 
 YAML_API struct correspondence_map build_correspondence_map(
-    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded,
-    YAMLTreeHandle leftover) {
-    (void)original;  // provenance is stored in combined, expanded & leftover
+    YAMLTreeHandle original, YAMLTreeHandle combined,
+    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover) {
+    (void)original;  // provenance is in combined, full_expanded & leftover
     struct correspondence_map out = {nullptr, 0};
-    if (!combined || (!expanded && !leftover)) return out;
+    if (!combined || (!full_expanded && !leftover)) return out;
 
     ParsedData* comb = static_cast<ParsedData*>(combined);
     const std::map<size_t, size_t>& c2o = comb->provenance;  // combined->original
@@ -4212,7 +4447,7 @@ YAML_API struct correspondence_map build_correspondence_map(
             stack.pop_back();
 
             struct node_link link;
-            link.expanded = is_leftover ? YAML_NULL_ID : n;
+            link.full_expanded = is_leftover ? YAML_NULL_ID : n;
             link.leftover = is_leftover ? n : YAML_NULL_ID;
             auto dc = d2c.find(n);
             if (dc != d2c.end()) {
@@ -4231,7 +4466,7 @@ YAML_API struct correspondence_map build_correspondence_map(
         }
     };
 
-    walk(expanded, false);
+    walk(full_expanded, false);
     walk(leftover, true);
 
     out.count = links.size();

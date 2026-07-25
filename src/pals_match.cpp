@@ -517,9 +517,10 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
 }
 
 YAML_API struct param_value get_lattice_parameter_value(
-    YAMLTreeHandle expanded, YAMLTreeHandle leftover, const char* match_string) {
+    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover,
+    const char* match_string) {
     // Element parameters live in the expanded lattice; look there first.
-    struct param_value v = get_parameter_value(expanded, match_string);
+    struct param_value v = get_parameter_value(full_expanded, match_string);
     if (v.kind != PARAM_VALUE_MISSING) return v;
     // Constants, variables and unused definitions live in the facility
     // scaffolding kept by the leftover tree.

@@ -21,7 +21,7 @@
  *        representations.
  *
  * @defgroup correspond Node correspondence
- * @brief Map a single logical node across the original, combined, expanded and
+ * @brief Map a single logical node across the original, combined, full_expanded
  *        leftover trees.
  *
  * @defgroup namematch Name matching
@@ -72,7 +72,7 @@ typedef size_t YAMLNodeId;
  * @ingroup parse
  *
  * Used to return the human-readable problems encountered while building the
- * `expanded` tree (undefined lattice, dangling element/line references,
+ * `full_expanded` tree (undefined lattice, dangling element/line references,
  * undefined `inherit`/`repeat`/`Fork` targets, expressions that could not be
  * evaluated, ...). Free with free_lattice_problems().
  */
@@ -82,7 +82,7 @@ struct string_list {
 };
 
 /**
- * @brief The four trees parse_and_expand_PALS() produces, plus the problems
+ * @brief The five trees parse_and_expand_PALS() produces, plus the problems
  *        found on the way.
  * @ingroup parse
  *
@@ -96,18 +96,24 @@ struct lattices {
                               ///< its unparsed contents, keyed by path.
     YAMLTreeHandle combined;  ///< Tree with all "include" directives spliced
                               ///< inline and all "load"ed files merged in.
-    YAMLTreeHandle expanded;  ///< The expanded root lattice, and nothing else:
-                              ///< a map holding the single `name: {kind:
-                              ///< Lattice, ...}` entry, without the
-                              ///< PALS/facility scaffolding it was defined
-                              ///< under.
-    YAMLTreeHandle leftover;  ///< Everything the expanded tree does not carry —
+    YAMLTreeHandle expanded;  ///< @ref full_expanded minus every parameter the
+                              ///< bookkeeper computed. Values are the finished
+                              ///< ones: a parameter in both trees holds the
+                              ///< same value in both.
+    YAMLTreeHandle full_expanded;  ///< The expanded root lattice, and nothing
+                                   ///< else: a map holding the single `name:
+                                   ///< {kind: Lattice, ...}` entry, without the
+                                   ///< PALS/facility scaffolding it was defined
+                                   ///< under. Every dependent parameter is
+                                   ///< computed and present.
+    YAMLTreeHandle leftover;  ///< Everything the expanded trees do not carry —
                               ///< the whole PALS/facility document minus the
                               ///< root lattice, so element/beamline
                               ///< definitions, `use` statements, constants and
                               ///< any non-root Lattice.
-    struct string_list problems;  ///< Problems found while building `expanded`;
-                                  ///< free with free_lattice_problems().
+    struct string_list problems;  ///< Problems found while building
+                                  ///< `full_expanded`; free with
+                                  ///< free_lattice_problems().
 };
 
 /**
@@ -115,28 +121,32 @@ struct lattices {
  *        parse_and_expand_PALS().
  * @ingroup correspond
  *
- * The trees are built as a derivation chain (original -> combined -> expanded
- * and leftover), and provenance is recorded at every copy, so each link records
- * which node in each tree a single logical entity maps to.
+ * The trees are built as a derivation chain (original -> combined ->
+ * full_expanded and leftover), and provenance is recorded at every copy, so each
+ * link records which node in each tree a single logical entity maps to.
  *
- * The mapping is functional per link: one expanded (or leftover) node maps to at
- * most one combined node, which maps to at most one original node. Because
+ * The mapping is functional per link: one full_expanded (or leftover) node maps
+ * to at most one combined node, which maps to at most one original node. Because
  * expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
  * forks), a single combined/original node may appear in several links — one per
  * copy. A field is YAML_NULL_ID when no corresponding node exists (e.g. the
  * `destination_pointer` scalars synthesised during expansion have no original
  * source).
  *
- * Expansion splits the document, so a link carries either an `expanded` id or a
- * `leftover` id, never both; the two are tied together through the `combined`
- * id they share. A definition that was substituted into the lattice therefore
- * yields links on both sides: one for the copy in `expanded`, one for the
- * definition still standing in `leftover`.
+ * Expansion splits the document, so a link carries either a `full_expanded` id
+ * or a `leftover` id, never both; the two are tied together through the
+ * `combined` id they share. A definition that was substituted into the lattice
+ * therefore yields links on both sides: one for the copy in `full_expanded`, one
+ * for the definition still standing in `leftover`.
+ *
+ * The `expanded` tree is not mapped: it is a pruned copy of `full_expanded`, so
+ * a node in it is found by the path it sits at, not by a recorded link.
  */
 struct node_link {
     YAMLNodeId original;  ///< Node in the `original` tree, or YAML_NULL_ID.
     YAMLNodeId combined;  ///< Node in the `combined` tree, or YAML_NULL_ID.
-    YAMLNodeId expanded;  ///< Node in the `expanded` tree, or YAML_NULL_ID.
+    YAMLNodeId full_expanded;  ///< Node in the `full_expanded` tree, or
+                               ///< YAML_NULL_ID.
     YAMLNodeId leftover;  ///< Node in the `leftover` tree, or YAML_NULL_ID.
 };
 
@@ -144,7 +154,7 @@ struct node_link {
  * @brief A flat list of node_links.
  * @ingroup correspond
  *
- * One link is emitted per node of the expanded tree and one per node of the
+ * One link is emitted per node of the full_expanded tree and one per node of the
  * leftover tree. Free with free_correspondence_map().
  */
 struct correspondence_map {
@@ -179,12 +189,12 @@ extern "C" {
  * statement, or
  *                       - expands the last lattice defined in the file if no
  * "use" is present.
- * @return A `lattices` struct containing four handles:
+ * @return A `lattices` struct containing five handles:
  *           - `original`: raw tree mapping each file (including includes) to
  * its unparsed contents.
  *           - `combined`: tree with all "include" directives resolved and
  * spliced inline.
- *           - `expanded`: the selected lattice fully expanded — scalars
+ *           - `full_expanded`: the selected lattice fully expanded — scalars
  * substituted, repeats unrolled, inherits merged, and forks resolved — and
  * nothing else. Rooted at a map holding the single `name: {kind: Lattice, ...}`
  * entry, stripped of the PALS/facility scaffolding it was defined under. Its
@@ -193,20 +203,36 @@ extern "C" {
  * contents are spliced directly into the enclosing line, so no nested BeamLine
  * survives. Elements of a `multipass` line carry a `multipass_index` giving
  * their pass number — how many times a particle will have travelled through
- * that physical element by that point.
+ * that physical element by that point. Every dependent parameter has been
+ * computed: each element carries its `ReferenceP`, `FloorP` and `s_position`,
+ * the derived members of every parameter family it uses (`Kn1L` alongside
+ * `Kn1`, `voltage` alongside `gradient`, ...), the non-zero defaults of the
+ * groups it carries, and each branch is capped with a `branch_end` Placeholder
+ * holding its final reference and floor.
+ *           - `expanded`: the same lattice with all of that removed. Which
+ * parameters it keeps is decided by what the author wrote: one is held when it
+ * was present before bookkeeping ran or was written by a post-`expand_lattice`
+ * `set`, and everything else the bookkeeper computed is pruned, along with any
+ * group left empty and the `branch_end` elements. The *values* it holds are the
+ * finished ones — this is `full_expanded` with nodes removed, not an earlier
+ * snapshot, so a parameter present in both trees carries the same value in
+ * both, with every `set` and ABSOLUTE controller applied. Use it to see what
+ * was asked for rather than what it implies, or to write a lattice back out
+ * without the derived values.
  *           - `leftover`: the rest of the document, keeping its PALS/facility
  * scaffolding: element and beamline definitions, `use` statements, constants,
  * and any Lattice that was not the one expanded. Definitions substituted into
  * the lattice are copies, so they appear in both trees.
- *         All four handles must be freed individually with delete_tree().
+ *         All five handles must be freed individually with delete_tree().
  *
  *         The returned struct also carries `problems`: an owning list of
  *         human-readable messages for every issue met while building the
- *         `expanded` tree (undefined lattice, dangling element/line references,
- *         undefined `inherit`/`repeat`/`Fork` targets, and expressions that
- *         could not be evaluated). It is empty when expansion was clean. The
- *         caller owns it and must release it with free_lattice_problems(). The
- *         library does not print — the caller decides whether to report.
+ *         `full_expanded` tree (undefined lattice, dangling element/line
+ *         references, undefined `inherit`/`repeat`/`Fork` targets, and
+ *         expressions that could not be evaluated). It is empty when expansion
+ *         was clean. The caller owns it and must release it with
+ *         free_lattice_problems(). The library does not print — the caller
+ *         decides whether to report.
  */
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
@@ -247,33 +273,38 @@ YAML_API void free_lattice_problems(struct string_list problems);
 YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
 
 /**
- * Builds the node correspondence between the four trees of a `lattices` value.
+ * Builds the node correspondence between the derivation-chain trees of a
+ * `lattices` value.
  * @ingroup correspond
  *
- * Returns a flat list containing one `node_link` per node of the `expanded`
- * tree and one per node of the `leftover` tree. Each link gives the
- * corresponding `combined` and `original` node ids (or YAML_NULL_ID where none
- * exists). Grouping the links by shared combined / original ids recovers, for
- * any node in any of the four trees, the set of nodes it corresponds to in the
+ * Returns a flat list containing one `node_link` per node of the
+ * `full_expanded` tree and one per node of the `leftover` tree. Each link gives
+ * the corresponding `combined` and `original` node ids (or YAML_NULL_ID where
+ * none exists). Grouping the links by shared combined / original ids recovers,
+ * for any node in any of those trees, the set of nodes it corresponds to in the
  * others.
+ *
+ * The `expanded` tree takes no part: it is a pruned copy of `full_expanded`
+ * rather than a step in the derivation chain, and its nodes are located by path.
  *
  * The handles must come from the same parse_and_expand_PALS() call — the
  * provenance recorded during that call is what makes the mapping exact. The
  * `original` handle is accepted for API symmetry; the mapping is derived from
- * the provenance stored in `combined`, `expanded` and `leftover`.
+ * the provenance stored in `combined`, `full_expanded` and `leftover`.
  *
- * @param original Handle to the `original` tree.
- * @param combined Handle to the `combined` tree.
- * @param expanded Handle to the `expanded` tree.
- * @param leftover Handle to the `leftover` tree. May be NULL, in which case only
- *                 the expanded tree is walked.
+ * @param original      Handle to the `original` tree.
+ * @param combined      Handle to the `combined` tree.
+ * @param full_expanded Handle to the `full_expanded` tree.
+ * @param leftover      Handle to the `leftover` tree. May be NULL, in which case
+ *                      only the full_expanded tree is walked.
  * @return A correspondence_map. The caller must free it with
  *         free_correspondence_map(). `links` is NULL and `count` is 0 if
- *         `combined` is NULL, or if both `expanded` and `leftover` are NULL.
+ *         `combined` is NULL, or if both `full_expanded` and `leftover` are
+ *         NULL.
  */
 YAML_API struct correspondence_map build_correspondence_map(
-    YAMLTreeHandle original, YAMLTreeHandle combined, YAMLTreeHandle expanded,
-    YAMLTreeHandle leftover);
+    YAMLTreeHandle original, YAMLTreeHandle combined,
+    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover);
 
 /**
  * Frees the link array owned by a correspondence_map. Passing a map with a NULL
@@ -311,7 +342,7 @@ YAML_API void free_correspondence_map(struct correspondence_map map);
  * `{e1}:{e2}` ranges, `,` unions, and `&` intersections.
  *
  * Because beamlines and elements are only fully realised after expansion, this
- * is normally run on the `expanded` tree of a parse_and_expand_PALS() result,
+ * is normally run on the `full_expanded` tree of a parse_and_expand_PALS() result,
  * but it works on any tree. Results are de-duplicated and returned in
  * document order.
  *
@@ -370,17 +401,17 @@ struct param_value {
  * element parameter (with a `>{group}.{sub}. ... .{param}` path) or, as a bare
  * name (no lattice/branch/kind qualifier and no path), a constant or variable —
  * the same constructs match_names() resolves. Run an element-parameter query on
- * the `expanded` tree of a parse_and_expand_PALS() result, where constants and
+ * the `full_expanded` tree of a parse_and_expand_PALS() result, where constants and
  * variables referenced by a value have already been substituted; constants and
  * variables themselves live in the facility scaffolding, so look them up in any
  * view that keeps it — `original`, `combined`, or `leftover` — but not
- * `expanded`, which drops it (exactly as with match_names()).
+ * the expanded trees, which drop it (exactly as with match_names()).
  *
  * The value is returned as stored; it is NOT evaluated. A plain numeric literal
  * comes back as a number (PARAM_VALUE_NUMBER); anything else — an expression such
  * as "0.3 * 5", a species name like "#3He", or any other text — comes back
  * verbatim as a string (PARAM_VALUE_STRING). Evaluation is the job of lattice
- * expansion (the `expanded` tree already holds numbers) or
+ * expansion (the expanded trees already hold numbers) or
  * evaluate_pals_expression, not of this accessor.
  *
  * Resolution, and the resulting `kind`:
@@ -406,30 +437,33 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
 
 /**
  * Looks up a parameter value across the two trees of an expanded lattice that
- * carry live values: the `expanded` lattice (element parameters, already
+ * carry live values: the `full_expanded` lattice (element parameters, already
  * evaluated) and the `leftover` facility scaffolding (constants, variables, and
  * any element/beamline definitions not spliced into the lattice).
  * @ingroup param
  *
  * This is the whole-lattice form of get_parameter_value(): the caller passes the
  * two relevant handles from a parse_and_expand_PALS() result instead of picking a
- * tree by hand. `expanded` is consulted first; only if it does not identify the
- * parameter is `leftover` tried. The `original` and `combined` trees are
+ * tree by hand. `full_expanded` is consulted first; only if it does not identify
+ * the parameter is `leftover` tried. The `original` and `combined` trees are
  * deliberately not consulted — they hold raw, pre-expansion text, so a value read
- * from them would be unevaluated and, for reused definitions, duplicated.
+ * from them would be unevaluated and, for reused definitions, duplicated. Pass
+ * `full_expanded` rather than `expanded`: a dependent parameter is a legitimate
+ * thing to ask for, and only the former carries one.
  *
  * Either handle may be NULL (treated as "no match" for that tree). The value's
  * `kind`, string ownership, and the number/string/missing rules are exactly
  * those of get_parameter_value().
  *
- * @param expanded     Handle to the `expanded` tree (element parameters).
- * @param leftover     Handle to the `leftover` tree (constants/variables).
- * @param match_string Null-terminated name-matching string.
+ * @param full_expanded Handle to the `full_expanded` tree (element parameters).
+ * @param leftover      Handle to the `leftover` tree (constants/variables).
+ * @param match_string  Null-terminated name-matching string.
  * @return A param_value. If `kind` is PARAM_VALUE_STRING the caller must free
  *         `string` with yaml_free_string().
  */
 YAML_API struct param_value get_lattice_parameter_value(
-    YAMLTreeHandle expanded, YAMLTreeHandle leftover, const char* match_string);
+    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover,
+    const char* match_string);
 
 /**
  * Parses a YAML file from disk into an opaque tree handle.

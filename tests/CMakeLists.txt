@@ -11,6 +11,7 @@ add_executable(tests
   test_controllers.cpp
   test_sets.cpp
   test_bookkeeper.cpp
+  test_expanded_minus_dependent.cpp
   test_check.cpp
   test_load.cpp
   test_floor.cpp
