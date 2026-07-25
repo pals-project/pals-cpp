@@ -75,7 +75,7 @@ struct lattices expand_bookkeeper() {
 TEST_CASE("Bookkeeper fills reference energy, momentum, and time",
           "[bookkeeper]") {
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     // pc = sqrt(E^2 - m^2) with the electron rest energy ~0.511 MeV; every
     // element downstream carries the same species and (drifts don't change it)
@@ -101,13 +101,14 @@ TEST_CASE("Bookkeeper fills reference energy, momentum, and time",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
 TEST_CASE("Bookkeeper accumulates s_position from element lengths",
           "[bookkeeper]") {
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     // s_position is the upstream end of each element: 0, then the running sum of
     // the preceding element lengths (0, 2, 0.5, 1.5, 1).
@@ -122,12 +123,13 @@ TEST_CASE("Bookkeeper accumulates s_position from element lengths",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
 TEST_CASE("Bookkeeper derives the normalized multipole strength", "[bookkeeper]") {
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     // Kn1 = (q / P0) Bn1 = (charge * c_light / pc) * Bn1, with charge = -1 for
     // the electron, referenced to q1's upstream momentum.
@@ -143,13 +145,14 @@ TEST_CASE("Bookkeeper derives the normalized multipole strength", "[bookkeeper]"
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
 TEST_CASE("Bookkeeper caps each branch with a branch_end Placeholder",
           "[bookkeeper]") {
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     // The branch gains a trailing element named `branch_end` of kind Placeholder.
     YAMLNodeId be = find_by_key(t, "branch_end");
@@ -176,6 +179,7 @@ TEST_CASE("Bookkeeper caps each branch with a branch_end Placeholder",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -266,7 +270,7 @@ TEST_CASE("Bookkeeper derives RF voltage from gradient and active length",
     // Only the gradient is given; L_active defaults to the element length 0.4, so
     // voltage = gradient * L_active = 1e8 * 0.4 = 4e7. No inconsistency reported.
     struct lattices lat = expand_rf("                gradient: 1.0e8\n");
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close_rel(param_num(t, "cav", "RFP", "voltage"), 4.0e7));
     REQUIRE(close(param_num(t, "cav", "RFP", "gradient"), 1.0e8));
@@ -276,6 +280,7 @@ TEST_CASE("Bookkeeper derives RF voltage from gradient and active length",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -283,7 +288,7 @@ TEST_CASE("Bookkeeper derives RF gradient from voltage and active length",
           "[bookkeeper]") {
     // Only the voltage is given; gradient = voltage / L_active = 8e6 / 0.4 = 2e7.
     struct lattices lat = expand_rf("                voltage: 8.0e6\n");
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close_rel(param_num(t, "cav", "RFP", "gradient"), 2.0e7));
     REQUIRE(close(param_num(t, "cav", "RFP", "voltage"), 8.0e6));
@@ -293,6 +298,7 @@ TEST_CASE("Bookkeeper derives RF gradient from voltage and active length",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -302,7 +308,7 @@ TEST_CASE("Bookkeeper accepts consistent RF voltage and gradient",
     struct lattices lat =
         expand_rf("                gradient: 2.0e7\n"
                   "                voltage: 8.0e6\n");
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "cav", "RFP", "gradient"), 2.0e7));
     REQUIRE(close(param_num(t, "cav", "RFP", "voltage"), 8.0e6));
@@ -312,6 +318,7 @@ TEST_CASE("Bookkeeper accepts consistent RF voltage and gradient",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -329,6 +336,7 @@ TEST_CASE("Bookkeeper flags inconsistent RF voltage and gradient",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -339,7 +347,7 @@ TEST_CASE("Bookkeeper honors an explicit L_active for RF derivation",
     struct lattices lat =
         expand_rf("                gradient: 1.0e8\n"
                   "                L_active: 0.25\n");
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close_rel(param_num(t, "cav", "RFP", "voltage"), 2.5e7));
     REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
@@ -348,13 +356,14 @@ TEST_CASE("Bookkeeper honors an explicit L_active for RF derivation",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
 TEST_CASE("Bookkeeper propagates floor coordinates through a bend",
           "[bookkeeper]") {
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     // Everything up to the bend lies along +Z at the origin, unrotated.
     REQUIRE(close(param_num(t, "b1", "FloorP", "z"), 2.5));
@@ -381,6 +390,7 @@ TEST_CASE("Bookkeeper propagates floor coordinates through a bend",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -390,7 +400,7 @@ TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
     // every equivalent form: g_ref = angle/length = 0.1, radius_ref = 1/g_ref =
     // 10, and Bn0_ref = g_ref / factor (factor = -c/pc for the electron).
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "b1", "BendP", "angle_ref"), 0.15));
     REQUIRE(close(param_num(t, "b1", "BendP", "g_ref"), 0.1));
@@ -418,6 +428,7 @@ TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -427,7 +438,7 @@ TEST_CASE("Bookkeeper derives integrated and normalized multipole forms",
     // equivalent forms: the field (Bn1), its length integral (Bn1L = L*Bn1), the
     // normalized value (Kn1 = factor*Bn1), and the normalized integral (Kn1L).
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
     const double f = electron_factor();
 
     REQUIRE(close(param_num(t, "q1", "MagneticMultipoleP", "Bn1"), 1.2));
@@ -439,6 +450,7 @@ TEST_CASE("Bookkeeper derives integrated and normalized multipole forms",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -451,7 +463,7 @@ TEST_CASE("Bookkeeper derives the integrated electric multipole", "[bookkeeper]"
         "              length: 0.5\n"
         "              ElectricMultipoleP:\n"
         "                En2: 5.0\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "em", "ElectricMultipoleP", "En2"), 5.0));
     REQUIRE(close(param_num(t, "em", "ElectricMultipoleP", "En2L"), 2.5));
@@ -461,6 +473,7 @@ TEST_CASE("Bookkeeper derives the integrated electric multipole", "[bookkeeper]"
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -477,7 +490,7 @@ TEST_CASE("Bookkeeper derives the bend length from its angle and radius",
         "                radius_ref: 5.0\n"
         "          - after:\n"
         "              kind: Marker\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", nullptr, "length"), 1.0));
     // The derived length carries downstream: the marker sits at the far end.
@@ -495,6 +508,7 @@ TEST_CASE("Bookkeeper derives the bend length from its angle and radius",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -507,7 +521,7 @@ TEST_CASE("Bookkeeper derives the bend angle from its chord", "[bookkeeper]") {
         "              BendP:\n"
         "                g_ref: 0.25\n"
         "                L_chord: 1.9\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
     const double angle = 2.0 * std::asin(0.25 * 1.9 / 2.0);
 
     REQUIRE(close_rel(param_num(t, "bnd", "BendP", "angle_ref"), angle));
@@ -519,6 +533,7 @@ TEST_CASE("Bookkeeper derives the bend angle from its chord", "[bookkeeper]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -532,7 +547,7 @@ TEST_CASE("Bookkeeper gives a straight bend three equal lengths",
         "              length: 0.8\n"
         "              BendP:\n"
         "                e1: 0.01\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "BendP", "L_chord"), 0.8));
     REQUIRE(close(param_num(t, "bnd", "BendP", "L_rectangle"), 0.8));
@@ -543,6 +558,7 @@ TEST_CASE("Bookkeeper gives a straight bend three equal lengths",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -558,7 +574,7 @@ TEST_CASE("Bookkeeper keeps the sagitta of a nearly straight bend",
         "              length: 2.0\n"
         "              BendP:\n"
         "                g_ref: 1.0e-12\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "BendP", "angle_ref"), 2.0e-12));
     REQUIRE(close(param_num(t, "bnd", "BendP", "L_chord"), 2.0));
@@ -569,6 +585,7 @@ TEST_CASE("Bookkeeper keeps the sagitta of a nearly straight bend",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -585,12 +602,13 @@ TEST_CASE("Bookkeeper flags a chord that disagrees with the bend geometry",
         "                L_chord: 1.8\n"));
 
     REQUIRE(any_problem_contains(lat, "'L_chord' is inconsistent"));
-    REQUIRE(close(param_num(lat.expanded, "bnd", "BendP", "L_chord"), 1.8));
+    REQUIRE(close(param_num(lat.full_expanded, "bnd", "BendP", "L_chord"), 1.8));
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -610,6 +628,7 @@ TEST_CASE("Bookkeeper flags an inconsistent bend strength", "[bookkeeper]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -626,7 +645,7 @@ TEST_CASE("Bookkeeper defaults the bend actual field from g_ref",
         "              length: 2.0\n"
         "              BendP:\n"
         "                g_ref: 0.1\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.1));
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0L"), 0.2));
@@ -644,6 +663,7 @@ TEST_CASE("Bookkeeper defaults the bend actual field from g_ref",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -658,7 +678,7 @@ TEST_CASE("Bookkeeper writes no actual field when Kn0_from_g_ref is false",
         "              BendP:\n"
         "                g_ref: 0.1\n"
         "                Kn0_from_g_ref: false\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(get_child_by_key(t, find_by_key(t, "bnd"),
                              "MagneticMultipoleP") == YAML_NULL_ID);
@@ -669,6 +689,7 @@ TEST_CASE("Bookkeeper writes no actual field when Kn0_from_g_ref is false",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -685,7 +706,7 @@ TEST_CASE("Bookkeeper keeps an actual bend field the author set",
         "                g_ref: 0.1\n"
         "              MagneticMultipoleP:\n"
         "                Kn0: 0.3\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.3));
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0L"), 0.6));
@@ -696,6 +717,7 @@ TEST_CASE("Bookkeeper keeps an actual bend field the author set",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -712,7 +734,7 @@ TEST_CASE("Bookkeeper counts an integrated actual field as set",
         "                g_ref: 0.1\n"
         "              MagneticMultipoleP:\n"
         "                Kn0L: 0.6\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.3));
     REQUIRE_FALSE(any_problem_contains(lat, "inconsistent"));
@@ -721,6 +743,7 @@ TEST_CASE("Bookkeeper counts an integrated actual field as set",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -736,7 +759,7 @@ TEST_CASE("Bookkeeper adds the actual field to a group of other multipoles",
         "                g_ref: 0.1\n"
         "              MagneticMultipoleP:\n"
         "                Kn1: 0.5\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn0"), 0.1));
     REQUIRE(close(param_num(t, "bnd", "MagneticMultipoleP", "Kn1"), 0.5));
@@ -745,6 +768,7 @@ TEST_CASE("Bookkeeper adds the actual field to a group of other multipoles",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -757,7 +781,7 @@ TEST_CASE("Bookkeeper gives a straight bend no actual field", "[bookkeeper]") {
         "              length: 2.0\n"
         "              BendP:\n"
         "                e1: 0.01\n"));
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     REQUIRE(get_child_by_key(t, find_by_key(t, "bnd"),
                              "MagneticMultipoleP") == YAML_NULL_ID);
@@ -766,6 +790,7 @@ TEST_CASE("Bookkeeper gives a straight bend no actual field", "[bookkeeper]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -786,6 +811,7 @@ TEST_CASE("Bookkeeper flags an inconsistent multipole component",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -794,7 +820,7 @@ TEST_CASE("Bookkeeper materializes RF enum defaults and L_active",
     // A present RFP group gains its non-zero enum defaults and an explicit
     // L_active (= element length 0.4), alongside the derived voltage.
     struct lattices lat = expand_rf("                gradient: 1.0e8\n");
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
 
     YAMLNodeId rfp = get_child_by_key(t, find_by_key(t, "cav"), "RFP");
     REQUIRE(val_eq(t, get_child_by_key(t, rfp, "cavity_type"), "STANDING_WAVE"));
@@ -805,6 +831,7 @@ TEST_CASE("Bookkeeper materializes RF enum defaults and L_active",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -813,7 +840,7 @@ TEST_CASE("Bookkeeper leaves absent parameter groups alone", "[bookkeeper]") {
     // BendP/RFP/multipole groups. Only ReferenceP and FloorP are parser-added,
     // and MagneticMultipoleP on a curved bend, which has an actual field to hold.
     struct lattices lat = expand_bookkeeper();
-    YAMLTreeHandle t = lat.expanded;
+    YAMLTreeHandle t = lat.full_expanded;
     YAMLNodeId d1 = find_by_key(t, "d1");
 
     REQUIRE(get_child_by_key(t, d1, "BendP") == YAML_NULL_ID);
@@ -826,5 +853,6 @@ TEST_CASE("Bookkeeper leaves absent parameter groups alone", "[bookkeeper]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }

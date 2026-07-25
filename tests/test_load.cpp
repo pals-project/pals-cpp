@@ -26,6 +26,7 @@ struct LoadCase {
         delete_tree(lat.original);
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
+        delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
         std::filesystem::remove_all(dir);
     }
@@ -198,11 +199,11 @@ TEST_CASE("a loaded settings file drives the lattice the layout file defines",
     c.parse("joiner.pals.yaml");
     REQUIRE(c.joined_problems() == "");
 
-    YAMLNodeId q1a = find_by_key(c.lat.expanded, "Q1a");
+    YAMLNodeId q1a = find_by_key(c.lat.full_expanded, "Q1a");
     REQUIRE(q1a != YAML_NULL_ID);
-    YAMLNodeId mult = get_child_by_key(c.lat.expanded, q1a, "MagneticMultipoleP");
+    YAMLNodeId mult = get_child_by_key(c.lat.full_expanded, q1a, "MagneticMultipoleP");
     REQUIRE(mult != YAML_NULL_ID);
-    REQUIRE(close(num_val(c.lat.expanded, get_child_by_key(c.lat.expanded, mult,
+    REQUIRE(close(num_val(c.lat.full_expanded, get_child_by_key(c.lat.full_expanded, mult,
                                                            "Kn1")),
                   0.34));
 }

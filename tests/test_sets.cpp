@@ -30,6 +30,7 @@ void free_all(struct lattices& lat) {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
 }
 
@@ -119,9 +120,9 @@ TEST_CASE("a set writes every element its pattern matches",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(one_param(lat.expanded, "B1a", "BendP", "e1"),
+    REQUIRE(close(one_param(lat.full_expanded, "B1a", "BendP", "e1"),
                   2 * 0.1 + std::atan(0.02)));
-    REQUIRE(close(one_param(lat.expanded, "B1b", "BendP", "e1"),
+    REQUIRE(close(one_param(lat.full_expanded, "B1b", "BendP", "e1"),
                   2 * 0.3 + std::atan(0.02)));
 
     free_all(lat);
@@ -158,9 +159,9 @@ TEST_CASE("a set only reaches elements defined before it",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(one_param(lat.expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
                   0.12));
-    REQUIRE(close(one_param(lat.expanded, "Q2", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q2", "MagneticMultipoleP", "Kn1L"),
                   0.1));
 
     free_all(lat);
@@ -187,7 +188,7 @@ TEST_CASE("a set creates a parameter that defaults to zero",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "Q1", "MagneticMultipoleP", "Kn0"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn0"),
                   0.02));
 
     free_all(lat);
@@ -253,7 +254,7 @@ TEST_CASE("an unwritten parameter with no written family member reads as zero",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "Q2", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q2", "MagneticMultipoleP", "Kn1L"),
                   0.5));
 
     free_all(lat);
@@ -282,9 +283,9 @@ TEST_CASE("the compact sets form writes each pair", "[expr][lattices][set]") {
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
                   0.25));
-    REQUIRE(close(one_param(lat.expanded, "D1", nullptr, "length"), 3.0));
+    REQUIRE(close(one_param(lat.full_expanded, "D1", nullptr, "length"), 3.0));
 
     free_all(lat);
     rm_tmp(path);
@@ -315,7 +316,7 @@ TEST_CASE("without expand_lattice a set writes the single definition",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
     for (size_t i = 0; i < 3; ++i)
-        REQUIRE(close(nth_param(lat.expanded, "q1", i, "MagneticMultipoleP",
+        REQUIRE(close(nth_param(lat.full_expanded, "q1", i, "MagneticMultipoleP",
                                 "Kn1L"),
                       0.75));
 
@@ -353,7 +354,7 @@ TEST_CASE("after expand_lattice a set reaches each expanded copy",
 
     // The copies sit at s = 0, 0.5 and 1.0.
     for (size_t i = 0; i < 3; ++i)
-        REQUIRE(close(nth_param(lat.expanded, "q1", i, "MagneticMultipoleP",
+        REQUIRE(close(nth_param(lat.full_expanded, "q1", i, "MagneticMultipoleP",
                                 "Kn1L"),
                       0.375 + 0.5 * static_cast<double>(i)));
 
@@ -393,10 +394,10 @@ TEST_CASE("a post-expansion set makes the bookkeeper redo the family",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
 
-    REQUIRE(close(one_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "q1", "MagneticMultipoleP", "Kn1L"),
                   0.75));
-    double b1 = one_param(lat.expanded, "q1", "MagneticMultipoleP", "Bn1L");
-    double b2 = one_param(lat.expanded, "q2", "MagneticMultipoleP", "Bn1L");
+    double b1 = one_param(lat.full_expanded, "q1", "MagneticMultipoleP", "Bn1L");
+    double b2 = one_param(lat.full_expanded, "q2", "MagneticMultipoleP", "Bn1L");
     REQUIRE(b1 != 0.0);
     REQUIRE(close_rel(b1, b2));
 
@@ -427,8 +428,8 @@ TEST_CASE("a post-expansion set that changes a length moves the lattice",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "m1", nullptr, "s_position"), 3.5));
-    REQUIRE(close(one_param(lat.expanded, "m1", "FloorP", "z"), 3.5));
+    REQUIRE(close(one_param(lat.full_expanded, "m1", nullptr, "s_position"), 3.5));
+    REQUIRE(close(one_param(lat.full_expanded, "m1", "FloorP", "z"), 3.5));
 
     free_all(lat);
     rm_tmp(path);
@@ -463,7 +464,7 @@ TEST_CASE("controllers stay authoritative over a post-expansion set",
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "q1", "MagneticMultipoleP", "Kn1L"),
                   0.9));
 
     free_all(lat);
@@ -495,7 +496,7 @@ TEST_CASE("a set with an error term reports that it is not applied",
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "absolute_error/relative_error are not applied"));
-    REQUIRE(close(one_param(lat.expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
                   0.4));
 
     free_all(lat);
@@ -545,7 +546,7 @@ TEST_CASE("a set with a random value is deferred", "[expr][lattices][set]") {
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
     REQUIRE(joined(lat) == "");
-    REQUIRE(close(one_param(lat.expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
+    REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
                   0.375));
 
     free_all(lat);

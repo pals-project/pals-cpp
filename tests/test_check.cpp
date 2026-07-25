@@ -17,6 +17,7 @@ std::vector<std::string> problems_for(const char* path, const char* yaml) {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
     return out;

@@ -83,12 +83,17 @@ This builds `libyaml_c_wrapper.dylib`, a shared object library that can interfac
 ```
 
 ### Example 2
-The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat root_lattice` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing three lattices:
+The program `examples/print_lattices` performs lattice expansion on a user-specified lattice. The first argument is the file name where the lattice is defined. It also takes an option argument using `-lat root_lattice` to specify a specific lattice to expand, otherwise it will choose a default (the lattice in the last `use` statement, or the last lattice in the file if none is present). The program will create and print a struct containing the lattice views:
 - `original` is a map containing the base lattice as well as any file it reaches
 by `include` or `load`.
 - `combined` is the base lattice but with all included files substituted in and
 all loaded files merged in.
-- `expanded` is the base lattice after lattice expansion has been performed.
+- `expanded` is the base lattice after lattice expansion has been performed, holding
+the parameters the author wrote and nothing derived from them. Values are the
+finished ones, so a parameter in both trees has the same value in both.
+- `full_expanded` is the same lattice with every dependent parameter computed:
+reference parameters, floor placement, s-positions, and the derived members of each
+parameter family.
 To see the console output, in the build directory, run
 
 ```console
@@ -115,8 +120,9 @@ The library sources live in `src/`, split by concern:
 - `yaml_tree.h` — internal declarations shared between the wrapper and the PALS
   code: the tree representation behind `YAMLTreeHandle` (`ParsedData`) plus the
   low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
-- `pals_expand.cpp` — the lattice expansion pipeline that builds the four-tree
-  representation (`original` / `combined` / `expanded` / `leftover`): include
+- `pals_expand.cpp` — the lattice expansion pipeline that builds the five-tree
+  representation (`original` / `combined` / `expanded` / `full_expanded` /
+  `leftover`): include
   splicing, `load` merging, structural expansion (repeats, inherits, forks), expression,
   controller and `set` evaluation, and the element bookkeeper that walks each
   branch

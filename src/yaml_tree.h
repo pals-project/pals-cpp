@@ -20,11 +20,11 @@
 // size_t within its tree.
 //
 // `provenance` links this tree back to the one it was derived from in the
-// original -> combined -> (expanded, leftover) chain: it maps a node id in
-// *this* tree to the node id in the *source* tree it was copied from. It is
-// empty for trees that are not derived from another (e.g. `original`). For
-// `combined` it maps combined ids -> original ids; for `expanded` and
-// `leftover` alike it maps their ids -> combined ids.
+// original -> combined -> (expanded, full_expanded, leftover) chain: it maps a
+// node id in *this* tree to the node id in the *source* tree it was copied from.
+// It is empty for trees that are not derived from another (e.g. `original`). For
+// `combined` it maps combined ids -> original ids; for the two expanded trees
+// and `leftover` alike it maps their ids -> combined ids.
 struct ParsedData {
     ryml::Tree tree;
     std::string buffer;

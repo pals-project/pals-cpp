@@ -142,27 +142,27 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     const double a_var = 3.75e7 / (2.99792458e8 * 2.99792458e8);
 
     // `cleo` is referenced by main_line, so expansion inlines its definition
     // into the lattice; this is the copy inside the expanded tree.
-    YAMLNodeId cleo = find_by_key(lat.expanded, "cleo");
+    YAMLNodeId cleo = find_by_key(lat.full_expanded, "cleo");
     REQUIRE(cleo != YAML_NULL_ID);
 
     // Immediate expression using a user variable.
-    YAMLNodeId len = get_child_by_key(lat.expanded, cleo, "length");
-    REQUIRE(close(num_val(lat.expanded, len), 0.1 * std::log(0.34)));
+    YAMLNodeId len = get_child_by_key(lat.full_expanded, cleo, "length");
+    REQUIRE(close(num_val(lat.full_expanded, len), 0.1 * std::log(0.34)));
 
-    YAMLNodeId mmp = get_child_by_key(lat.expanded, cleo, "MagneticMultipoleP");
+    YAMLNodeId mmp = get_child_by_key(lat.full_expanded, cleo, "MagneticMultipoleP");
     // expr()-delayed expression is evaluated to a number in the expanded tree.
-    YAMLNodeId kn1 = get_child_by_key(lat.expanded, mmp, "Kn1");
-    REQUIRE(close(num_val(lat.expanded, kn1), 3.74 * a_var));
+    YAMLNodeId kn1 = get_child_by_key(lat.full_expanded, mmp, "Kn1");
+    REQUIRE(close(num_val(lat.full_expanded, kn1), 3.74 * a_var));
 
     // random_gauss() is deferred: the text is left untouched.
-    YAMLNodeId kn2 = get_child_by_key(lat.expanded, mmp, "Kn2");
-    REQUIRE(val_eq(lat.expanded, kn2, "0.01 + 0.003*random_gauss()"));
+    YAMLNodeId kn2 = get_child_by_key(lat.full_expanded, mmp, "Kn2");
+    REQUIRE(val_eq(lat.full_expanded, kn2, "0.01 + 0.003*random_gauss()"));
 
     // Expressions are evaluated before the document is split, so a definition
     // that stayed behind is evaluated in leftover just the same. `m_e` is not
@@ -171,7 +171,7 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     REQUIRE(m_e != YAML_NULL_ID);
     YAMLNodeId m_e_val = get_child_by_key(lat.leftover, m_e, "value");
     REQUIRE(close(num_val(lat.leftover, m_e_val), 510998.95069000003));
-    REQUIRE(find_by_key(lat.expanded, "m_e") == YAML_NULL_ID);
+    REQUIRE(find_by_key(lat.full_expanded, "m_e") == YAML_NULL_ID);
 
     // The combined tree keeps the original expression text (evaluation happens
     // downstream of it).
@@ -182,6 +182,7 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -215,7 +216,7 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     const double a_const = 0.3 * evaluate_pals_expression("r_electron", nullptr);
 
@@ -234,15 +235,16 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
 
     // An element parameter may reference the map-form definitions too; this is
     // d1 as inlined into the expanded lattice.
-    YAMLNodeId d1 = find_by_key(lat.expanded, "d1");
+    YAMLNodeId d1 = find_by_key(lat.full_expanded, "d1");
     REQUIRE(d1 != YAML_NULL_ID);
-    REQUIRE(close(num_val(lat.expanded, get_child_by_key(lat.expanded, d1,
+    REQUIRE(close(num_val(lat.full_expanded, get_child_by_key(lat.full_expanded, d1,
                                                          "length")),
                   a_const + 0.45));
 
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -280,13 +282,13 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
-    YAMLNodeId dh1a = find_by_key(lat.expanded, "DH1A");
+    YAMLNodeId dh1a = find_by_key(lat.full_expanded, "DH1A");
     REQUIRE(dh1a != YAML_NULL_ID);
-    YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
+    YAMLNodeId bendp = get_child_by_key(lat.full_expanded, dh1a, "BendP");
     REQUIRE(close(
-        num_val(lat.expanded, get_child_by_key(lat.expanded, bendp, "edge2_int")),
+        num_val(lat.full_expanded, get_child_by_key(lat.full_expanded, bendp, "edge2_int")),
         0.02 * 0.1));
 
     // A clean lattice reports no problems.
@@ -296,6 +298,7 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -329,7 +332,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     const double m_3he = 2809413528.3197904;  // mass_of("#3He"), CODATA 2022
 
@@ -338,18 +341,18 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
                           get_child_by_key(lat.leftover, consts, "b_const")),
                   0.45 * m_3he));
 
-    YAMLNodeId dh1a = find_by_key(lat.expanded, "DH1A");
+    YAMLNodeId dh1a = find_by_key(lat.full_expanded, "DH1A");
     REQUIRE(dh1a != YAML_NULL_ID);
-    YAMLNodeId bendp = get_child_by_key(lat.expanded, dh1a, "BendP");
-    REQUIRE(close(num_val(lat.expanded,
-                          get_child_by_key(lat.expanded, bendp, "h1")),
+    YAMLNodeId bendp = get_child_by_key(lat.full_expanded, dh1a, "BendP");
+    REQUIRE(close(num_val(lat.full_expanded,
+                          get_child_by_key(lat.full_expanded, bendp, "h1")),
                   1.1 * m_3he));
 
     // A bare identifier naming the species constant (`species_ref: species`) is
     // replaced by its species-name string in the expanded tree.
-    YAMLNodeId refp = get_child_by_key(lat.expanded, dh1a, "ReferenceP");
-    REQUIRE(val_eq(lat.expanded,
-                   get_child_by_key(lat.expanded, refp, "species_ref"),
+    YAMLNodeId refp = get_child_by_key(lat.full_expanded, dh1a, "ReferenceP");
+    REQUIRE(val_eq(lat.full_expanded,
+                   get_child_by_key(lat.full_expanded, refp, "species_ref"),
                    "#3He"));
 
     // The species constant itself stays as its (string) species name.
@@ -363,6 +366,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -399,7 +403,7 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
               "    - use: \"lat1\"\n");
 
     struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    REQUIRE(lat.expanded != nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
 
     REQUIRE(lat.problems.count == 0);
     free_lattice_problems(lat.problems);
@@ -407,6 +411,7 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }
@@ -444,6 +449,7 @@ std::vector<std::string> problems_for_value(const char* path,
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
     return out;
@@ -536,6 +542,7 @@ TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
     rm_tmp(path);
 }

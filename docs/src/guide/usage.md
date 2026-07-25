@@ -20,9 +20,9 @@ tests. Put lattice files under `lattice_files/`.
 ## Expanding a lattice
 
 `parse_and_expand_PALS` reads a lattice file, resolves its includes and loads,
-expands the selected lattice, and returns a `lattices` struct with four
+expands the selected lattice, and returns a `lattices` struct with five
 independent views —
-`original`, `combined`, `expanded`, and `leftover` (see
+`original`, `combined`, `expanded`, `full_expanded`, and `leftover` (see
 [What it does](../index.md)). Each is a `YAMLTreeHandle` and must be freed with
 `delete_tree`.
 
@@ -31,7 +31,7 @@ independent views —
 
 struct lattices lat = parse_and_expand_PALS("ex.pals.yaml", nullptr);
 
-char* s = tree_to_string(lat.expanded);
+char* s = tree_to_string(lat.full_expanded);
 std::puts(s);
 yaml_free_string(s);
 
@@ -43,6 +43,7 @@ free_lattice_problems(lat.problems);
 delete_tree(lat.original);
 delete_tree(lat.combined);
 delete_tree(lat.expanded);
+delete_tree(lat.full_expanded);
 delete_tree(lat.leftover);
 ```
 
@@ -75,8 +76,10 @@ and `deep_copy_children`. Serialize with `node_to_string` / `tree_to_string`, or
 
 Three more entry points build on the expanded tree:
 
-- `build_correspondence_map` links a node across the four views (their
-  provenance is recorded as the trees are derived from one another).
+- `build_correspondence_map` links a node across the derivation chain — `original`,
+  `combined`, `full_expanded` and `leftover` (their provenance is recorded as the
+  trees are derived from one another). `expanded` takes no part: it is a pruned
+  copy of `full_expanded`, so its nodes are found by path.
 - `match_names` finds every named construct that a PALS *Name Matching* string
   refers to.
 - `get_parameter_value` looks up a single parameter value by a *Name Matching*
@@ -85,7 +88,7 @@ Three more entry points build on the expanded tree:
   The value is returned as stored, **not** evaluated: a plain number comes back as
   `PARAM_VALUE_NUMBER`, while an expression (e.g. `0.3 * 5`), a species name such
   as `#3He`, or other text comes back verbatim as a string (evaluating is the job
-  of expansion — the `expanded` tree already holds numbers). An unset element
+  of expansion — the expanded trees already hold numbers). An unset element
   parameter yields its default (`0` for now); and a string that identifies no
   single value — no matching element/constant/variable, a bare element name, a
   path stopping on a whole group, or matches that disagree — yields
@@ -93,15 +96,17 @@ Three more entry points build on the expanded tree:
   `string` with `yaml_free_string`.
 
   ```c
-  struct param_value v = get_parameter_value(expanded, "lat1>>>B1a>BendP.e1");
+  struct param_value v = get_parameter_value(full_expanded, "lat1>>>B1a>BendP.e1");
   if (v.kind == PARAM_VALUE_NUMBER) printf("%g\n", v.number);
   else if (v.kind == PARAM_VALUE_STRING) { puts(v.string); yaml_free_string(v.string); }
   ```
-- `get_lattice_parameter_value` is the whole-lattice form: pass the `expanded` and
-  `leftover` handles from one `parse_and_expand_PALS()` result and it looks in
-  `expanded` first (element parameters), then `leftover` (constants, variables,
+- `get_lattice_parameter_value` is the whole-lattice form: pass the `full_expanded`
+  and `leftover` handles from one `parse_and_expand_PALS()` result and it looks in
+  `full_expanded` first (element parameters), then `leftover` (constants, variables,
   and unused definitions) — never in the raw `original`/`combined` trees. Values
-  therefore come back already evaluated.
+  therefore come back already evaluated. Pass `full_expanded` rather than
+  `expanded`: a dependent parameter is a legitimate thing to ask for, and only the
+  former carries one.
 
 ## Examples
 
