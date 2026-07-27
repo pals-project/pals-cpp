@@ -139,7 +139,9 @@ TEST_CASE("bend_LS in the horizontal plane matches the arc geometry", "[floor]")
 
 TEST_CASE("bend_LS with tilt pi/2 bends vertically", "[floor]") {
     // tilt_ref = pi/2 rotates the bend plane into y-z: the displacement moves
-    // into +y and the downstream z-axis tips upward to (0, sin angle, cos angle).
+    // into -y and the downstream z-axis tips downward to (0, -sin angle,
+    // cos angle). tilt_ref = +pi/2 is a downward bend, and the heading has to
+    // follow the displacement rather than tip against it.
     const double len = 1.5, ang = 0.15;
     const double rho = len / ang;
     Vec3 L;
@@ -147,7 +149,32 @@ TEST_CASE("bend_LS with tilt pi/2 bends vertically", "[floor]") {
     bend_LS(len, ang, kPi / 2, L, S);
 
     chk_vec(L, 0.0, rho * (std::cos(ang) - 1.0), rho * std::sin(ang));
-    chk_vec(quat_rotate(S, Vec3{0, 0, 1}), 0.0, std::sin(ang), std::cos(ang));
+    chk_vec(quat_rotate(S, Vec3{0, 0, 1}), 0.0, -std::sin(ang), std::cos(ang));
+}
+
+TEST_CASE("bend_LS keeps the frame tangent to the arc at any tilt", "[floor]") {
+    // The general statement behind the two cases above: whatever tilt_ref does to
+    // the bend plane, the downstream z-axis must be the tangent to the arc that
+    // L traces. Eqs. ustt and srrr are two spellings of that one rotation, so
+    // they must agree; they do only for u's first component = +sin(tilt_ref).
+    const double len = 1.5, ang = 0.15;
+    for (double tilt : {0.0, 0.3, kPi / 2, 2.0, kPi, -0.7}) {
+        Vec3 L;
+        Quat S;
+        bend_LS(len, ang, tilt, L, S);
+
+        // Eq. srrr: S = R_z(tilt) R_y(-ang) R_z(-tilt).
+        Quat srrr = quat_mul(quat_rot_z(tilt),
+                             quat_mul(quat_rot_y(-ang), quat_rot_z(-tilt)));
+        chk_same_rotation(S, srrr);
+
+        // And the heading is the arc's tangent: R_z(tilt) applied to the untilted
+        // tangent (-sin ang, 0, cos ang).
+        Vec3 tangent = quat_rotate(quat_rot_z(tilt),
+                                   Vec3{-std::sin(ang), 0.0, std::cos(ang)});
+        Vec3 zaxis = quat_rotate(S, Vec3{0, 0, 1});
+        chk_vec(zaxis, tangent.x, tangent.y, tangent.z);
+    }
 }
 
 TEST_CASE("bend_LS with a ~zero angle degenerates to a straight segment",
