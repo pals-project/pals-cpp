@@ -1,69 +1,10 @@
 ## Introduction
-Pals-cpp is the parser library for PALS accelerator lattice files. It uses rapidyaml https://github.com/biojppm/rapidyaml to read lattices into memory and provides additional capabilities like printing to console, writing to files, and searching for elements. One major component is performing lattice expansion following the PALS specifications:
-1. The lattice to be expanded can be specified by the user. If none is specified, the one in the last `use: root_lattice` statement will be expanded. If none exists, the last lattice in the file is expanded. 
-2. Content from other files can be brought into scope in two ways. An `include: filename` splices that file's contents in verbatim at the point the `include` is written. A `load` list under the `PALS` node instead merges whole files subnode by subnode — list subnodes concatenate in load order, dictionary subnodes take the union, and `SELF` marks where the joining file's own contents belong — which is how a layout file and a settings file are composed into one lattice. Paths are relative to the file naming them, and both can nest to any depth.
-3. Elements that inherit parameters from other elements will have those properties brought into scope.
-4. Beamlines in a lattice with a `repeat: count` will have their contents repeated `count` times in the lattice.
-5. Elements in a lattice defined outside of it will have their definitions brought it.
-6. Fork elements will create new branches in the lattice to their destination branch. 
-7. Mathematical expressions are evaluated to numbers (see below).
-8. `set` commands are executed and controllers are applied to the parameters they drive, on either side of an `expand_lattice` node (see below).
-
-## Expression Evaluation
-As a final step of expansion, every scalar value in the `expanded` tree that is a
-PALS mathematical expression is replaced with its numeric value. This covers the
-full PALS expression grammar — arithmetic (`+ - * / ^`), parentheses, the
-[built-in constants](https://github.com/pals-project/pals) (`pi`, `c_light`,
-`r_electron`, …), the math functions (`sqrt`, `log`, `sin`, `floor`, `modulo`, …),
-and user-defined constants and variables (both the `kind: constant`/`value:` and
-the compact `constants:`/`variables:` forms — the compact form may be written as
-a sequence of single-key maps or as a plain map — resolved in dependency order).
-Both immediate expressions and `expr(...)`-delayed expressions are evaluated to a
-number in the expanded tree. Values that are not expressions — element/line name
-references, `kind:` names, booleans — are left untouched, and expressions
-containing `random()`/`random_gauss()` are left as text so the expanded tree stays
-reproducible. The `combined` and `original` trees always retain the original
-expression text.
-
-Operator precedence is standard, with two conventions worth noting: `^` (power)
-is right-associative, so `2^3^2` is `2^(3^2) = 512`; and a unary sign binds
-*looser* than `^`, so `-2^2` is `-(2^2) = -4` while a signed exponent still works
-(`2^-2` is `2^(-2) = 0.25`) — the Fortran/Bmad convention used across the
-ecosystem.
-
-**Controllers.** A `kind: Controller` element bundles expressions that drive
-lattice parameters. Its `variables:` form a controller-scoped symbol table —
-each initial value is a constant expression (constants and functions only, no
-variables), and each entry in `controls:` pairs a `parameter` target — a
-name-matching string — with an `expression` over that controller's own
-variables, reaching nothing outside the controller. `control_type:
-ABSOLUTE` (the default) means the controllers determine the parameter outright,
-so during expansion each matched parameter is set to the sum of the values of
-every ABSOLUTE controller driving it; `control_type: RELATIVE` describes a knob
-the simulation program varies afterwards and so changes nothing at expansion.
-A controller may also drive another controller's variable, named
-`controller>variable`, which makes controllers a hierarchy evaluated from the
-top down. See [Evaluating expressions](docs/src/guide/expressions.md).
-
-The particle-data functions `mass_of`, `charge_of`, and `anomalous_moment_of` take
-a quoted species name (e.g. `mass_of("#3He")`); an unquoted name is an error. A
-mass number must carry a leading `#` (`"#3He"`, not `"3He"`). These
-functions and the physical values behind the named constants are provided by
-[AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
-(a C++ mirror of [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl)),
-fetched automatically by CMake. A single expression can also be evaluated on its
-own via `evaluate_pals_expression()`.
-
-**Set commands.** A `set` writes a value into every parameter its `parameter`
-name-matching string selects; in the `value` expression `PARAMETER` is the
-current value and `SELF` the element that owns it
-(`value: 2*PARAMETER + atan(SELF.BendP.g_ref)`). The compact `sets:` form is a
-list of `target: value` pairs. An `expand_lattice` node in the `facility` list
-decides what a set acts on: before it, the element *definitions* (and only those
-defined earlier in the list); after it, the already-expanded lattice, so each
-copy of a repeated element is written separately. `absolute_error` and
-`relative_error` are reported rather than applied — the standard does not
-specify the error distribution.
+Pals-cpp is a parser library for [PALS](https://github.com/pals-project/pals) accelerator lattice files. 
+It uses rapidyaml https://github.com/biojppm/rapidyaml to read lattices into memory and provides 
+additional capabilities like printing to console, writing to files, and searching for elements. 
+One major component is performing lattice expansion following the PALS specifications.
+The lattice to be expanded can be specified by the user as an argument to the `parse_and_expand_PALS`
+function. If none is specified, the lattice is chosen using the prescription given by PALS.
 
 ## Usage
 First, to build, run the following in the root directory:  
