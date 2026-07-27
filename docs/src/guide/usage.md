@@ -23,7 +23,7 @@ tests. Put lattice files under `lattice_files/`.
 expands the selected lattice, and returns a `lattices` struct with five
 independent views —
 `original`, `combined`, `expanded`, `full_expanded`, and `leftover` (see
-[What it does](../index.md)). Each is a `YAMLTreeHandle` and must be freed with
+[The five trees](trees.md)). Each is a `YAMLTreeHandle` and must be freed with
 `delete_tree`.
 
 ```cpp
@@ -63,6 +63,13 @@ whether to report, save, or ignore the messages — and must release the list wi
 `free_lattice_problems`. Only values that look like expressions (an operator, a
 parenthesis, a `>` reference, or an explicit `expr(...)`) are flagged when they
 fail to evaluate, so plain names and labels are not mistaken for broken math.
+
+### Reading the expanded lattice
+
+Which of the five trees answers a given question, and what the expansion adds to
+`full_expanded` that appears nowhere else — `element_index`, `s_position`,
+`ReferenceP`, `FloorP`, the derived parameter families, the `branch_end` cap —
+is covered in [The five trees](trees.md).
 
 ## Navigating and editing trees
 
@@ -119,12 +126,17 @@ The `examples/` directory contains runnable programs:
   ./example_rw
   ```
 
-- **`examples/print_lattices`** — expand a lattice and print all four views. It
-  takes a file name and an optional `-lat <name>` flag:
+- **`examples/print_lattices`** — expand a lattice and print all five views. It
+  takes a file name and an optional `-lat <name>` flag naming the lattice to
+  expand:
 
   ```console
   ./print_lattices ex.pals.yaml -lat lat2
   ```
+
+  The file name is resolved under `../lattice_files/`, so run it from a
+  directory that sits beside `lattice_files/` — `build/`, say — and put the
+  lattice in `lattice_files/`.
 
 ## Extensions
 

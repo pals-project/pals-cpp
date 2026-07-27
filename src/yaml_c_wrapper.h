@@ -204,7 +204,9 @@ extern "C" {
  * survives. Elements of a `multipass` line carry a `multipass_index` giving
  * their pass number — how many times a particle will have travelled through
  * that physical element by that point. Every dependent parameter has been
- * computed: each element carries its `ReferenceP`, `FloorP` and `s_position`,
+ * computed: each element carries its `element_index` — its position, counting
+ * from one, in the branch line that holds it — its `ReferenceP`, `FloorP` and
+ * `s_position`,
  * the derived members of every parameter family it uses (`Kn1L` alongside
  * `Kn1`, `voltage` alongside `gradient`, ...), the non-zero defaults of the
  * groups it carries, and each branch is capped with a `branch_end` Placeholder

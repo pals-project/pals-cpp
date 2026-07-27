@@ -183,6 +183,100 @@ TEST_CASE("Bookkeeper caps each branch with a branch_end Placeholder",
     delete_tree(lat.leftover);
 }
 
+TEST_CASE("Bookkeeper numbers each element with its position in the branch",
+          "[bookkeeper]") {
+    struct lattices lat = expand_bookkeeper();
+    YAMLTreeHandle t = lat.full_expanded;
+
+    // element_index counts from one along the branch line, so it is the array
+    // index of the element rather than an offset. The `branch_end` cap is an
+    // element of the line like any other and takes the next number after the
+    // last real one.
+    const char* order[] = {"begin", "d1", "q1", "b1", "d2", "end", "branch_end"};
+    for (size_t i = 0; i < 7; ++i)
+        REQUIRE(param_num(t, order[i], nullptr, "element_index") ==
+                static_cast<double>(i + 1));
+
+    // It is written as a plain integer, not through the double formatter that
+    // gives the physical parameters their shortest round-tripping decimal.
+    REQUIRE(val_eq(t, get_child_by_key(t, find_by_key(t, "q1"), "element_index"),
+                   "3"));
+
+    // Being computed, it belongs to `full_expanded` alone; `expanded` carries
+    // what the author wrote.
+    REQUIRE(get_child_by_key(lat.expanded, find_by_key(lat.expanded, "q1"),
+                             "element_index") == YAML_NULL_ID);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
+    delete_tree(lat.leftover);
+}
+
+TEST_CASE("element_index restarts at one in each branch", "[bookkeeper]") {
+    // A Fork gives the lattice a second branch. The index is a position within
+    // the branch that holds the element, not a running count over the lattice,
+    // so the forked branch starts again at one.
+    const char* path = "tmp_element_index_fork.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - dump_begin:\n"
+              "        kind: BeginningEle\n"
+              "        ReferenceP:\n"
+              "          species_ref: \"electron\"\n"
+              "          E_tot_ref: 1.0e9\n"
+              "    - dump_end:\n"
+              "        kind: Marker\n"
+              "    - dump_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - dump_begin\n"
+              "          - dump_end\n"
+              "    - ring:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - begin:\n"
+              "              kind: BeginningEle\n"
+              "              ReferenceP:\n"
+              "                species_ref: \"electron\"\n"
+              "                E_tot_ref: 1.0e9\n"
+              "          - drift1:\n"
+              "              kind: Drift\n"
+              "              length: 1.0\n"
+              "          - f1:\n"
+              "              kind: Fork\n"
+              "              ForkP:\n"
+              "                to_line: dump_line\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - ring\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    YAMLTreeHandle t = lat.full_expanded;
+
+    // ring: begin, drift1, f1, branch_end.
+    REQUIRE(param_num(t, "begin", nullptr, "element_index") == 1.0);
+    REQUIRE(param_num(t, "drift1", nullptr, "element_index") == 2.0);
+    REQUIRE(param_num(t, "f1", nullptr, "element_index") == 3.0);
+
+    // dump_line: numbered from one again, and capped by its own branch_end.
+    REQUIRE(param_num(t, "dump_begin", nullptr, "element_index") == 1.0);
+    REQUIRE(param_num(t, "dump_end", nullptr, "element_index") == 2.0);
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 // A branch with a single RFCavity, whose RFP body is spliced in from `rfp_body`
 // (raw YAML at 16-space indentation). Lets each RF test set voltage/gradient/
 // L_active as it likes.
