@@ -121,9 +121,11 @@ void bend_LS(double length, double angle, double tilt_ref, Vec3& L, Quat& S) {
     // tilt_ref about z.
     Vec3 L_tilde{rho * (std::cos(angle) - 1.0), 0.0, rho * std::sin(angle)};
     L = quat_rotate(quat_rot_z(tilt_ref), L_tilde);
-    // Rotation axis u = (-sin(tilt_ref), -cos(tilt_ref), 0), angle = angle_ref
-    // (Eq. ustt). u is a unit vector.
-    S = quat_from_axis_angle(Vec3{-std::sin(tilt_ref), -std::cos(tilt_ref), 0.0},
+    // Rotation axis u = (sin(tilt_ref), -cos(tilt_ref), 0), angle = angle_ref
+    // (Eq. ustt). u is a unit vector: the untilted axis (0, -1, 0) carried around
+    // by R_z(tilt_ref), the same tilt applied to L_tilde above, which is what
+    // keeps the frame tangent to the arc it is travelling along.
+    S = quat_from_axis_angle(Vec3{std::sin(tilt_ref), -std::cos(tilt_ref), 0.0},
                              angle);
 }
 
