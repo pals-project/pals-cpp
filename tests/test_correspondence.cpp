@@ -185,16 +185,17 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
                                  lat.leftover);
 
-    // Unrolling `repeat: 3` over a one-element cell produces three keyless `d1`
-    // scalars in the expanded line, all copied from the same combined source.
-    // Build a histogram of the combined ids that the expanded scalar `d1`
-    // nodes point to; a single source must account for at least three copies.
+    // Unrolling `repeat: 3` over a one-element cell produces three `d1` entries
+    // in the expanded line, all copied from the same combined source. They are
+    // maps keyed `d1` carrying the substituted definition: a copy is expanded
+    // like any other line entry. (This test used to look for keyless `d1`
+    // scalars, which is what the copies were left as while `repeat` spliced
+    // them without expanding them.)
     std::map<YAMLNodeId, int> combined_hits;
     for (size_t i = 0; i < m.count; i++) {
         // Skip the leftover half of the map: those ids index a different tree.
         if (m.links[i].full_expanded == YAML_NULL_ID) continue;
-        if (!is_scalar(lat.full_expanded, m.links[i].full_expanded)) continue;
-        if (!val_eq(lat.full_expanded, m.links[i].full_expanded, "d1")) continue;
+        if (!key_eq(lat.full_expanded, m.links[i].full_expanded, "d1")) continue;
         REQUIRE(m.links[i].combined != YAML_NULL_ID);  // has a source
         combined_hits[m.links[i].combined]++;
     }

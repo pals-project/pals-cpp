@@ -542,6 +542,78 @@ TEST_CASE("repeat with an unusable count keeps the entry",
     REQUIRE(counts_rejected("-1"));     // parses, but meaningless
 }
 
+TEST_CASE("repeat expands the copies it splices", "[lattices]") {
+    // `repeat: n` used to splice the definition's entries and then step past
+    // them, so the copies were never expanded: the branch came out a list of
+    // bare element names rather than elements, and the lattice read as empty
+    // with nothing reported. Writing the sub-line out by hand always worked, so
+    // the two spellings of the same line disagreed.
+    //
+    // `inner` is nested inside the repeated `cell` to pin the recursive case:
+    // the copies are expanded, so a sub-line among them flattens in its turn.
+    const char* path = "tmp_repeat_expands.pals.yaml";
+    write_tmp(path,
+              "PALS:\n"
+              "  facility:\n"
+              "    - d1:\n"
+              "        kind: Drift\n"
+              "        length: 2.0\n"
+              "    - q1:\n"
+              "        kind: Quadrupole\n"
+              "        length: 0.4\n"
+              "    - inner:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - q1\n"
+              "    - cell:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - d1\n"
+              "          - inner\n"
+              "    - main_line:\n"
+              "        kind: BeamLine\n"
+              "        line:\n"
+              "          - cell:\n"
+              "              repeat: 3\n"
+              "    - lat1:\n"
+              "        kind: Lattice\n"
+              "        branches:\n"
+              "          - main_line\n"
+              "    - use: \"lat1\"\n");
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
+
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        REQUIRE(std::string(lat.problems.items[i]).find("repeat") ==
+                std::string::npos);
+
+    // Three copies of a two-element cell, flattened: d1 q1 d1 q1 d1 q1.
+    YAMLNodeId line = find_by_key(lat.expanded, "line");
+    REQUIRE(line != YAML_NULL_ID);
+    REQUIRE(get_size(lat.expanded, line) == 6);
+
+    // Each entry is the element itself rather than a reference to it: a
+    // single-key map naming the element, carrying the definition it was
+    // substituted with. A bare name would have no children to ask for a `kind`.
+    for (size_t i = 0; i < 6; i++) {
+        YAMLNodeId entry = get_child_by_index(lat.expanded, line, i);
+        YAMLNodeId def = get_child_by_index(lat.expanded, entry, 0);
+        bool even = (i % 2 == 0);
+        REQUIRE(key_eq(lat.expanded, def, even ? "d1" : "q1"));
+        REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, def, "kind"),
+                       even ? "Drift" : "Quadrupole"));
+    }
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
+    delete_tree(lat.leftover);
+    rm_tmp(path);
+}
+
 TEST_CASE("parse_and_expand_PALS reports a missing lattice",
           "[lattices][problems]") {
     const char* path = "tmp_nolattice.pals.yaml";
