@@ -255,7 +255,7 @@ const std::set<std::string>& element_params(const std::string& kind) {
     static const std::set<std::string> base = {
         "field_master", "is_on",  "kind",      "length",
         "name",         "s_position", "inherit", "direction",
-        "multipass_index"};
+        "multipass_index", "element_index"};
     static const std::set<std::string> beamline = [] {
         std::set<std::string> s = base;
         s.insert({"line", "multipass", "zero_point", "repeat"});

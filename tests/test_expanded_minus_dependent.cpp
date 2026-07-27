@@ -238,15 +238,17 @@ TEST_CASE("expanded drops the parameters the bookkeeper computed",
           "[expanded]") {
     struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
 
-    // Reference, floor and s-position are computed for every element; none of
-    // them survives, and on an element that authored nothing they leave no
-    // trace at all.
+    // Reference, floor, s-position and element index are computed for every
+    // element; none of them survives, and on an element that authored nothing
+    // they leave no trace at all.
     for (const char* ele : {"q1", "rf1", "mark"}) {
         REQUIRE(find_by_key(lat.expanded, ele) != YAML_NULL_ID);
         REQUIRE(has_param(lat.full_expanded, ele, "ReferenceP", "pc_ref"));
+        REQUIRE(has_param(lat.full_expanded, ele, nullptr, "element_index"));
         REQUIRE_FALSE(has_param(lat.expanded, ele, nullptr, "ReferenceP"));
         REQUIRE_FALSE(has_param(lat.expanded, ele, nullptr, "FloorP"));
         REQUIRE_FALSE(has_param(lat.expanded, ele, nullptr, "s_position"));
+        REQUIRE_FALSE(has_param(lat.expanded, ele, nullptr, "element_index"));
     }
 
     // The authored member of a multipole family stays; the three derived from

@@ -1452,7 +1452,7 @@ static const std::set<std::string>& non_expr_keys() {
         "inherit",    "zero_point",  "to_line",
         "destination_element", "new_branch", "multipass",
         "propagate_reference", "name", "multipass_index",
-        "destination_pointer", "forked_to",
+        "element_index", "destination_pointer", "forked_to",
         "authors",    "notes",       "reminders"};
     return keys;
 }
@@ -3591,6 +3591,17 @@ static void _element_bookkeeper(ryml::Tree& t, size_t prev, size_t ele,
     compute_rf_dependent(t, ele, length, problems);
 }
 
+// Stamp `element_index: n` on an element definition: the element's position in
+// the branch line that holds it, counting from one.
+//
+// Every entry of the line is counted, so the index is the array index the
+// element sits at even when an entry before it is a bare name the expansion
+// could not resolve and so has no definition to fill in. The `branch_end` cap
+// is an element of the line like any other and is numbered with the rest.
+static void set_element_index(ryml::Tree& t, size_t ele, size_t index) {
+    set_plain_child(t, ele, "element_index", std::to_string(index).c_str());
+}
+
 // Append a zero-length `Placeholder` element named `branch_end` to a branch's
 // `line` and return its definition node. This is the marker that holds the
 // branch's final floor placement and reference parameters; the bookkeeper fills
@@ -3675,8 +3686,10 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
         if (line == ryml::NONE || !t.is_seq(line)) continue;
 
         size_t prev = ryml::NONE;
+        size_t index = 0;  // position in `line` of the entry being visited
         for (size_t le = t.first_child(line); le != ryml::NONE;
              le = t.next_sibling(le)) {
+            ++index;
             // A line entry is a wrapper map whose first child is the keyed
             // element definition; bare unresolved references have no parameters.
             if (!t.is_map(le)) continue;
@@ -3690,6 +3703,7 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
                 if (it != fork_seed.end()) seed = it->second;
             }
             _element_bookkeeper(t, prev, def, problems, seed);
+            set_element_index(t, def, index);
             if (first) check_branch_reference(t, branch, def, problems);
 
             // Record where a Fork propagates its reference/floor to. Propagation
@@ -3730,8 +3744,13 @@ static void run_element_bookkeeper(ryml::Tree& t, size_t lat_node,
         // just bookkept it like any other element, so there is nothing to add.
         bool capped = prev != ryml::NONE &&
                       t.key(prev) == ryml::to_csubstr("branch_end");
-        if (prev != ryml::NONE && !capped)
-            _element_bookkeeper(t, prev, append_branch_end(t, line), problems);
+        if (prev != ryml::NONE && !capped) {
+            size_t cap = append_branch_end(t, line);
+            _element_bookkeeper(t, prev, cap, problems);
+            // Appended past the last entry the loop counted, so it takes the
+            // next index.
+            set_element_index(t, cap, index + 1);
+        }
     }
 }
 
