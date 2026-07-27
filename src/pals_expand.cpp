@@ -473,7 +473,8 @@ static void stamp_multipass_pass(ryml::Tree& t, size_t first, size_t stop,
 /**
  * Perform lattice expansion on the element `node`.
  * 1. Substitute scalar elements with their full definition taken from emap.
- * 2. Beamlines that contain "repeat: n" have their contents repeated n times.
+ * 2. Beamlines that contain "repeat: n" have their contents repeated n times,
+ *    each copy expanded in turn like any other entry of the enclosing line.
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
  * 4. A beamline referenced by bare name inside a `line:` is a sub-line: its
@@ -541,7 +542,12 @@ static void expand(ryml::Tree& t, size_t node,
                             size_t def = emap[target];
                             size_t line_id =
                                 t.find_child(def, ryml::to_csubstr("line"));
-                            size_t after = t.prev_sibling(child);
+                            // `before`/`next` bracket the run about to be
+                            // spliced in: both are outside it and stay put
+                            // while it is built, so they still bracket it once
+                            // `child` itself is gone.
+                            size_t before = t.prev_sibling(child);
+                            size_t after = before;
                             // if beamline to be repeated has a line, duplicate
                             // it `count` times, else just duplicate the name of
                             // the beamline `count` times
@@ -567,6 +573,25 @@ static void expand(ryml::Tree& t, size_t node,
                             }
                             erase_prov_subtree(t, child, prov);
                             t.remove(child);
+
+                            // Expand the copies just spliced in. They are
+                            // duplicates of the repeated definition's own
+                            // entries -- element references and nested
+                            // sub-lines -- so they need exactly the expansion
+                            // the enclosing loop would have given them had they
+                            // been written out by hand. Skipping them left a
+                            // branch of bare names that extracted as an empty
+                            // lattice, and reported nothing.
+                            for (size_t cur = (before == ryml::NONE)
+                                                  ? t.first_child(node)
+                                                  : t.next_sibling(before);
+                                 cur != ryml::NONE && cur != next;) {
+                                size_t nx = t.next_sibling(cur);
+                                expand(t, cur, emap, prov, problems, branches,
+                                       mp_pass, done);
+                                cur = nx;
+                            }
+
                             child = next;
                             continue;
                         }
