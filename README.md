@@ -49,68 +49,13 @@ The [PALSJulia.jl](https://github.com/pals-project/PALSJulia.jl) package is an e
 - Provide a translator from `PALS` files to [`Bmad`](https://github.com/bmad-sim/bmad-ecosystem) lattice files.
 - Provide a translator from `PALS` files to [`SciBmad`](https://github.com/bmad-sim/SciBmad.jl) lattice files.
 
-## Developer Notes
+## Documentation
 
-### Source layout
-The library sources live in `src/`, split by concern:
+The full documentation — the user guide, the five-tree model, the expression
+evaluation rules, and the generated C API reference — is at
+<https://pals-project.github.io/pals-cpp/>.
 
-- `yaml_c_wrapper.h` — the public C API: the opaque handle types and every
-  exported function. This is the only header consumers include.
-- `yaml_c_wrapper.cpp` — the generic YAML tree wrapper over rapidyaml (parse,
-  traverse, query, modify, emit). Knows nothing about PALS.
-- `yaml_tree.h` — internal declarations shared between the wrapper and the PALS
-  code: the tree representation behind `YAMLTreeHandle` (`ParsedData`) plus the
-  low-level tree helpers (`ensure_capacity`, `deep_copy_recursive`).
-- `pals_expand.cpp` — the lattice expansion pipeline that builds the five-tree
-  representation (`original` / `combined` / `expanded` / `full_expanded` /
-  `leftover`): include
-  splicing, `load` merging, structural expansion (repeats, inherits, forks), expression,
-  controller and `set` evaluation, and the element bookkeeper that walks each
-  branch
-  filling in reference parameters, floor placement, s-positions and dependent
-  parameters.
-- `pals_check.{h,cpp}` — spelling checks against the fixed PALS vocabulary
-  (element kinds and parameter group names). A `FlorP` group parses as valid
-  YAML and would otherwise go unrecognised in silence, so it is reported here,
-  with a "did you mean" suggestion where a near match exists.
-- `pals_floor.{h,cpp}` — floor (global) coordinate geometry. A placement is a
-  position plus an orientation, carried as a unit quaternion rather than the
-  standard's W matrix; `floor_propagate` advances one along the reference
-  curve, and straight_LS / bend_LS / patch_LS build the (L, S) pair for the
-  three geometries PALS defines.
-- `pals_match.cpp` — PALS name matching and parameter lookup (the PCRE2-based
-  `match_names` / `get_parameter_value` family).
-- `pals_util.{h,cpp}` — small helpers shared across the PALS split
-  (`child_val_str`, `split_dots`, `resolve_param_path`, `strip_expr_wrapper`).
-- `pals_expression.{h,cpp}` — the standalone PALS expression grammar and
-  evaluator (arithmetic, functions, built-in constants, particle-data lookups).
-
-Everything builds into `libyaml_c_wrapper.dylib`; see `CMakeLists.txt`.
-
-### Memory model
-`YAMLTreeHandle` wraps `ryml::Tree` into C objects so they can be part of a shared object library to interface with other languages. `ryml::Tree`s are stored in memory simply as arrays. `ryml::NodeRef` acts as a simple wrapper around nodes, which are just indices in the tree array. Trees are obtained by parsing C++ std::string, and values are simply pointers to locations in the string. Therefore, the string must be kept in memory as long as the tree is in use. 
-
-Most of the relevant ryml code for reference is contained in `/build/_deps/rapidyaml-src/src/c4/yml/tree.hpp`.
-
-The documentation site is built with Sphinx (MyST Markdown + the Furo theme),
-with the C/C++ API pulled in from Doxygen via [Breathe](https://breathe.readthedocs.io).
-The published site is at <https://pals-project.github.io/pals-cpp/>. To build and
-preview it locally (requires `doxygen` and `python3`):
-
-```console
-docs/build_local.sh
-```
-
-This runs `docs/build.py` — Doxygen (API → XML) then Sphinx → `docs/build/html` —
-and serves it at <http://localhost:8000/>. Narrative pages live in `docs/src/`.
-
-To build the test, in the root directory run
-
-```console
-ctest --test-dir build --output-on-failure
-```
-
-To run a specific test, run
-```console
-ctest --test-dir build -R "Test Name"
-```
+Notes for working on the library itself (source layout, memory model, running
+the tests, building the docs) are on the
+[Working on pals-cpp](https://pals-project.github.io/pals-cpp/develop.html)
+page.

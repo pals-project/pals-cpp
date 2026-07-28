@@ -24,6 +24,13 @@ guide/expressions
 api
 ```
 
+```{toctree}
+:hidden:
+:caption: Development
+
+develop
+```
+
 ## What it does
 
 Lattice expansion follows the PALS specification: elements are substituted with
@@ -45,6 +52,8 @@ See [The five trees](guide/trees.md) for what each one holds and which to reach
 for, [Building and using the library](guide/usage.md) to get started,
 [Evaluating expressions](guide/expressions.md) for this library's evaluation
 model, and the [API Reference](api.md) for the full C interface.
+[Working on pals-cpp](develop.md) covers the source layout, the memory model,
+the tests, and building this site.
 
 The PALS standard itself — the schema, the element kinds and parameter groups,
 the expression grammar, the built-in constants and functions — is documented at

@@ -262,11 +262,10 @@ it was computed.
 
 Expansion does not abort on a recoverable problem. Instead it leaves the
 offending value as it found it and appends a message to the `problems` list the
-`lattices` struct also carries: an undefined lattice, a `line` reference to an
-undefined element, a missing `inherit`/`repeat`/`Fork` target, a branch whose
-reference parameters cannot be computed, an expression that could not be
-evaluated. The list is empty when expansion was clean, and the caller owns it —
-release it with `free_lattice_problems`.
+`lattices` struct also carries, so the five trees come back expanded as far as
+they could be. The list is empty when expansion was clean, and the caller owns
+it — release it with `free_lattice_problems`.
 
 The library never prints. Whether to report, save, or ignore the messages is the
-caller's decision.
+caller's decision. What is reported is set out in
+[Problems found during expansion](usage.md#problems-found-during-expansion).
