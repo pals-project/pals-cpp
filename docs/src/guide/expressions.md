@@ -83,39 +83,6 @@ standard gives the error *magnitude* — `absolute_error + relative_error *
 deterministic value, and reports a problem rather than picking a distribution
 on the author's behalf.
 
-## How controllers are applied
-
-A `Controller`'s `variables` are evaluated as constant expressions, each
-`controls` entry's `expression` is evaluated against that controller's own
-variable table, and the result is written back into the control entry. What then
-happens to the driven parameters depends on `control_type`:
-
-- **`ABSOLUTE`** (the default, materialized into the tree when the key is
-  omitted) means the controllers determine the parameter outright. Each matched
-  parameter is set to the **sum** of the values of every ABSOLUTE controller
-  driving it, replacing whatever the element itself gave. A parameter the
-  element does not carry is created, group and all.
-- **`RELATIVE`** describes a knob — an orbit bump, a chromaticity family —
-  whose *changes* the simulation program applies after the file is read. It
-  changes nothing during expansion: the parameter keeps the value its element
-  gives, and only the control expression is evaluated, for the program's use.
-
-A `parameter` target is a [name-matching string](../api.md#name-matching), so
-one entry drives every element it matches. Controllers may drive other
-controllers' variables, forming a hierarchy that is evaluated from the top down;
-a driven variable takes its driving value instead of its own initial value. The
-order controllers are written in the file does not matter.
-
-The controllers are applied after the branches are expanded and before the
-element bookkeeper runs, so the reference, floor and dependent parameters are
-computed from the driven values — a driven `Kn1L` yields the matching `Bn1L`.
-
-These are reported as problems: a circular control hierarchy, a parameter driven
-by both an ABSOLUTE and a RELATIVE controller, a parameter that is both
-controlled and assigned a delayed (`expr(...)`) expression, a target that
-matches nothing in the expanded lattice, and a `control_type` that is neither
-`ABSOLUTE` nor `RELATIVE`.
-
 ## How sets are applied
 
 A parameter of a known element that has not been written reads as **zero**, so

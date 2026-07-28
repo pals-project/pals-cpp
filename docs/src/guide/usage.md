@@ -53,16 +53,66 @@ is none — the last lattice defined in the file.
 
 ### Problems found during expansion
 
-Expansion does not abort on a recoverable problem — a `line` reference to an
-undefined element, a missing `inherit`/`repeat`/`Fork` target, or an expression
-that cannot be evaluated (an unknown constant, a dangling element‑parameter
-reference, a cycle). Instead it leaves the offending value as text and appends a
+Expansion does not abort on a recoverable problem. It leaves the offending
+value as it found it, carries on with the rest of the lattice, and appends a
 human‑readable message to `lat.problems`, an owning `string_list`. The list is
 empty when expansion was clean. The library never prints — the caller decides
-whether to report, save, or ignore the messages — and must release the list with
-`free_lattice_problems`. Only values that look like expressions (an operator, a
-parenthesis, a `>` reference, or an explicit `expr(...)`) are flagged when they
-fail to evaluate, so plain names and labels are not mistaken for broken math.
+whether to report, save, or ignore the messages — and must release the list
+with `free_lattice_problems`.
+
+Expansion is therefore always worth reading: a lattice with problems still
+comes back expanded as far as it could be, with the trees around the fault
+intact. The one exception is a top‑level file that is not valid YAML, where
+there is nothing to expand: all five handles come back `NULL` and the parse
+error, with its location, is the single problem reported.
+
+What gets reported falls into a few groups.
+
+**Structure.** A lattice named in the call (or in `use`) that does not exist, a
+`line` reference to an undefined element or line, a missing
+`inherit`/`repeat`/`Fork` target, an invalid `repeat` count, a `Fork` whose
+`to_line` cannot be resolved, a branch that never got expanded, and a `load` or
+`include` that cannot be read or that conflicts with what it is merged into.
+
+**Expressions.** A value that cannot be evaluated — an unknown constant or
+species, a dangling element‑parameter reference, a reference cycle, a syntax
+error — is left as text and reported. Only values that *look* like expressions
+(an operator, a parenthesis, a `>` reference, or an explicit `expr(...)`) are
+flagged, so a plain name or a label is not mistaken for broken math. See
+[Evaluating expressions](expressions.md).
+
+**Controllers.** A `control_type` that is neither `ABSOLUTE` nor `RELATIVE`; a
+`controls` entry with no `parameter` or no `expression`; a control target that
+is malformed, names no element parameter, or matches nothing in the expanded
+lattice; a reference to a variable a named controller does not have; a
+controller variable whose initial value is not a constant expression; a
+circular control hierarchy; a parameter driven by both an ABSOLUTE and a
+RELATIVE controller; and a parameter that is both controlled and assigned a
+delayed (`expr(...)`) expression.
+
+**Sets.** A `set` with no `parameter` or no `value`; a target that is
+malformed, names no element parameter, or matches nothing (for a
+pre‑`expand_lattice` set, nothing *defined before it*); a value that cannot be
+evaluated; and a value that reads a parameter whose value is still to be
+derived during expansion.
+
+**Bookkeeping.** A branch whose first element gives neither a reference species
+nor a reference energy, so the reference parameters cannot be computed; and a
+parameter the author wrote that is inconsistent with what the rest of its
+family or the bend geometry implies — the authored value is kept and the
+disagreement reported rather than silently overwritten.
+
+**Vocabulary.** An element kind or parameter group name that is not one the
+standard defines — a `FlorP` group is valid YAML and would otherwise go
+unrecognised in silence — reported with a "did you mean" suggestion where a
+near match exists.
+
+**Deliberately not computed.** Where the standard fixes a value's magnitude but
+not how to produce it, this library reports rather than guesses: an
+`absolute_error`/`relative_error` on a `set` (the error distribution is
+unspecified, so the deterministic value is written and the error is not), and a
+`Foil` element's downstream species change (the stripping model is undefined,
+so the species is left as the upstream one).
 
 ### Reading the expanded lattice
 
