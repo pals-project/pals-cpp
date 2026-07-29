@@ -100,7 +100,10 @@ derived during expansion.
 nor a reference energy, so the reference parameters cannot be computed; and a
 parameter the author wrote that is inconsistent with what the rest of its
 family or the bend geometry implies — the authored value is kept and the
-disagreement reported rather than silently overwritten.
+disagreement reported rather than silently overwritten. (Two members of one
+family stated in the *same* element definition are what this catches: a `set`
+or a controller restating a family member nullifies the earlier statement
+instead, so there is nothing to disagree with.)
 
 **Vocabulary.** An element kind or parameter group name that is not one the
 standard defines — a `FlorP` group is valid YAML and would otherwise go

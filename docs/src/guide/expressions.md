@@ -103,6 +103,35 @@ compute and reading it beforehand is an error:
     value: Q1>MagneticMultipoleP.Bs1   # error: Bs1 needs the reference momentum
 ```
 
+### Interdependent parameters
+
+The members of such a family state one physical quantity in different units, so
+only one of them can be the statement of it. Writing one **nullifies the
+previous settings of all the others**: they are removed, and the bookkeeper
+derives them again from the value just written.
+
+```yaml
+- s1:
+    kind: Sextupole
+    length: 0.27
+    MagneticMultipoleP:
+      Ks2: 0.34
+- set:
+    parameter: s1>MagneticMultipoleP.Ks2L
+    value: 0.5
+```
+
+Here `s1` states its skew sextupole component as `Ks2` and the set restates it
+as `Ks2L`; the `Ks2` goes, and `Ks2` comes back as `0.5 / 0.27`. Without this
+the two would be left contradicting each other and reported as inconsistent.
+
+The rule holds for every writer that reaches a parameter from outside the
+element definition — sets before and after `expand_lattice`, and ABSOLUTE
+controllers, which are ordered among themselves by the order they are evaluated
+in. Two members written *inside* one element definition are a different matter:
+neither is "previous", so that stays an inconsistency for the bookkeeper to
+report.
+
 ### `expand_lattice` and where a set acts
 
 An `expand_lattice` node divides the `facility` list in two, and which side a
@@ -134,7 +163,7 @@ pre-expansion sets
 Applying the controllers last is what keeps a controller authoritative over a
 parameter a later set also writes. The second bookkeeper pass recomputes what
 those writes invalidated: the reference, floor and position values, and the
-family members a post-expansion set dropped.
+family members a post-expansion set or a controller nullified.
 
 The snapshot that separates `expanded` from `full_expanded` is taken between the
 first expression evaluation and the first bookkeeper pass — see

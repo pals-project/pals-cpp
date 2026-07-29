@@ -76,6 +76,16 @@ double one_param(YAMLTreeHandle t, const char* ele, const char* group,
     return nth_param(t, ele, 0, group, param);
 }
 
+// Whether the first element named `ele` carries `group.param` at all.
+bool has_param(YAMLTreeHandle t, const char* ele, const char* group,
+               const char* param) {
+    YAMLNodeId e = find_by_key(t, ele);
+    REQUIRE(e != YAML_NULL_ID);
+    YAMLNodeId g = get_child_by_key(t, e, group);
+    if (g == YAML_NULL_ID) return false;
+    return get_child_by_key(t, g, param) != YAML_NULL_ID;
+}
+
 // A beamline holding one BeginningEle plus whatever `body` adds.
 const char* BEGIN_ENTRY =
     "          - begin:\n"
@@ -400,6 +410,46 @@ TEST_CASE("a post-expansion set makes the bookkeeper redo the family",
     double b2 = one_param(lat.full_expanded, "q2", "MagneticMultipoleP", "Bn1L");
     REQUIRE(b1 != 0.0);
     REQUIRE(close_rel(b1, b2));
+
+    free_all(lat);
+    rm_tmp(path);
+}
+
+TEST_CASE("a pre-expansion set nullifies the rest of its family",
+          "[expr][lattices][set]") {
+    // miscellaneous.md, the interdependent-parameter example verbatim: s1
+    // states its sextupole skew component as Ks2, and a set then states the
+    // same component as Ks2L. The set nullifies the Ks2 the definition gave, so
+    // the two are not left inconsistent -- the component is what the set says,
+    // and the bookkeeper derives Ks2 back from it over the element length.
+    const char* path = "tmp_set_family_pre.pals.yaml";
+    write_tmp(path,
+              facility_file("    - s1:\n"
+                            "        kind: Sextupole\n"
+                            "        length: 0.27\n"
+                            "        MagneticMultipoleP:\n"
+                            "          Ks2: 0.34\n"
+                            "    - set:\n"
+                            "        parameter: s1>MagneticMultipoleP.Ks2L\n"
+                            "        value: 0.5\n"
+                            "    - main:\n"
+                            "        kind: BeamLine\n"
+                            "        line:\n" +
+                                std::string(BEGIN_ENTRY) + "          - s1\n",
+                            "main"));
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(joined(lat) == "");
+
+    // Only the set's own parameter survives as an input; the nullified Ks2 is
+    // no longer something the author asked for.
+    REQUIRE(has_param(lat.expanded, "s1", "MagneticMultipoleP", "Ks2L"));
+    REQUIRE(!has_param(lat.expanded, "s1", "MagneticMultipoleP", "Ks2"));
+    REQUIRE(close(one_param(lat.full_expanded, "s1", "MagneticMultipoleP", "Ks2L"),
+                  0.5));
+    REQUIRE(close_rel(one_param(lat.full_expanded, "s1", "MagneticMultipoleP",
+                                "Ks2"),
+                      0.5 / 0.27));
 
     free_all(lat);
     rm_tmp(path);
