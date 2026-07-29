@@ -240,6 +240,30 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
 
 /**
+ * Builds the same four representations from a document held in memory.
+ * @ingroup parse
+ *
+ * Identical to parse_and_expand_PALS() in every respect but where the document
+ * comes from: use this for a lattice a program has generated, or already has the
+ * text of, so that it need not be written to disk to be expanded.
+ *
+ * A string has no directory of its own, so a relative `include` or `load` inside
+ * one is resolved against the current working directory, and the document is
+ * keyed in `original` as `<string>` rather than by a path. A document that names
+ * other files is better read with parse_and_expand_PALS(), which resolves each
+ * reference against the file that made it.
+ *
+ * @param yaml_str     The document text. NULL is a parse failure, reported the
+ *                     way an unreadable file is.
+ * @param root_lattice Name of the lattice to expand; see parse_and_expand_PALS()
+ *                     for what NULL or empty selects.
+ * @return The same five handles and `problems` list as parse_and_expand_PALS(),
+ *         owned by the caller on the same terms.
+ */
+YAML_API struct lattices expand_PALS_string(const char* yaml_str,
+                                            const char* root_lattice);
+
+/**
  * Frees the string array owned by the `problems` list of a `lattices` value.
  * @ingroup parse
  *

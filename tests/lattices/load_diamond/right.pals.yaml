@@ -1,0 +1,3 @@
+PALS:
+  load:
+    - shared.pals.yaml

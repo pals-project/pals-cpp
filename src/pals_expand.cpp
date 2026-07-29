@@ -4414,6 +4414,10 @@ static void add_to_master_tree(ryml::Tree& master, const ryml::Tree& src,
  * is built from -- the top-level file and everything it reaches by `include` or
  * `load`, at any depth -- to that file's contents, keyed by its resolved path.
  *
+ * `src` is the parsed top-level document, null if it could not be read or
+ * parsed; it is freed here. `filename` is the path it is keyed by, which is also
+ * what its `include` and `load` references resolve against.
+ *
  * If the top-level file cannot be read or is not valid YAML, `parse_error` is
  * set to a human-readable description (with the offending line/column for a
  * syntax error) and the returned tree is an empty MAP. Callers treat a non-empty
@@ -4421,11 +4425,11 @@ static void add_to_master_tree(ryml::Tree& master, const ryml::Tree& src,
  * file that cannot be read is not fatal: it is simply missing from the master
  * tree, and reported when the reference to it is resolved.
  */
-static YAMLTreeHandle make_original(const std::string& filename,
+static YAMLTreeHandle make_original(ParsedData* src,
+                                    const std::string& filename,
                                     std::string& parse_error) {
     ParsedData* master = new ParsedData();
     master->tree.rootref() |= ryml::MAP;
-    ParsedData* src = static_cast<ParsedData*>(parse_file(filename.c_str()));
     if (src) {
         ensure_capacity(master->tree, 2);
         size_t dest = master->tree.append_child(master->tree.root_id());
@@ -4445,29 +4449,33 @@ static YAMLTreeHandle make_original(const std::string& filename,
     return master;
 }
 
-extern "C" {
+// The path an in-memory document is keyed by in `original`. A string has no
+// directory of its own, so a relative `include` or `load` inside one resolves
+// against the current directory; a document that names other files is better
+// read with parse_and_expand_PALS, which resolves them against itself.
+static const char* STRING_DOC_PATH = "<string>";
 
-YAML_API struct lattices parse_and_expand_PALS(const char* filename,
-                                      const char* root_lattice) {
+// The whole of parse_and_expand_PALS below the reading of the top-level
+// document: `src` is that document parsed (null if it could not be), `top_path`
+// the path it is keyed by, and `source_name` what a parse failure calls it.
+static struct lattices expand_document(ParsedData* src,
+                                       const std::string& top_path,
+                                       const std::string& source_name,
+                                       const char* root_lattice) {
     struct lattices lat = {};
     ProblemList problems;
     // Built as a derivation chain so provenance can be recorded at each step:
     //   original --(splice includes, merge loads)--> combined
     //   combined  --(expand, split)--> expanded, full_expanded, leftover
-    //
-    // Every file is keyed in `original` by its folded path, so folding the
-    // top-level one here is what makes it agree with the paths the files
-    // themselves resolve to.
     std::string parse_error;
-    const std::string top_path = fold_path(filename ? filename : "");
-    lat.original = make_original(top_path, parse_error);
+    lat.original = make_original(src, top_path, parse_error);
     if (!parse_error.empty()) {
-        // The top-level file is not valid YAML: there is no tree to expand.
+        // The top-level document is not valid YAML: there is nothing to expand.
         // Free the empty stand-in, leave all five handles NULL, and report the
         // location as the single problem so the caller can pinpoint the fault.
         delete_tree(lat.original);
         lat.original = nullptr;
-        problems.push_back("could not parse '" + std::string(filename) +
+        problems.push_back("could not parse '" + source_name +
                            "': " + parse_error);
     } else {
         lat.combined = make_combined_from_original(
@@ -4496,6 +4504,25 @@ YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                     problems[i].size() + 1);
     }
     return lat;
+}
+
+extern "C" {
+
+YAML_API struct lattices parse_and_expand_PALS(const char* filename,
+                                      const char* root_lattice) {
+    // Every file is keyed in `original` by its folded path, so folding the
+    // top-level one here is what makes it agree with the paths the files
+    // themselves resolve to.
+    const std::string top_path = fold_path(filename ? filename : "");
+    ParsedData* src = static_cast<ParsedData*>(parse_file(top_path.c_str()));
+    return expand_document(src, top_path, filename ? filename : "",
+                           root_lattice);
+}
+
+YAML_API struct lattices expand_PALS_string(const char* yaml_str,
+                                            const char* root_lattice) {
+    return expand_document(static_cast<ParsedData*>(parse_string(yaml_str)),
+                           STRING_DOC_PATH, STRING_DOC_PATH, root_lattice);
 }
 
 YAML_API void free_lattice_problems(struct string_list problems) {

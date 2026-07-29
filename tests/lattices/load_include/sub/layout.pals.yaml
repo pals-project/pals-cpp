@@ -1,0 +1,5 @@
+PALS:
+  facility:
+    - m1:
+        kind: Marker
+    - include: "../parts/extra.pals.yaml"

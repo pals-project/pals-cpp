@@ -1,0 +1,5 @@
+PALS:
+  load:
+    - a.pals.yaml
+    - b.pals.yaml
+    - c.pals.yaml

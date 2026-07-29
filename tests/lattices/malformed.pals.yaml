@@ -1,0 +1,4 @@
+PALS:
+  facility:
+    - cav
+        kind: RFCavity

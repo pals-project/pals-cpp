@@ -1,0 +1,5 @@
+PALS:
+  notes:
+    - "joiner"
+  load:
+    - no_such_file.pals.yaml

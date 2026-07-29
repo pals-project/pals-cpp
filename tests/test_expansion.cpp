@@ -5,7 +5,8 @@
 // ============================================================
 
 TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), nullptr);
     REQUIRE(lat.original != nullptr);
     REQUIRE(lat.combined != nullptr);
     REQUIRE(lat.full_expanded != nullptr);
@@ -20,7 +21,8 @@ TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
 // The expanded tree holds the root lattice and nothing else: no PALS/facility
 // wrapper, and only the one entry.
 TEST_CASE("expanded holds only the root lattice", "[lattices]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
     YAMLNodeId root = get_root(lat.full_expanded);
 
     REQUIRE(is_map(lat.full_expanded, root));
@@ -45,7 +47,8 @@ TEST_CASE("expanded holds only the root lattice", "[lattices]") {
 // Everything else stays behind, under its PALS/facility scaffolding — including
 // the lattice that was not expanded.
 TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
     YAMLNodeId fac = facility_of(lat.leftover);
     REQUIRE(fac != YAML_NULL_ID);
 
@@ -78,7 +81,8 @@ TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
 // is assigned before the lattice is cut out into its own tree, so it must be
 // translated to survive the renumbering.
 TEST_CASE("destination_pointer resolves inside the expanded tree", "[lattices]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
 
     // Find the destination_pointer scalar anywhere in the expanded tree.
     YAMLNodeId fp = YAML_NULL_ID;
@@ -116,48 +120,47 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     // name substitution, `alt` by `inherit`, and `to_dump` built by a Fork out
     // of `dump_line`. Each copies a BeamLine definition in, and none of the
     // copies may keep the definition's kind.
-    const char* path = "tmp_branch_kind.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - q1:\n"
-              "        kind: Quadrupole\n"
-              "        length: 0.5\n"
-              "    - dump_begin:\n"
-              "        kind: Marker\n"
-              "    - sub:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - q1\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        periodic: false\n"
-              "        line:\n"
-              "          - sub\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "                destination_element: dump_begin\n"
-              "                new_branch: to_dump\n"
-              "    - main:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - q1\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main\n"
-              "          - alt:\n"
-              "              inherit: ring\n"
-              "              periodic: true\n"
-              "    - use: lat1\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.5\n"
+        "    - dump_begin:\n"
+        "        kind: Marker\n"
+        "    - sub:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        periodic: false\n"
+        "        line:\n"
+        "          - sub\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "                destination_element: dump_begin\n"
+        "                new_branch: to_dump\n"
+        "    - main:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main\n"
+        "          - alt:\n"
+        "              inherit: ring\n"
+        "              periodic: true\n"
+        "    - use: lat1\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId lat1 = get_child_by_index(lat.full_expanded, get_root(lat.full_expanded), 0);
@@ -213,7 +216,6 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // A branch's `inherit` is optional and defaults to the branch's own name
@@ -221,32 +223,31 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
 // `periodic` under it is the branch `ln` built from the BeamLine `ln`.
 TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
           "[lattices]") {
-    const char* path = "tmp_branch_default_inherit.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: \"electron\"\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - q:\n"
-              "        kind: Quadrupole\n"
-              "        length: 1\n"
-              "    - ln:\n"
-              "        kind: BeamLine\n"
-              "        periodic: true\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - q\n"
-              "    - machine:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ln:\n"
-              "              periodic: false\n"
-              "    - use: \"machine\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: \"electron\"\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - q:\n"
+        "        kind: Quadrupole\n"
+        "        length: 1\n"
+        "    - ln:\n"
+        "        kind: BeamLine\n"
+        "        periodic: true\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - q\n"
+        "    - machine:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ln:\n"
+        "              periodic: false\n"
+        "    - use: \"machine\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId machine =
@@ -284,45 +285,43 @@ TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // A written `inherit` names the root BeamLine outright, and the default must not
 // displace it even when the branch's own name is also a defined BeamLine.
 TEST_CASE("An explicit branch inherit wins over the branch name", "[lattices]") {
-    const char* path = "tmp_branch_explicit_inherit.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: \"electron\"\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - q_named:\n"
-              "        kind: Quadrupole\n"
-              "        length: 1\n"
-              "    - s_wanted:\n"
-              "        kind: Sextupole\n"
-              "        length: 2\n"
-              "    - alt:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - q_named\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - s_wanted\n"
-              "    - machine:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - alt:\n"
-              "              inherit: ring\n"
-              "    - use: \"machine\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: \"electron\"\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - q_named:\n"
+        "        kind: Quadrupole\n"
+        "        length: 1\n"
+        "    - s_wanted:\n"
+        "        kind: Sextupole\n"
+        "        length: 2\n"
+        "    - alt:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - q_named\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - s_wanted\n"
+        "    - machine:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - alt:\n"
+        "              inherit: ring\n"
+        "    - use: \"machine\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId machine =
@@ -349,15 +348,13 @@ TEST_CASE("An explicit branch inherit wins over the branch name", "[lattices]") 
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // A branch that comes out of expansion with no elements is reported in its own
 // right, rather than being left for some later check to trip over.
 TEST_CASE("An empty branch is reported", "[lattices][problems]") {
-    auto problems_for = [](const char* path, const std::string& yaml) {
-        write_tmp(path, yaml);
-        struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    auto problems_for = [](const char* yaml) {
+        struct lattices lat = expand_PALS_string(yaml, nullptr);
         std::vector<std::string> msgs;
         for (size_t i = 0; i < lat.problems.count; ++i)
             msgs.emplace_back(lat.problems.items[i]);
@@ -367,7 +364,6 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
-        rm_tmp(path);
         return msgs;
     };
     auto has = [](const std::vector<std::string>& msgs, const char* needle) {
@@ -379,8 +375,7 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
     // No BeamLine named `ln` at all: the branch names its root line by its own
     // key, and that key resolves to nothing.
     SECTION("root BeamLine is not defined") {
-        auto msgs = problems_for("tmp_branch_no_root.pals.yaml",
-                                 "PALS:\n"
+        auto msgs = problems_for("PALS:\n"
                                  "  facility:\n"
                                  "    - machine:\n"
                                  "        kind: Lattice\n"
@@ -394,8 +389,7 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
     // The root line is defined, and empty. The name resolves, so the message is
     // about the branch's contents rather than about a missing definition.
     SECTION("root BeamLine has an empty line") {
-        auto msgs = problems_for("tmp_branch_empty_line.pals.yaml",
-                                 "PALS:\n"
+        auto msgs = problems_for("PALS:\n"
                                  "  facility:\n"
                                  "    - ln:\n"
                                  "        kind: BeamLine\n"
@@ -415,37 +409,36 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     // Every silent failure of expansion/evaluation is surfaced in the
     // `problems` list: dangling line references, undefined inherit/repeat
     // targets, and expressions that cannot be evaluated.
-    const char* path = "tmp_problems.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - constants:\n"
-              "        a_const: 0.3 * undefined_thing\n"
-              "    - thingB:\n"
-              "        kind: Sextupole\n"
-              "        MagneticMultipoleP:\n"
-              "          Kn2L: 0.1\n"
-              "    - DH1A:\n"
-              "        kind: Bend\n"
-              "        BendP:\n"
-              "          edge2_int: 0.02 * thingB>MagneticMultipoleP.NotThere\n"
-              "          e1: 3 * missing_const\n"
-              "    - ghost_child:\n"
-              "        kind: Bend\n"
-              "        inherit: ghost_ancestor\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - DH1A\n"
-              "          - ghost_child\n"
-              "          - NoSuchElement\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - constants:\n"
+        "        a_const: 0.3 * undefined_thing\n"
+        "    - thingB:\n"
+        "        kind: Sextupole\n"
+        "        MagneticMultipoleP:\n"
+        "          Kn2L: 0.1\n"
+        "    - DH1A:\n"
+        "        kind: Bend\n"
+        "        BendP:\n"
+        "          edge2_int: 0.02 * thingB>MagneticMultipoleP.NotThere\n"
+        "          e1: 3 * missing_const\n"
+        "    - ghost_child:\n"
+        "        kind: Bend\n"
+        "        inherit: ghost_ancestor\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - DH1A\n"
+        "          - ghost_child\n"
+        "          - NoSuchElement\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // Collect the messages so the assertions do not depend on their order.
@@ -481,7 +474,6 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("repeat with an unusable count keeps the entry",
@@ -490,7 +482,6 @@ TEST_CASE("repeat with an unusable count keeps the entry",
     // to be reported and then unrolled zero times, which removed the entry: the
     // lattice came back with an empty `line`, silently missing a beamline.
     auto counts_rejected = [](const char* count) {
-        const char* path = "tmp_repeat_bad.pals.yaml";
         std::string doc = std::string(
             "PALS:\n"
             "  facility:\n"
@@ -511,9 +502,8 @@ TEST_CASE("repeat with an unusable count keeps the entry",
             "        branches:\n"
             "          - main_line\n"
             "    - use: \"lat1\"\n";
-        write_tmp(path, doc.c_str());
 
-        struct lattices lat = parse_and_expand_PALS(path, nullptr);
+        struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
         REQUIRE(lat.full_expanded != nullptr);
 
         bool reported = false;
@@ -533,7 +523,6 @@ TEST_CASE("repeat with an unusable count keeps the entry",
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
-        rm_tmp(path);
         return reported && kept;
     };
 
@@ -551,37 +540,36 @@ TEST_CASE("repeat expands the copies it splices", "[lattices]") {
     //
     // `inner` is nested inside the repeated `cell` to pin the recursive case:
     // the copies are expanded, so a sub-line among them flattens in its turn.
-    const char* path = "tmp_repeat_expands.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - d1:\n"
-              "        kind: Drift\n"
-              "        length: 2.0\n"
-              "    - q1:\n"
-              "        kind: Quadrupole\n"
-              "        length: 0.4\n"
-              "    - inner:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - q1\n"
-              "    - cell:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - d1\n"
-              "          - inner\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - cell:\n"
-              "              repeat: 3\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - d1:\n"
+        "        kind: Drift\n"
+        "        length: 2.0\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.4\n"
+        "    - inner:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n"
+        "    - cell:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - d1\n"
+        "          - inner\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - cell:\n"
+        "              repeat: 3\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -611,20 +599,18 @@ TEST_CASE("repeat expands the copies it splices", "[lattices]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS reports a missing lattice",
           "[lattices][problems]") {
-    const char* path = "tmp_nolattice.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - thingB:\n"
-              "        kind: Sextupole\n"
-              "        length: 0.3\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - thingB:\n"
+        "        kind: Sextupole\n"
+        "        length: 0.3\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, "not_here");
+    struct lattices lat = expand_PALS_string(doc, "not_here");
     REQUIRE(lat.problems.count == 1);
     REQUIRE(std::string(lat.problems.items[0]) == "lattice 'not_here' not found");
 
@@ -641,7 +627,6 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing",
@@ -649,30 +634,29 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     // A ForkP written as a sequence (a stray leading dash) *is* present, so the
     // old "missing ForkP" message was misleading. The diagnostic must say the
     // ForkP is the wrong shape rather than claim it is absent.
-    const char* path = "tmp_forkp_seq.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - dump_begin:\n"
-              "        kind: Marker\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                - to_line: dump_line\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - dump_begin:\n"
+        "        kind: Marker\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                - to_line: dump_line\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     bool wrong_shape = false;
@@ -693,7 +677,6 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a Fork needs only to_line; destination_element and new_branch default",
@@ -702,36 +685,35 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     // to the destination branch's beginning element and `new_branch` defaults to
     // the `to_line` name. A ForkP with just `to_line` must expand without any
     // "missing a required field" problem.
-    const char* path = "tmp_fork_defaults.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - dump_begin:\n"
-              "        kind: Marker\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - dump_begin:\n"
+        "        kind: Marker\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -758,7 +740,6 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // Helper: the keyed element definition of a branch's first line element.
@@ -785,39 +766,38 @@ TEST_CASE("a Fork propagates reference and floor into its new branch",
     // beginning element inherits the Fork element's reference species/energy and
     // floor placement (fork.md), even when the forked-to line has no BeginningEle
     // of its own.
-    const char* path = "tmp_fork_propagate.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        FloorP:\n"
-              "          x: 1.5\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - m1:\n"
-              "        kind: Marker\n"
-              "    - ext_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m1\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: ext_line\n"
-              "                new_branch: extraction\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        FloorP:\n"
+        "          x: 1.5\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - m1:\n"
+        "        kind: Marker\n"
+        "    - ext_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m1\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: ext_line\n"
+        "                new_branch: extraction\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // Branch 1 is `extraction`; its first (destination) element is `m1`.
@@ -847,7 +827,6 @@ TEST_CASE("a Fork propagates reference and floor into its new branch",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
@@ -857,38 +836,37 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     // That leaves the whole branch with no reference to propagate, which is
     // reported -- the destination declares no ReferenceP of its own, so turning
     // propagation off is the same as never giving the branch one.
-    const char* path = "tmp_fork_noprop.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - m1:\n"
-              "        kind: Marker\n"
-              "    - ext_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m1\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: ext_line\n"
-              "                new_branch: extraction\n"
-              "                propagate_reference: false\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - m1:\n"
+        "        kind: Marker\n"
+        "    - ext_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m1\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: ext_line\n"
+        "                new_branch: extraction\n"
+        "                propagate_reference: false\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId dest = first_element_of_branch(lat.full_expanded, 1);
@@ -912,7 +890,6 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a half-declared branch reference is reported for what it lacks",
@@ -922,44 +899,43 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
     // between energy and momentum, and without one of those two there is
     // nothing to convert. `pc_ref` counts as the energy half -- completion
     // derives `E_tot_ref` from it.
-    const char* path = "tmp_ref_partial.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - no_energy:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "    - no_species:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - by_momentum:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          pc_ref: 1.0e9\n"
-              "    - line_a:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - no_energy\n"
-              "    - line_b:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - no_species\n"
-              "    - line_c:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - by_momentum\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - line_a\n"
-              "          - line_b\n"
-              "          - line_c\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - no_energy:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "    - no_species:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - by_momentum:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          pc_ref: 1.0e9\n"
+        "    - line_a:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - no_energy\n"
+        "    - line_b:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - no_species\n"
+        "    - line_c:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - by_momentum\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - line_a\n"
+        "          - line_b\n"
+        "          - line_c\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     std::vector<std::string> msgs;
@@ -978,7 +954,6 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("new_branch: null forks into an existing branch, creating none",
@@ -988,41 +963,40 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     // destination is not the beginning element of a *new* branch, nothing is
     // propagated: the existing branch keeps its own reference. (`other` is listed
     // first so it is already expanded when `ring`'s Fork resolves.)
-    const char* path = "tmp_fork_null.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - eb:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: electron\n"
-              "          E_tot_ref: 5.0e8\n"
-              "    - other:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - eb\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: other\n"
-              "                new_branch: null\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - other\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - eb:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: electron\n"
+        "          E_tot_ref: 5.0e8\n"
+        "    - other:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - eb\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: other\n"
+        "                new_branch: null\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - other\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
@@ -1058,7 +1032,6 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a destination of a kind that cannot be forked to is reported",
@@ -1068,38 +1041,37 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
     // zero length and unit transfer map. `dump_line` begins with a Drift, so
     // both the defaulted destination and one named outright are rejected, and
     // neither Fork is linked.
-    const char* path = "tmp_fork_bad_kind.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - d1:\n"
-              "        kind: Drift\n"
-              "        length: 1\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - d1\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "          - f2:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "                new_branch: null\n"
-              "                destination_element: d1\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "          - dump_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - d1:\n"
+        "        kind: Drift\n"
+        "        length: 1\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - d1\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "          - f2:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "                new_branch: null\n"
+        "                destination_element: d1\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "          - dump_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     int reported = 0;
@@ -1124,7 +1096,6 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
@@ -1134,39 +1105,38 @@ TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
     // `{branch-name}>>{element-name}` with the Fork's 1-based index in its own
     // branch's line. Two Forks in `ring` aim at the same element, so both land
     // in the one group, in branch order.
-    const char* path = "tmp_fork_from.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - m0:\n"
-              "        kind: Marker\n"
-              "    - dump_begin:\n"
-              "        kind: Marker\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m0\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "          - m0\n"
-              "          - f2:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "                new_branch: null\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - m0:\n"
+        "        kind: Marker\n"
+        "    - dump_begin:\n"
+        "        kind: Marker\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m0\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "          - m0\n"
+        "          - f2:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "                new_branch: null\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // f1 built the `dump_line` branch; f2 (new_branch: null) pointed into it.
@@ -1198,7 +1168,6 @@ TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // Read `ForkP.forked_to` off an element of a branch line.
@@ -1219,53 +1188,52 @@ TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
     // branch name is the one the expanded lattice ends up with, which is not in
     // general the `to_line` the input named -- all three settings of
     // `new_branch` are here, and only the SELF one has the two coincide.
-    const char* path = "tmp_forked_to.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - m0:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - dump_begin:\n"
-              "        kind: Marker\n"
-              "    - alt_begin:\n"
-              "        kind: Marker\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "    - alt_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - alt_begin\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m0\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "                destination_element: dump_begin\n"
-              "                new_branch: proton_dump\n"
-              "          - f2:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: alt_line\n"
-              "          - f3:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: proton_dump\n"
-              "                new_branch: null\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - m0:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - dump_begin:\n"
+        "        kind: Marker\n"
+        "    - alt_begin:\n"
+        "        kind: Marker\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "    - alt_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - alt_begin\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m0\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "                destination_element: dump_begin\n"
+        "                new_branch: proton_dump\n"
+        "          - f2:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: alt_line\n"
+        "          - f3:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: proton_dump\n"
+        "                new_branch: null\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.problems.count == 0);
 
@@ -1287,7 +1255,6 @@ TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
@@ -1303,44 +1270,43 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     // has somewhere to go after `ring` and reaches the entry `ring`'s Fork
     // appended behind it. A Fork in the *last* listed branch never showed the
     // duplication: the walk stops before the entry it added.
-    const char* path = "tmp_fork_chained.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - m1:\n"
-              "        kind: Marker\n"
-              "    - m2:\n"
-              "        kind: Marker\n"
-              "    - end_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m1\n"
-              "    - mid_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - f2:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: end_line\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: mid_line\n"
-              "    - spectator:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m2\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "          - spectator\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - m1:\n"
+        "        kind: Marker\n"
+        "    - m2:\n"
+        "        kind: Marker\n"
+        "    - end_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m1\n"
+        "    - mid_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - f2:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: end_line\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: mid_line\n"
+        "    - spectator:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m2\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "          - spectator\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // Exactly four branches: the two listed, and one each from the two Forks.
@@ -1369,7 +1335,6 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // Every node keyed `key` in the tree, in walk order.
@@ -1411,68 +1376,67 @@ TEST_CASE("a destination_pointer survives expression substitution intact",
     // every pointer happens to come out in plain digits and the bug hides. The
     // assertions hold whatever the ids turn out to be; they simply stop
     // exercising this if an unrelated change shifts the ids again.
-    const char* path = "tmp_destination_pointer_fmt.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin1:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: \"electron\"\n"
-              "          E_tot_ref: 1e7\n"
-              "    - m:\n"
-              "        kind: Marker\n"
-              "    - dft:\n"
-              "        kind: Drift\n"
-              "        length: 2\n"
-              "    - pad1:\n"
-              "        kind: Drift\n"
-              "        length: 1\n"
-              "    - pad2:\n"
-              "        kind: Drift\n"
-              "        length: 1\n"
-              "    - pad3:\n"
-              "        kind: Drift\n"
-              "        length: 1\n"
-              "    - a_fork:\n"
-              "        kind: Fork\n"
-              "        ForkP:\n"
-              "          to_line: a_line\n"
-              "    - b_fork:\n"
-              "        kind: Fork\n"
-              "        ForkP:\n"
-              "          to_line: b_line\n"
-              "    - c_fork:\n"
-              "        kind: Fork\n"
-              "        ForkP:\n"
-              "          to_line: c_line\n"
-              "    - a_back_fork:\n"
-              "        kind: Fork\n"
-              "        ForkP:\n"
-              "          to_line: a_line\n"
-              "    - zero_line:\n"
-              "        kind: BeamLine\n"
-              "        line: [begin1, dft, a_fork]\n"
-              "    - one_line:\n"
-              "        kind: BeamLine\n"
-              "        line: [begin1, dft, c_fork]\n"
-              "    - a_line:\n"
-              "        kind: BeamLine\n"
-              "        line: [m, dft, b_fork]\n"
-              "    - b_line:\n"
-              "        kind: BeamLine\n"
-              "        line: [m, dft]\n"
-              "    - c_line:\n"
-              "        kind: BeamLine\n"
-              "        line: [m, dft, a_back_fork]\n"
-              "    - root_lat:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - zero_line\n"
-              "          - one_line\n"
-              "    - use: \"root_lat\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin1:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: \"electron\"\n"
+        "          E_tot_ref: 1e7\n"
+        "    - m:\n"
+        "        kind: Marker\n"
+        "    - dft:\n"
+        "        kind: Drift\n"
+        "        length: 2\n"
+        "    - pad1:\n"
+        "        kind: Drift\n"
+        "        length: 1\n"
+        "    - pad2:\n"
+        "        kind: Drift\n"
+        "        length: 1\n"
+        "    - pad3:\n"
+        "        kind: Drift\n"
+        "        length: 1\n"
+        "    - a_fork:\n"
+        "        kind: Fork\n"
+        "        ForkP:\n"
+        "          to_line: a_line\n"
+        "    - b_fork:\n"
+        "        kind: Fork\n"
+        "        ForkP:\n"
+        "          to_line: b_line\n"
+        "    - c_fork:\n"
+        "        kind: Fork\n"
+        "        ForkP:\n"
+        "          to_line: c_line\n"
+        "    - a_back_fork:\n"
+        "        kind: Fork\n"
+        "        ForkP:\n"
+        "          to_line: a_line\n"
+        "    - zero_line:\n"
+        "        kind: BeamLine\n"
+        "        line: [begin1, dft, a_fork]\n"
+        "    - one_line:\n"
+        "        kind: BeamLine\n"
+        "        line: [begin1, dft, c_fork]\n"
+        "    - a_line:\n"
+        "        kind: BeamLine\n"
+        "        line: [m, dft, b_fork]\n"
+        "    - b_line:\n"
+        "        kind: BeamLine\n"
+        "        line: [m, dft]\n"
+        "    - c_line:\n"
+        "        kind: BeamLine\n"
+        "        line: [m, dft, a_back_fork]\n"
+        "    - root_lat:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - zero_line\n"
+        "          - one_line\n"
+        "    - use: \"root_lat\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
     REQUIRE(lat.problems.count == 0);
 
@@ -1496,7 +1460,6 @@ TEST_CASE("a destination_pointer survives expression substitution intact",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
@@ -1504,31 +1467,30 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
     // `null` requires `to_line` to name an existing branch. A bare BeamLine
     // definition (not listed among the lattice's branches) does not qualify, and
     // the mismatch is surfaced rather than silently creating a branch.
-    const char* path = "tmp_fork_null_bad.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - m1:\n"
-              "        kind: Marker\n"
-              "    - ext_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - m1\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: ext_line\n"
-              "                new_branch: null\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - m1:\n"
+        "        kind: Marker\n"
+        "    - ext_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - m1\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: ext_line\n"
+        "                new_branch: null\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     bool reported = false;
@@ -1544,23 +1506,76 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
+}
+
+TEST_CASE("a document held in a string expands like one read from a file",
+          "[lattices]") {
+    // expand_PALS_string is parse_and_expand_PALS with the document in hand
+    // rather than on disk. The two must agree, so one lattice is expanded both
+    // ways and the finished trees compared. It is a document that names no other
+    // file, which is the case where the two are meant to be interchangeable.
+    const char* name = "load_basic/layout.pals.yaml";
+    const std::string text = read_lattice(name);
+    REQUIRE_FALSE(text.empty());
+
+    struct lattices from_file =
+        parse_and_expand_PALS(lattice_file(name).c_str(), nullptr);
+    struct lattices from_string = expand_PALS_string(text.c_str(), nullptr);
+    REQUIRE(from_string.full_expanded != nullptr);
+
+    char* a = tree_to_string(from_file.full_expanded);
+    char* b = tree_to_string(from_string.full_expanded);
+    REQUIRE(std::string(a) == std::string(b));
+    yaml_free_string(a);
+    yaml_free_string(b);
+
+    // The one difference is what `original` keys the document by: a path in the
+    // first case, `<string>` in the second.
+    REQUIRE(key_eq(from_string.original,
+                   get_child_by_index(from_string.original,
+                                      get_root(from_string.original), 0),
+                   "<string>"));
+
+    for (struct lattices* lat : {&from_file, &from_string}) {
+        free_lattice_problems(lat->problems);
+        delete_tree(lat->original);
+        delete_tree(lat->combined);
+        delete_tree(lat->expanded);
+        delete_tree(lat->full_expanded);
+        delete_tree(lat->leftover);
+    }
+}
+
+TEST_CASE("a malformed document held in a string is a fatal parse problem",
+          "[lattices][problems]") {
+    // The fatal path reports the string as `<string>`, there being no path to
+    // name, and pinpoints the line the way it does for a file.
+    struct lattices lat = expand_PALS_string(
+        "PALS:\n"
+        "  facility:\n"
+        "    - cav\n"
+        "        kind: RFCavity\n",
+        nullptr);
+
+    REQUIRE(lat.original == nullptr);
+    REQUIRE(lat.problems.count == 1);
+    std::string msg = lat.problems.items[0];
+    REQUIRE(msg.find("<string>") != std::string::npos);
+    REQUIRE(msg.find("line") != std::string::npos);
+
+    free_lattice_problems(lat.problems);
 }
 
 TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
           "[lattices][problems]") {
-    // A sequence item missing its ':' (here `- cav` followed by an indented
-    // mapping) is a YAML syntax error. ryml would abort the process; instead
-    // parse_and_expand_PALS must return NULL handles and one problem that names
-    // the file and pinpoints the line.
-    const char* path = "tmp_malformed.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - cav\n"
-              "        kind: RFCavity\n");
-
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    // lattices/malformed.pals.yaml has a sequence item missing its ':' (`- cav`
+    // followed by an indented mapping), a YAML syntax error. ryml would abort
+    // the process; instead parse_and_expand_PALS must return NULL handles and
+    // one problem that names the file and pinpoints the line. This one goes
+    // through a file rather than a string so that the path in the message is
+    // the one the caller passed in.
+    const std::string path = lattice_file("malformed.pals.yaml");
+    struct lattices lat = parse_and_expand_PALS(path.c_str(), nullptr);
 
     // No usable tree: every handle is NULL.
     REQUIRE(lat.original == nullptr);
@@ -1580,5 +1595,4 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }

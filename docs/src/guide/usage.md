@@ -15,7 +15,8 @@ languages can load. CMake fetches the dependencies —
 [PCRE2](https://www.pcre.org), and
 [AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib) —
 automatically. Rebuild after changing any source file, and before running the
-tests. Put lattice files under `lattice_files/`.
+tests. Lattices for the examples go under `lattice_files/`; the test fixtures are
+separate, under `tests/lattices/`.
 
 ## Expanding a lattice
 
@@ -50,6 +51,21 @@ delete_tree(lat.leftover);
 The second argument names the lattice to expand. Pass `nullptr` (or an empty
 string) to expand the lattice named by the last `use` statement, or — if there
 is none — the last lattice defined in the file.
+
+A document already in memory — one a program generated, or has the text of — is
+expanded by `expand_PALS_string`, which is `parse_and_expand_PALS` in every
+respect but where the document comes from, so nothing need be written to disk to
+be expanded:
+
+```cpp
+struct lattices lat = expand_PALS_string(doc, nullptr);
+```
+
+A string has no directory of its own, so a relative `include` or `load` inside
+one resolves against the current working directory, and the document is keyed in
+`original` as `<string>` rather than by a path. Read a document that names other
+files with `parse_and_expand_PALS`, which resolves each reference against the
+file that made it.
 
 ### Problems found during expansion
 

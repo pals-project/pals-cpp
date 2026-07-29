@@ -19,13 +19,13 @@ TEST_CASE("parse_string returns nullptr for nullptr input", "[parsing]") {
 }
 
 TEST_CASE("parse_file returns a valid tree for an existing file", "[parsing][file]") {
-    write_tmp("tmp_parse.yaml", "- a\n- b\n- c\n");
-    YAMLTreeHandle tree = parse_file("tmp_parse.yaml");
+    // Reading a file is the point of this one, so it reads a committed
+    // three-item fixture rather than writing one first.
+    YAMLTreeHandle tree = parse_file(lattice_file("seq.yaml").c_str());
     REQUIRE(tree != nullptr);
     REQUIRE(is_sequence(tree, get_root(tree)));
     REQUIRE(get_size(tree, get_root(tree)) == 3);
     delete_tree(tree);
-    rm_tmp("tmp_parse.yaml");
 }
 
 TEST_CASE("parse_file returns nullptr for a missing file", "[parsing][file]") {
@@ -580,22 +580,22 @@ TEST_CASE("tree_to_string emits the full tree", "[emitting]") {
 }
 
 TEST_CASE("write_file writes a tree that can be read back", "[emitting][file]") {
-    const char* path = "tmp_write.yaml";
+    const std::string path = out_path("write.yaml");
     YAMLTreeHandle tree = create_empty_tree();
     YAMLNodeId root = get_root(tree);
     add_scalar(tree, root, "written", "true", YAML_END);
     add_scalar(tree, root, "count",   "7",    YAML_END);
 
-    REQUIRE(write_file(tree, path));
+    REQUIRE(write_file(tree, path.c_str()));
     delete_tree(tree);
 
-    YAMLTreeHandle loaded = parse_file(path);
+    YAMLTreeHandle loaded = parse_file(path.c_str());
     REQUIRE(loaded != nullptr);
     REQUIRE(val_eq(loaded, get_child_by_key(loaded, get_root(loaded), "written"), "true"));
     REQUIRE(val_eq(loaded, get_child_by_key(loaded, get_root(loaded), "count"),   "7"));
     delete_tree(loaded);
 
-    rm_tmp(path);
+    remove_file(path);
 }
 
 TEST_CASE("write_file returns false for an unwritable path", "[emitting][file]") {
@@ -613,7 +613,7 @@ TEST_CASE("yaml_free_string accepts nullptr without crashing", "[memory]") {
 // ============================================================
 
 TEST_CASE("Nested structure survives a write/read round-trip", "[round_trip]") {
-    const char* path = "tmp_roundtrip.yaml";
+    const std::string path = out_path("roundtrip.yaml");
 
     // Build: { server: { host: localhost, port: 8080 }, tags: [web, api] }
     YAMLTreeHandle tree = create_empty_tree();
@@ -625,11 +625,11 @@ TEST_CASE("Nested structure survives a write/read round-trip", "[round_trip]") {
     add_scalar(tree, tags, nullptr, "web", YAML_END);
     add_scalar(tree, tags, nullptr, "api", YAML_END);
 
-    REQUIRE(write_file(tree, path));
+    REQUIRE(write_file(tree, path.c_str()));
     delete_tree(tree);
 
     // Read back and verify
-    YAMLTreeHandle loaded = parse_file(path);
+    YAMLTreeHandle loaded = parse_file(path.c_str());
     REQUIRE(loaded != nullptr);
     YAMLNodeId lroot  = get_root(loaded);
     YAMLNodeId lserver = get_child_by_key(loaded, lroot, "server");
@@ -646,7 +646,7 @@ TEST_CASE("Nested structure survives a write/read round-trip", "[round_trip]") {
     REQUIRE(val_eq(loaded, get_child_by_index(loaded, ltags, 1), "api"));
 
     delete_tree(loaded);
-    rm_tmp(path);
+    remove_file(path);
 }
 
 // ============================================================

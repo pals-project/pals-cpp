@@ -87,41 +87,40 @@ bool has_param(YAMLTreeHandle t, const char* ele, const char* group,
 
 TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
           "[expr][lattices][controller]") {
-    const char* path = "tmp_controller.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - my_const:\n"
-                  "        kind: constant\n"
-                  "        value: 2.0\n"
-                  "    - ps27:\n"
-                  "        kind: Controller\n"
-                  "        control_type: ABSOLUTE\n"
-                  "        MetaP:\n"
-                  "          description: Model Mitsubishi 800KL\n"
-                  "        variables:\n"
-                  "          cur1: 0.023\n"
-                  "          cur2: 1e8 / c_light\n"
-                  "        controls:\n"
-                  "          - parameter: Qa.*>MagneticMultipoleP.Ks2L\n"
-                  "            expression: 0.075*sin(cur1) + 0.3*cur2\n"
-                  "          - parameter: Qb>MagneticMultipoleP.Kn1L\n"
-                  "            expression: cur1 * my_const\n"
-                  "          - parameter: Qc>MagneticMultipoleP.Kn0\n"
-                  "            expression: 0.01 + random_gauss()\n",
-                  "                - Qa1:\n"
-                  "                    kind: Sextupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Ks2L: 0.0\n"
-                  "                - Qb:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.0\n"
-                  "                - Qc:\n"
-                  "                    kind: Kicker\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn0: 0.5\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - my_const:\n"
+                     "        kind: constant\n"
+                     "        value: 2.0\n"
+                     "    - ps27:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        MetaP:\n"
+                     "          description: Model Mitsubishi 800KL\n"
+                     "        variables:\n"
+                     "          cur1: 0.023\n"
+                     "          cur2: 1e8 / c_light\n"
+                     "        controls:\n"
+                     "          - parameter: Qa.*>MagneticMultipoleP.Ks2L\n"
+                     "            expression: 0.075*sin(cur1) + 0.3*cur2\n"
+                     "          - parameter: Qb>MagneticMultipoleP.Kn1L\n"
+                     "            expression: cur1 * my_const\n"
+                     "          - parameter: Qc>MagneticMultipoleP.Kn0\n"
+                     "            expression: 0.01 + random_gauss()\n",
+                     "                - Qa1:\n"
+                     "                    kind: Sextupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Ks2L: 0.0\n"
+                     "                - Qb:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n"
+                     "                - Qc:\n"
+                     "                    kind: Kicker\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn0: 0.5\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(lat.leftover != nullptr);
 
     const double cur1 = 0.023;
@@ -172,7 +171,6 @@ TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
                    "0.075*sin(cur1) + 0.3*cur2"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("ABSOLUTE controllers drive the parameters they match",
@@ -180,30 +178,29 @@ TEST_CASE("ABSOLUTE controllers drive the parameters they match",
     // The `parameter` target is a name-matching pattern, so one entry drives
     // every element it matches; an element the pattern does not reach keeps its
     // own value.
-    const char* path = "tmp_ctrl_absolute.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - ps1:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          cur: 0.4\n"
-                  "        controls:\n"
-                  "          - parameter: Qa.*>MagneticMultipoleP.Kn1L\n"
-                  "            expression: 2 * cur\n",
-                  "                - Qa1:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.11\n"
-                  "                - Qa2:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.22\n"
-                  "                - Qb1:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.33\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur: 0.4\n"
+                     "        controls:\n"
+                     "          - parameter: Qa.*>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 2 * cur\n",
+                     "                - Qa1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.11\n"
+                     "                - Qa2:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.22\n"
+                     "                - Qb1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.33\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     REQUIRE(close(expanded_param(lat.full_expanded, "Qa1", "MagneticMultipoleP",
@@ -217,7 +214,6 @@ TEST_CASE("ABSOLUTE controllers drive the parameters they match",
                   0.33));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("several ABSOLUTE controllers on one parameter sum",
@@ -226,30 +222,29 @@ TEST_CASE("several ABSOLUTE controllers on one parameter sum",
     // by the individual controllers". The parameter's own value is replaced, not
     // added to -- ABSOLUTE control completely determines it. `control_type` is
     // omitted here, so it defaults to ABSOLUTE.
-    const char* path = "tmp_ctrl_sum.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - ps1:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          cur: 0.023\n"
-                  "        controls:\n"
-                  "          - parameter: a_kicker>MagneticMultipoleP.Kn0\n"
-                  "            expression: 0.075*sin(cur)\n"
-                  "    - ps2:\n"
-                  "        kind: Controller\n"
-                  "        control_type: ABSOLUTE\n"
-                  "        variables:\n"
-                  "          cur: 0.044\n"
-                  "        controls:\n"
-                  "          - parameter: a_kicker>MagneticMultipoleP.Kn0\n"
-                  "            expression: 0.123*cur\n",
-                  "                - a_kicker:\n"
-                  "                    kind: Kicker\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn0: 9.9\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur: 0.023\n"
+                     "        controls:\n"
+                     "          - parameter: a_kicker>MagneticMultipoleP.Kn0\n"
+                     "            expression: 0.075*sin(cur)\n"
+                     "    - ps2:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        variables:\n"
+                     "          cur: 0.044\n"
+                     "        controls:\n"
+                     "          - parameter: a_kicker>MagneticMultipoleP.Kn0\n"
+                     "            expression: 0.123*cur\n",
+                     "                - a_kicker:\n"
+                     "                    kind: Kicker\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn0: 9.9\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     REQUIRE(close(expanded_param(lat.full_expanded, "a_kicker", "MagneticMultipoleP",
@@ -263,7 +258,6 @@ TEST_CASE("several ABSOLUTE controllers on one parameter sum",
                    "ABSOLUTE"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("an ABSOLUTE controller creates the parameter it drives",
@@ -271,25 +265,23 @@ TEST_CASE("an ABSOLUTE controller creates the parameter it drives",
     // The element carries no MagneticMultipoleP at all: naming the parameter in
     // a controller is what says it has a value, so the group is created and the
     // bookkeeper then fills its defaults and derived partners in as usual.
-    const char* path = "tmp_ctrl_create.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        controls:\n"
-                           "          - parameter: a_kicker>MagneticMultipoleP.Kn0L\n"
-                           "            expression: 0.25\n",
-                           "                - a_kicker:\n"
-                           "                    kind: Kicker\n"
-                           "                    length: 0.3\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        controls:\n"
+                     "          - parameter: a_kicker>MagneticMultipoleP.Kn0L\n"
+                     "            expression: 0.25\n",
+                     "                - a_kicker:\n"
+                     "                    kind: Kicker\n"
+                     "                    length: 0.3\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
     REQUIRE(close(expanded_param(lat.full_expanded, "a_kicker", "MagneticMultipoleP",
                                  "Kn0L"),
                   0.25));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a driven parameter feeds the dependent-parameter bookkeeping",
@@ -299,25 +291,24 @@ TEST_CASE("a driven parameter feeds the dependent-parameter bookkeeping",
     // computed. Q1's Kn1L comes from a controller and Q2's is written out; the
     // unnormalized Bn1L the bookkeeper derives from the reference momentum must
     // come out the same for both.
-    const char* path = "tmp_ctrl_dependent.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        controls:\n"
-                           "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 0.15 + 0.25\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    length: 0.5\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: 0.0\n"
-                           "                - Q2:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    length: 0.5\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: 0.4\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.15 + 0.25\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.5\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n"
+                     "                - Q2:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.5\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.4\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     double b1 = expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Bn1L");
@@ -326,7 +317,6 @@ TEST_CASE("a driven parameter feeds the dependent-parameter bookkeeping",
     REQUIRE(close_rel(b1, b2));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a RELATIVE controller leaves the lattice alone",
@@ -334,23 +324,22 @@ TEST_CASE("a RELATIVE controller leaves the lattice alone",
     // The chromaticity-knob example of miscellaneous.md: at read-in S1 keeps the
     // Kn2L its own definition gives. The knob's expression is still evaluated,
     // for the program that will vary `command` later.
-    const char* path = "tmp_ctrl_relative.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - chrom_a:\n"
-                  "        kind: Controller\n"
-                  "        control_type: RELATIVE\n"
-                  "        variables:\n"
-                  "          command: 0.4\n"
-                  "        controls:\n"
-                  "          - parameter: S1>MagneticMultipoleP.Kn2L\n"
-                  "            expression: 5.62 * command + 0.02 * command^2\n",
-                  "                - S1:\n"
-                  "                    kind: Sextupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn2L: 0.33\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - chrom_a:\n"
+                     "        kind: Controller\n"
+                     "        control_type: RELATIVE\n"
+                     "        variables:\n"
+                     "          command: 0.4\n"
+                     "        controls:\n"
+                     "          - parameter: S1>MagneticMultipoleP.Kn2L\n"
+                     "            expression: 5.62 * command + 0.02 * command^2\n",
+                     "                - S1:\n"
+                     "                    kind: Sextupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn2L: 0.33\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     REQUIRE(close(expanded_param(lat.full_expanded, "S1", "MagneticMultipoleP",
@@ -365,7 +354,6 @@ TEST_CASE("a RELATIVE controller leaves the lattice alone",
                   5.62 * 0.4 + 0.02 * 0.4 * 0.4));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a controller drives another controller's variable",
@@ -374,29 +362,28 @@ TEST_CASE("a controller drives another controller's variable",
     // `low>cur` holds what `high` set it to -- not its own initial value -- by
     // the time `low` drives the lattice. The order they are written in does not
     // matter: `low` comes first in the file here.
-    const char* path = "tmp_ctrl_hierarchy.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - low:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          cur: 0.1\n"
-                  "        controls:\n"
-                  "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                  "            expression: 10 * cur\n"
-                  "    - high:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          knob: 3\n"
-                  "        controls:\n"
-                  "          - parameter: low>cur\n"
-                  "            expression: knob / 4\n",
-                  "                - Q1:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.0\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - low:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur: 0.1\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 10 * cur\n"
+                     "    - high:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          knob: 3\n"
+                     "        controls:\n"
+                     "          - parameter: low>cur\n"
+                     "            expression: knob / 4\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     // low>cur becomes 3/4, so Q1's Kn1L is 10 * 0.75.
@@ -410,33 +397,30 @@ TEST_CASE("a controller drives another controller's variable",
                   0.75));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a variable with no value defaults to zero",
           "[expr][lattices][controller]") {
-    const char* path = "tmp_ctrl_default_var.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        variables:\n"
-                           "          cur:\n"
-                           "        controls:\n"
-                           "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 5 + cur\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: 0.0\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur:\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 5 + cur\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
     REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   5.0));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("controller expressions may not reach outside their controller",
@@ -445,27 +429,26 @@ TEST_CASE("controller expressions may not reach outside their controller",
     // in an initial value or a control expression -- both are spelled with `>`,
     // and both would make the evaluation order depend on more than the
     // `controls` hierarchy.
-    const char* path = "tmp_ctrl_refs.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - ps1:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          cur: 0.5\n"
-                  "    - ps2:\n"
-                  "        kind: Controller\n"
-                  "        variables:\n"
-                  "          derived: ps1>cur * 2\n"
-                  "        controls:\n"
-                  "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                  "            expression: Q1>length + 1\n",
-                  "                - Q1:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    length: 0.5\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.0\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur: 0.5\n"
+                     "    - ps2:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          derived: ps1>cur * 2\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: Q1>length + 1\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.5\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     std::vector<std::string> msgs = problem_list(lat);
     REQUIRE(any_contains(msgs, "variable 'derived' may not reference"));
     REQUIRE(any_contains(msgs, "control expression may not reference"));
@@ -476,7 +459,6 @@ TEST_CASE("controller expressions may not reach outside their controller",
                   0.0));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a variable initial value may not reference a variable",
@@ -484,22 +466,21 @@ TEST_CASE("a variable initial value may not reference a variable",
     // An initial value is a constant expression: it may use the built-in and
     // user constants but no variable, not even one of its own controller's, so
     // that no initial value has to be evaluated before any other.
-    const char* path = "tmp_ctrl_var_ref.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        variables:\n"
-                           "          cur1: 0.023\n"
-                           "          cur2: cur1 / c_light\n"
-                           "        controls:\n"
-                           "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: cur1 + cur2\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: 0.0\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          cur1: 0.023\n"
+                     "          cur2: cur1 / c_light\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: cur1 + cur2\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "variable 'cur2': an initial value may not reference "
                          "the variable 'cur1'"));
@@ -511,89 +492,84 @@ TEST_CASE("a variable initial value may not reference a variable",
                   0.023));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a constant is not mistaken for a variable in an initial value",
           "[expr][lattices][controller]") {
     // The check is on whole identifiers: a variable named `light` must not make
     // `c_light` look like a reference to it.
-    const char* path = "tmp_ctrl_var_substring.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        variables:\n"
-                           "          light: 2\n"
-                           "          scaled: 1e8 / c_light\n"
-                           "        controls:\n"
-                           "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: light * scaled\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: 0.0\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          light: 2\n"
+                     "          scaled: 1e8 / c_light\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: light * scaled\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
     REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   2.0 * (1e8 / 2.99792458e8)));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a circular control hierarchy is reported",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_cycle.pals.yaml";
-    write_tmp(path, lattice_with("    - a:\n"
-                                 "        kind: Controller\n"
-                                 "        variables:\n"
-                                 "          va: 1\n"
-                                 "        controls:\n"
-                                 "          - parameter: b>vb\n"
-                                 "            expression: va\n"
-                                 "    - b:\n"
-                                 "        kind: Controller\n"
-                                 "        variables:\n"
-                                 "          vb: 2\n"
-                                 "        controls:\n"
-                                 "          - parameter: a>va\n"
-                                 "            expression: vb\n",
-                                 "                - Q1:\n"
-                                 "                    kind: Quadrupole\n"));
+    const std::string doc =
+        lattice_with("    - a:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          va: 1\n"
+                     "        controls:\n"
+                     "          - parameter: b>vb\n"
+                     "            expression: va\n"
+                     "    - b:\n"
+                     "        kind: Controller\n"
+                     "        variables:\n"
+                     "          vb: 2\n"
+                     "        controls:\n"
+                     "          - parameter: a>va\n"
+                     "            expression: vb\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "circular control hierarchy: 'a', 'b'"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a parameter may not be driven by both controller types",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_mixed.pals.yaml";
-    write_tmp(path,
-              lattice_with(
-                  "    - ps1:\n"
-                  "        kind: Controller\n"
-                  "        control_type: ABSOLUTE\n"
-                  "        controls:\n"
-                  "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                  "            expression: 0.5\n"
-                  "    - knob:\n"
-                  "        kind: Controller\n"
-                  "        control_type: RELATIVE\n"
-                  "        controls:\n"
-                  "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                  "            expression: 0.25\n",
-                  "                - Q1:\n"
-                  "                    kind: Quadrupole\n"
-                  "                    MagneticMultipoleP:\n"
-                  "                      Kn1L: 0.11\n"));
+    const std::string doc =
+        lattice_with(
+                     "    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.5\n"
+                     "    - knob:\n"
+                     "        kind: Controller\n"
+                     "        control_type: RELATIVE\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.25\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: 0.11\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "Q1>MagneticMultipoleP.Kn1L is controlled by both an "
                          "ABSOLUTE and a RELATIVE controller"));
@@ -603,51 +579,46 @@ TEST_CASE("a parameter may not be driven by both controller types",
                   0.11));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a controlled parameter may not also be delayed",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_delayed.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        controls:\n"
-                           "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 0.5\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1L: expr(0.1 + 0.2)\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.5\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1L: expr(0.1 + 0.2)\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "Q1>MagneticMultipoleP.Kn1L is both controlled and "
                          "assigned a delayed evaluation expression"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a controller target that matches nothing is reported",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_nomatch.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        controls:\n"
-                           "          - parameter: nosuch>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 0.5\n",
-                           "                - Q1:\n"
-                           "                    kind: Quadrupole\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        controls:\n"
+                     "          - parameter: nosuch>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.5\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "target 'nosuch>MagneticMultipoleP.Kn1L' matches "
                          "nothing in the expanded lattice"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 // A branch written as `- ln:` with no `inherit` used not to expand at all, so
@@ -655,70 +626,67 @@ TEST_CASE("a controller target that matches nothing is reported",
 // target failing to match. The target resolves, and drives its element.
 TEST_CASE("a controller reaches an element in a branch named by its key",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_default_branch.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: \"electron\"\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - q:\n"
-              "        kind: Quadrupole\n"
-              "        length: 1\n"
-              "        MagneticMultipoleP:\n"
-              "          Kn1: 256\n"
-              "    - ln:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin\n"
-              "          - q\n"
-              "    - machine:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ln:\n"
-              "              periodic: false\n"
-              "    - oo:\n"
-              "        kind: Controller\n"
-              "        control_type: ABSOLUTE\n"
-              "        variables:\n"
-              "          vv: 2\n"
-              "        controls:\n"
-              "          - parameter: q>MagneticMultipoleP.Kn1\n"
-              "            expression: 4^vv\n"
-              "    - use: \"machine\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: \"electron\"\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - q:\n"
+        "        kind: Quadrupole\n"
+        "        length: 1\n"
+        "        MagneticMultipoleP:\n"
+        "          Kn1: 256\n"
+        "    - ln:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin\n"
+        "          - q\n"
+        "    - machine:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ln:\n"
+        "              periodic: false\n"
+        "    - oo:\n"
+        "        kind: Controller\n"
+        "        control_type: ABSOLUTE\n"
+        "        variables:\n"
+        "          vv: 2\n"
+        "        controls:\n"
+        "          - parameter: q>MagneticMultipoleP.Kn1\n"
+        "            expression: 4^vv\n"
+        "    - use: \"machine\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE_FALSE(any_contains(problem_list(lat), "matches nothing"));
     REQUIRE(joined(lat).find("branch 'ln'") == std::string::npos);
     REQUIRE(close(expanded_param(lat.full_expanded, "q", "MagneticMultipoleP", "Kn1"),
                   16.0));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("an unknown control_type is reported",
           "[expr][lattices][controller][problems]") {
-    const char* path = "tmp_ctrl_badtype.pals.yaml";
-    write_tmp(path, lattice_with("    - ps1:\n"
-                                 "        kind: Controller\n"
-                                 "        control_type: SOMETHING\n"
-                                 "        controls:\n"
-                                 "          - parameter: Q1>length\n"
-                                 "            expression: 0.5\n",
-                                 "                - Q1:\n"
-                                 "                    kind: Quadrupole\n"
-                                 "                    length: 0.2\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        control_type: SOMETHING\n"
+                     "        controls:\n"
+                     "          - parameter: Q1>length\n"
+                     "            expression: 0.5\n",
+                     "                - Q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.2\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(any_contains(problem_list(lat),
                          "control_type must be ABSOLUTE or RELATIVE, not "
                          "SOMETHING"));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("a controller nullifies the rest of the family it writes",
@@ -728,21 +696,20 @@ TEST_CASE("a controller nullifies the rest of the family it writes",
     // definition gives the quadrupole component as Kn1, the controller gives it
     // as Kn1L, and the definition's Kn1 is nullified rather than left to be
     // reported as inconsistent with it.
-    const char* path = "tmp_ctrl_family.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        control_type: ABSOLUTE\n"
-                           "        controls:\n"
-                           "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 0.6\n",
-                           "                - q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    length: 0.5\n"
-                           "                    MagneticMultipoleP:\n"
-                           "                      Kn1: 3.0\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        controls:\n"
+                     "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.6\n",
+                     "                - q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.5\n"
+                     "                    MagneticMultipoleP:\n"
+                     "                      Kn1: 3.0\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     REQUIRE(!has_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1"));
@@ -756,7 +723,6 @@ TEST_CASE("a controller nullifies the rest of the family it writes",
                   1.2));
 
     free_all(lat);
-    rm_tmp(path);
 }
 
 TEST_CASE("of two controllers on one family the later one states it",
@@ -765,25 +731,24 @@ TEST_CASE("of two controllers on one family the later one states it",
     // and ps2 comes last: its Kn1L nullifies the Kn1 ps1 wrote, exactly as a
     // later `set` would. (Two controllers on the *same* parameter still sum --
     // that is what the ABSOLUTE rule says, and it is a different case.)
-    const char* path = "tmp_ctrl_family_two.pals.yaml";
-    write_tmp(path,
-              lattice_with("    - ps1:\n"
-                           "        kind: Controller\n"
-                           "        control_type: ABSOLUTE\n"
-                           "        controls:\n"
-                           "          - parameter: q1>MagneticMultipoleP.Kn1\n"
-                           "            expression: 3.0\n"
-                           "    - ps2:\n"
-                           "        kind: Controller\n"
-                           "        control_type: ABSOLUTE\n"
-                           "        controls:\n"
-                           "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
-                           "            expression: 0.6\n",
-                           "                - q1:\n"
-                           "                    kind: Quadrupole\n"
-                           "                    length: 0.5\n"));
+    const std::string doc =
+        lattice_with("    - ps1:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        controls:\n"
+                     "          - parameter: q1>MagneticMultipoleP.Kn1\n"
+                     "            expression: 3.0\n"
+                     "    - ps2:\n"
+                     "        kind: Controller\n"
+                     "        control_type: ABSOLUTE\n"
+                     "        controls:\n"
+                     "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
+                     "            expression: 0.6\n",
+                     "                - q1:\n"
+                     "                    kind: Quadrupole\n"
+                     "                    length: 0.5\n");
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     REQUIRE(joined(lat) == "");
 
     REQUIRE(!has_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1"));
@@ -795,5 +760,4 @@ TEST_CASE("of two controllers on one family the later one states it",
                   1.2));
 
     free_all(lat);
-    rm_tmp(path);
 }

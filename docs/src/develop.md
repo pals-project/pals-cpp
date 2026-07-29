@@ -71,6 +71,34 @@ To run a single test case, match it by name:
 ctest --test-dir build -R "Test Name"
 ```
 
+The test binary can also be run directly, from any directory:
+
+```console
+build/tests/tests "[check]"
+```
+
+### Where a test's lattice comes from
+
+The tests do not create lattice files. A lattice a test needs only in order to
+expand it is held in a string and passed to `expand_PALS_string`, which builds
+the same four trees `parse_and_expand_PALS` does without going through the disk:
+
+```cpp
+struct lattices lat = expand_PALS_string(doc, nullptr);
+```
+
+The tests that are about files on disk — what a relative `load` or `include`
+resolves against, what `parse_file` does with a real path, what a parse error
+says a malformed file is called — read the fixtures committed under
+`tests/lattices/`, one directory per multi-file case. `lattice_file("name")`
+names one; it resolves against the test sources' own location, so the current
+directory never matters. The two tests that exercise `write_file` write under the
+system temp directory, through `out_path`.
+
+Nothing about the tests depends on where they are started from. (The examples are
+a different story: `example_rw` and `print_lattices` reach their lattices through
+`../lattice_files/`, so they still have to be run from `build/`.)
+
 ## Building the documentation
 
 The site is built with Sphinx (MyST Markdown + the Furo theme), with the C/C++

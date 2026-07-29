@@ -1,0 +1,5 @@
+PALS:
+  extension_labels:
+    shared: "other"
+  load:
+    - a.pals.yaml
