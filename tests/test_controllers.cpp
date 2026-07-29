@@ -73,6 +73,16 @@ double expanded_param(YAMLTreeHandle t, const char* ele, const char* group,
     return num_val(t, get_child_by_key(t, g, param));
 }
 
+// Whether the first element named `ele` carries `group.param` at all.
+bool has_param(YAMLTreeHandle t, const char* ele, const char* group,
+               const char* param) {
+    YAMLNodeId e = find_by_key(t, ele);
+    REQUIRE(e != YAML_NULL_ID);
+    YAMLNodeId g = get_child_by_key(t, e, group);
+    if (g == YAML_NULL_ID) return false;
+    return get_child_by_key(t, g, param) != YAML_NULL_ID;
+}
+
 }  // namespace
 
 TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
@@ -706,6 +716,83 @@ TEST_CASE("an unknown control_type is reported",
     REQUIRE(any_contains(problem_list(lat),
                          "control_type must be ABSOLUTE or RELATIVE, not "
                          "SOMETHING"));
+
+    free_all(lat);
+    rm_tmp(path);
+}
+
+TEST_CASE("a controller nullifies the rest of the family it writes",
+          "[expr][lattices][controller]") {
+    // A controller states its parameter the same way a `set` does, so the
+    // interdependent-parameter rule of miscellaneous.md applies to it: q1's
+    // definition gives the quadrupole component as Kn1, the controller gives it
+    // as Kn1L, and the definition's Kn1 is nullified rather than left to be
+    // reported as inconsistent with it.
+    const char* path = "tmp_ctrl_family.pals.yaml";
+    write_tmp(path,
+              lattice_with("    - ps1:\n"
+                           "        kind: Controller\n"
+                           "        control_type: ABSOLUTE\n"
+                           "        controls:\n"
+                           "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
+                           "            expression: 0.6\n",
+                           "                - q1:\n"
+                           "                    kind: Quadrupole\n"
+                           "                    length: 0.5\n"
+                           "                    MagneticMultipoleP:\n"
+                           "                      Kn1: 3.0\n"));
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(joined(lat) == "");
+
+    REQUIRE(!has_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1"));
+    REQUIRE(close(expanded_param(lat.full_expanded, "q1", "MagneticMultipoleP",
+                                 "Kn1L"),
+                  0.6));
+    // Derived back over the length, from the controller's value and not the 3.0
+    // the definition gave.
+    REQUIRE(close(expanded_param(lat.full_expanded, "q1", "MagneticMultipoleP",
+                                 "Kn1"),
+                  1.2));
+
+    free_all(lat);
+    rm_tmp(path);
+}
+
+TEST_CASE("of two controllers on one family the later one states it",
+          "[expr][lattices][controller]") {
+    // Neither controller drives the other, so they are evaluated in file order
+    // and ps2 comes last: its Kn1L nullifies the Kn1 ps1 wrote, exactly as a
+    // later `set` would. (Two controllers on the *same* parameter still sum --
+    // that is what the ABSOLUTE rule says, and it is a different case.)
+    const char* path = "tmp_ctrl_family_two.pals.yaml";
+    write_tmp(path,
+              lattice_with("    - ps1:\n"
+                           "        kind: Controller\n"
+                           "        control_type: ABSOLUTE\n"
+                           "        controls:\n"
+                           "          - parameter: q1>MagneticMultipoleP.Kn1\n"
+                           "            expression: 3.0\n"
+                           "    - ps2:\n"
+                           "        kind: Controller\n"
+                           "        control_type: ABSOLUTE\n"
+                           "        controls:\n"
+                           "          - parameter: q1>MagneticMultipoleP.Kn1L\n"
+                           "            expression: 0.6\n",
+                           "                - q1:\n"
+                           "                    kind: Quadrupole\n"
+                           "                    length: 0.5\n"));
+
+    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    REQUIRE(joined(lat) == "");
+
+    REQUIRE(!has_param(lat.expanded, "q1", "MagneticMultipoleP", "Kn1"));
+    REQUIRE(close(expanded_param(lat.full_expanded, "q1", "MagneticMultipoleP",
+                                 "Kn1L"),
+                  0.6));
+    REQUIRE(close(expanded_param(lat.full_expanded, "q1", "MagneticMultipoleP",
+                                 "Kn1"),
+                  1.2));
 
     free_all(lat);
     rm_tmp(path);

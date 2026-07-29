@@ -1554,6 +1554,87 @@ static void set_plain_child(ryml::Tree& t, size_t parent, const char* key,
     t.set_val(c, t.to_arena(ryml::to_csubstr(v)));
 }
 
+// ------------------------------------------------------------
+// Interdependent parameters
+//
+// Some parameters are computed from one another, so writing one leaves the rest
+// of its family stale. A magnetic multipole component of order N has four
+// interchangeable forms (BnN, BnNL, KnN, KnNL, tied by the element length and
+// the reference momentum); an electric one has two; a bend's geometry is tied
+// together through BendP.
+//
+// miscellaneous.md (s:set): "For any group of interdependent parameters, the set
+// of one member of the group nullifies previous settings of all other members of
+// the group." Nullifying is what keeps the family from being flagged as
+// inconsistent when the bookkeeper derives it: whoever writes last states the
+// quantity, and the earlier statements of it are gone. The rule holds for every
+// writer that acts on a parameter from outside the element definition -- `set`
+// commands, before and after expansion, and ABSOLUTE controllers alike. Two
+// members written inside one element definition are a different matter: neither
+// is "previous", so that stays an inconsistency for the bookkeeper to report.
+// ------------------------------------------------------------
+
+// The family `key` belongs to within `group`, including `key` itself; empty for
+// a parameter that stands alone.
+//
+// This is also what tells a value expression that a parameter is *not yet
+// computable* rather than zero: before the bookkeeper has run, an absent
+// parameter with a written family member is one whose value is still to be
+// derived (lattice-construction.md, s:lattice.expand).
+static std::set<std::string> linked_family(const std::string& group,
+                                           const std::string& key) {
+    // `<letter><n|s><digits>[L]`, the shape both multipole groups use.
+    auto split_component = [](const std::string& k, const char* letters,
+                              std::string& comp) {
+        if (k.size() < 3 || !std::strchr(letters, k[0])) return false;
+        if (k[1] != 'n' && k[1] != 's') return false;
+        size_t i = 2;
+        while (i < k.size() && std::isdigit(static_cast<unsigned char>(k[i])))
+            ++i;
+        if (i == 2) return false;
+        if (i != k.size() && !(i + 1 == k.size() && k[i] == 'L')) return false;
+        comp = k.substr(1, i - 1);  // e.g. "n1"
+        return true;
+    };
+
+    std::string comp;
+    if (group == "MagneticMultipoleP" && split_component(key, "BK", comp))
+        return {"B" + comp, "B" + comp + "L", "K" + comp, "K" + comp + "L"};
+    if (group == "ElectricMultipoleP" && split_component(key, "E", comp))
+        return {"E" + comp, "E" + comp + "L"};
+
+    static const std::set<std::string> bend = {
+        "g_ref",     "radius_ref", "Bn0_ref",
+        "angle_ref", "L_chord",    "L_rectangle"};
+    if (group == "BendP" && bend.count(key)) return bend;
+
+    return {};
+}
+
+// Drop the rest of the family of the parameter `path` names on `ele`, so the
+// bookkeeper derives them again from the value just written. Provenance entries
+// go with them: ryml reuses freed ids, and a stale link would then point the
+// correspondence map at the wrong node.
+static void nullify_family(ryml::Tree& t, size_t ele,
+                           const std::vector<std::string>& path,
+                           std::map<size_t, size_t>& prov) {
+    if (ele == ryml::NONE || path.empty()) return;
+    const std::string& key = path.back();
+    std::string group = path.size() >= 2 ? path[path.size() - 2] : std::string();
+    std::set<std::string> family = linked_family(group, key);
+    if (family.empty()) return;
+
+    std::vector<std::string> sib = path;
+    for (const std::string& member : family) {
+        if (member == key) continue;
+        sib.back() = member;
+        size_t node = resolve_param_path(t, ele, sib);
+        if (node == ryml::NONE) continue;
+        erase_prov_subtree(t, node, prov);
+        t.remove(node);
+    }
+}
+
 // True if `node` is a map defining a `kind: Controller` element.
 static bool is_controller(const ryml::Tree& t, size_t node) {
     if (node == ryml::NONE || !t.is_map(node)) return false;
@@ -1972,6 +2053,11 @@ struct CtrlTarget {
     bool has_absolute = false;
     bool has_relative = false;
     bool deferred = false;  // some driving expression stayed unevaluated
+    // Position of the last `controls` entry naming this parameter, in
+    // evaluation order. Two controllers driving two members of one
+    // interdependent family are ordered by it: the later write is the one that
+    // states the quantity, and it nullifies the earlier.
+    size_t seq = 0;
 };
 
 // Evaluates the controllers and applies them to the expanded lattice.
@@ -1992,6 +2078,7 @@ struct CtrlTarget {
 static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
                                  const pals::SymbolLookup& global_resolve,
                                  const pals::SpeciesLookup& species,
+                                 std::map<size_t, size_t>& prov,
                                  ProblemList& problems) {
     std::vector<Ctrl> ctrls;
     std::vector<CtrlVar> vars;
@@ -2133,8 +2220,13 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
     // Gather what drives each lattice parameter. Targets are keyed on the
     // element and the path rather than on a parameter node, so a parameter the
     // element does not carry yet is still recognised as the same target.
-    for (const Ctrl& c : ctrls) {
+    // Walked in evaluation order, and each `controls` entry numbered, so that
+    // "previous" has a meaning when two of them name one interdependent family.
+    size_t seq = 0;
+    for (size_t ci : order) {
+        const Ctrl& c = ctrls[ci];
         for (const CtrlControl& cc : c.controls) {
+            ++seq;
             if (cc.target_ctrl != SIZE_MAX) continue;
             ElementMatches m = match_element_parameters(t, lat_node, cc.param);
             if (!m.valid) {
@@ -2164,6 +2256,7 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
                 path += (path.empty() ? "" : ".") + p;
             for (size_t def : m.elements) {
                 CtrlTarget& tg = targets[{def, path}];
+                tg.seq = seq;
                 if (c.absolute) {
                     tg.has_absolute = true;
                     if (cc.ok)
@@ -2177,7 +2270,20 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
         }
     }
 
-    for (const auto& kv : targets) {
+    // Applied in the order the controls were reached, not in the map's key
+    // order: a later write nullifies the family members an earlier one stated,
+    // so which one comes last decides what the parameter ends up saying.
+    std::vector<decltype(targets)::const_iterator> in_order;
+    in_order.reserve(targets.size());
+    for (auto it = targets.begin(); it != targets.end(); ++it)
+        in_order.push_back(it);
+    std::stable_sort(in_order.begin(), in_order.end(),
+                     [](const auto& a, const auto& b) {
+                         return a->second.seq < b->second.seq;
+                     });
+
+    for (const auto& it : in_order) {
+        const auto& kv = *it;
         size_t def = kv.first.first;
         const CtrlTarget& tg = kv.second;
         std::vector<std::string> path = split_dots(kv.first.second);
@@ -2213,6 +2319,10 @@ static void evaluate_controllers(ryml::Tree& t, size_t lat_node,
         for (size_t i = 0; i + 1 < path.size(); ++i)
             parent = find_or_add_map_child(t, parent, path[i].c_str());
         set_num_child(t, parent, path.back().c_str(), tg.sum);
+        // The controller states this member of its family; what the element
+        // definition, or a control reached earlier, said through another member
+        // is nullified rather than left to be flagged as inconsistent.
+        nullify_family(t, def, path, prov);
     }
 }
 
@@ -2321,12 +2431,13 @@ static void make_expression_context(const ryml::Tree& t,
 // applies the controllers to `lat_node`. Records anything that could not be
 // evaluated in `problems`.
 static void evaluate_expressions(ryml::Tree& t, size_t lat_node,
+                                 std::map<size_t, size_t>& prov,
                                  ProblemList& problems) {
     pals::SymbolLookup resolve;
     pals::SpeciesLookup species;
     make_expression_context(t, resolve, species);
 
-    evaluate_controllers(t, lat_node, resolve, species, problems);
+    evaluate_controllers(t, lat_node, resolve, species, prov, problems);
     substitute_values(t, t.root_id(), resolve, species, problems);
 }
 
@@ -2445,47 +2556,6 @@ static bool is_expand_lattice(const ryml::Tree& t, size_t entry) {
     return c != ryml::NONE && t.key(c) == ryml::to_csubstr("expand_lattice");
 }
 
-// The parameters that are computed from one another, so that writing one leaves
-// the rest of the family stale. A magnetic multipole component has four
-// interchangeable forms (BnN, BnNL, KnN, KnNL, tied by the length and the
-// reference momentum); an electric one has two; a bend's geometry is tied
-// together through BendP. Returns the family including `key` itself, or an empty
-// set for a parameter that stands alone.
-//
-// This is also what tells a value expression that a parameter is *not yet
-// computable* rather than zero: before the bookkeeper has run, an absent
-// parameter with a written family member is one whose value is still to be
-// derived (lattice-construction.md, s:lattice.expand).
-static std::set<std::string> linked_family(const std::string& group,
-                                           const std::string& key) {
-    // `<letter><n|s><digits>[L]`, the shape both multipole groups use.
-    auto split_component = [](const std::string& k, const char* letters,
-                              std::string& comp) {
-        if (k.size() < 3 || !std::strchr(letters, k[0])) return false;
-        if (k[1] != 'n' && k[1] != 's') return false;
-        size_t i = 2;
-        while (i < k.size() && std::isdigit(static_cast<unsigned char>(k[i])))
-            ++i;
-        if (i == 2) return false;
-        if (i != k.size() && !(i + 1 == k.size() && k[i] == 'L')) return false;
-        comp = k.substr(1, i - 1);  // e.g. "n1"
-        return true;
-    };
-
-    std::string comp;
-    if (group == "MagneticMultipoleP" && split_component(key, "BK", comp))
-        return {"B" + comp, "B" + comp + "L", "K" + comp, "K" + comp + "L"};
-    if (group == "ElectricMultipoleP" && split_component(key, "E", comp))
-        return {"E" + comp, "E" + comp + "L"};
-
-    static const std::set<std::string> bend = {
-        "g_ref",     "radius_ref", "Bn0_ref",
-        "angle_ref", "L_chord",    "L_rectangle"};
-    if (group == "BendP" && bend.count(key)) return bend;
-
-    return {};
-}
-
 // Everything a `set` needs to know about where it is writing: the element, the
 // group node holding the parameter (ryml::NONE until it is created), the
 // parameter key, and the group name for the family lookup.
@@ -2551,25 +2621,6 @@ static bool read_set_operand(const ryml::Tree& t, size_t ele,
     }
     out = 0.0;
     return true;
-}
-
-// Delete the rest of a parameter's family, so the bookkeeper derives it again
-// from the value just written instead of flagging the two as inconsistent.
-// Provenance entries go with them: ryml reuses freed ids, and a stale link would
-// then point the correspondence map at the wrong node.
-static void invalidate_family(ryml::Tree& t, const SetTarget& tg,
-                              std::map<size_t, size_t>& prov) {
-    std::set<std::string> family = linked_family(tg.group, tg.key);
-    if (family.empty()) return;
-    std::vector<std::string> sib = tg.path;
-    for (const std::string& member : family) {
-        if (member == tg.key) continue;
-        sib.back() = member;
-        size_t node = resolve_param_path(t, tg.ele, sib);
-        if (node == ryml::NONE) continue;
-        erase_prov_subtree(t, node, prov);
-        t.remove(node);
-    }
 }
 
 // One `set` command, read out of the tree.
@@ -2703,9 +2754,10 @@ static void execute_set(ryml::Tree& t, const SetCommand& cmd,
             parent = find_or_add_map_child(t, parent, tg.path[i].c_str());
         set_num_child(t, parent, tg.key.c_str(), r.value);
         if (written) written->push_back(tg);
-        // After the bookkeeper has run the rest of the family holds values
-        // derived from the old one; drop them so the next pass rebuilds them.
-        if (!pre) invalidate_family(t, tg, prov);
+        // This write nullifies the previous settings of the rest of the family:
+        // whatever the definition stated before expansion, and -- after it --
+        // whatever the first bookkeeper pass derived from that.
+        nullify_family(t, ele, tg.path, prov);
     }
 }
 
@@ -3882,9 +3934,9 @@ static void link_fork_connections(ryml::Tree& t, size_t lat_node) {
 //
 // What counts as computed is recorded as the set of *authored* parameter paths,
 // taken before any bookkeeping runs, rather than as a list of what the
-// bookkeeper writes. Node ids cannot serve: a post-expansion `set` invalidates a
+// bookkeeper writes. Node ids cannot serve: a post-expansion `set` nullifies a
 // parameter family with t.remove(), ryml recycles the freed ids, and a recorded
-// id would then name a different node -- the hazard invalidate_family already
+// id would then name a different node -- the hazard nullify_family already
 // guards provenance against. And recording writes would be wrong even so:
 // set_num_child overwrites an existing key in place, so write_ref writes an
 // author's `E_tot_ref` without creating it, and it would be lost.
@@ -4220,7 +4272,7 @@ static void make_expanded_and_leftover(ParsedData* comb,
         // Node ids of existing nodes are unchanged -- only scalar text is
         // rewritten -- so provenance stays valid; a parameter a controller
         // creates is new and simply has no provenance, like ReferenceP/FloorP.
-        evaluate_expressions(t, lat_node, problems);
+        evaluate_expressions(t, lat_node, work.provenance, problems);
 
         // The last point at which the lattice holds the author's inputs and
         // nothing else. Record their paths now; everything the finished lattice
@@ -4249,7 +4301,7 @@ static void make_expanded_and_leftover(ParsedData* comb,
             // snapshot above; join them to it before the second bookkeeper pass
             // derives their families again.
             add_set_targets(t, lat_node, set_writes, authored);
-            evaluate_expressions(t, lat_node, problems);
+            evaluate_expressions(t, lat_node, work.provenance, problems);
             run_element_bookkeeper(t, lat_node, problems);
         }
 
