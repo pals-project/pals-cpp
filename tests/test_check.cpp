@@ -145,6 +145,37 @@ TEST_CASE("the retired actual-field bend parameters are reported",
     REQUIRE(!has(ps, "unknown parameter 'g_ref'"));
 }
 
+TEST_CASE("the momentum dependence of the Twiss parameters is accepted",
+          "[check][problems]") {
+    // twiss.md gained the dependence of the Twiss, alpha and dispersion
+    // components on momentum (pals#284). The names pair a component with the
+    // variable differentiated against, so a mode letter used where an axis
+    // belongs -- `dbeta_x_dpz` for what is `dbeta_a_dpz` or `dbeta_b_dpz` --
+    // is still caught.
+    auto ps = problems_for("tmp_check_dpz.pals.yaml",
+                           "PALS:\n"
+                           "  facility:\n"
+                           "    - beg:\n"
+                           "        kind: BeginningEle\n"
+                           "        TwissP:\n"
+                           "          beta_a: 12.5\n"
+                           "          dbeta_a_dpz: 1.5\n"
+                           "          dalpha_a_dpz: 0.1\n"
+                           "          dbeta_b_dpz: -2.0\n"
+                           "          dalpha_b_dpz: 0.2\n"
+                           "          deta_x_dpz: 0.3\n"
+                           "          detap_x_dpz: 0.4\n"
+                           "          deta_y_dpz: 0.5\n"
+                           "          detap_y_dpz: 0.6\n"
+                           "          dbeta_x_dpz: 1.0\n");
+
+    REQUIRE(has(ps, "element 'beg>TwissP': unknown parameter 'dbeta_x_dpz'"));
+    REQUIRE(count_with(ps, "unknown parameter") == 1);
+    // `deta_x_ds` is the derivative with respect to s and stays a parameter of
+    // its own alongside `deta_x_dpz`.
+    REQUIRE(!has(ps, "'deta_x_ds'"));
+}
+
 TEST_CASE("multipole component names are accepted by shape, not by list",
           "[check][problems]") {
     // A multipole component name is generated from its order, so there is no
