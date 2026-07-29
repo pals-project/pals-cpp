@@ -98,10 +98,17 @@ const std::map<std::string, std::set<std::string>>& group_params() {
         {"TaylorP",
          {"x_out", "px_out", "y_out", "py_out", "z_out", "pz_out", "S_q1_out",
           "S_qx_out", "S_qy_out", "S_qz_out", "ref_in"}},
+        // The eight `_dpz` components are the dependence of a Twiss, alpha or
+        // dispersion component on momentum (pals#284). Note that the derivative
+        // of `eta_x` with respect to momentum is `deta_x_dpz` while the one
+        // with respect to s is `deta_x_ds`, and that `detap_x_dpz` derives
+        // `etap_x`, not `deta_x_ds`.
         {"TwissP",
          {"alpha_a", "alpha_b", "beta_a", "beta_b", "cmat11", "cmat12",
           "cmat21", "cmat22", "eta_x", "eta_y", "etap_x", "etap_y",
-          "deta_x_ds", "deta_y_ds", "phi_a", "phi_b"}}};
+          "deta_x_ds", "deta_y_ds", "phi_a", "phi_b",
+          "dalpha_a_dpz", "dalpha_b_dpz", "dbeta_a_dpz", "dbeta_b_dpz",
+          "deta_x_dpz", "deta_y_dpz", "detap_x_dpz", "detap_y_dpz"}}};
     return p;
 }
 
