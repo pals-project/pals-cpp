@@ -60,14 +60,9 @@ double param_num(YAMLTreeHandle t, const char* ele, const char* group,
     return num_val(t, get_child_by_key(t, g, param));
 }
 
-// Expand BOOKKEEPER_YAML from a temp file (the only expansion entry point takes
-// a filename). The caller frees the returned trees and problem list.
+// Expand BOOKKEEPER_YAML. The caller frees the returned trees and problem list.
 struct lattices expand_bookkeeper() {
-    const char* path = "tmp_bookkeeper.pals.yaml";
-    write_tmp(path, BOOKKEEPER_YAML);
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    rm_tmp(path);
-    return lat;
+    return expand_PALS_string(BOOKKEEPER_YAML, nullptr);
 }
 
 }  // namespace
@@ -219,44 +214,43 @@ TEST_CASE("element_index restarts at one in each branch", "[bookkeeper]") {
     // A Fork gives the lattice a second branch. The index is a position within
     // the branch that holds the element, not a running count over the lattice,
     // so the forked branch starts again at one.
-    const char* path = "tmp_element_index_fork.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - dump_begin:\n"
-              "        kind: BeginningEle\n"
-              "        ReferenceP:\n"
-              "          species_ref: \"electron\"\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - dump_end:\n"
-              "        kind: Marker\n"
-              "    - dump_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - dump_begin\n"
-              "          - dump_end\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - begin:\n"
-              "              kind: BeginningEle\n"
-              "              ReferenceP:\n"
-              "                species_ref: \"electron\"\n"
-              "                E_tot_ref: 1.0e9\n"
-              "          - drift1:\n"
-              "              kind: Drift\n"
-              "              length: 1.0\n"
-              "          - f1:\n"
-              "              kind: Fork\n"
-              "              ForkP:\n"
-              "                to_line: dump_line\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - dump_begin:\n"
+        "        kind: BeginningEle\n"
+        "        ReferenceP:\n"
+        "          species_ref: \"electron\"\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - dump_end:\n"
+        "        kind: Marker\n"
+        "    - dump_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - dump_begin\n"
+        "          - dump_end\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - begin:\n"
+        "              kind: BeginningEle\n"
+        "              ReferenceP:\n"
+        "                species_ref: \"electron\"\n"
+        "                E_tot_ref: 1.0e9\n"
+        "          - drift1:\n"
+        "              kind: Drift\n"
+        "              length: 1.0\n"
+        "          - f1:\n"
+        "              kind: Fork\n"
+        "              ForkP:\n"
+        "                to_line: dump_line\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     YAMLTreeHandle t = lat.full_expanded;
 
     // ring: begin, drift1, f1, branch_end.
@@ -274,7 +268,6 @@ TEST_CASE("element_index restarts at one in each branch", "[bookkeeper]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 // A branch with a single RFCavity, whose RFP body is spliced in from `rfp_body`
@@ -305,10 +298,8 @@ static std::string rf_yaml(const std::string& rfp_body) {
 }
 
 static struct lattices expand_rf(const std::string& rfp_body) {
-    const char* path = "tmp_rf.pals.yaml";
-    write_tmp(path, rf_yaml(rfp_body));
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    rm_tmp(path);
+    const std::string doc = rf_yaml(rfp_body);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     return lat;
 }
 
@@ -344,10 +335,8 @@ static std::string one_ele_yaml(const std::string& ele_body) {
 }
 
 static struct lattices expand_src(const std::string& src) {
-    const char* path = "tmp_dep.pals.yaml";
-    write_tmp(path, src);
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    rm_tmp(path);
+    const std::string doc = src;
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     return lat;
 }
 

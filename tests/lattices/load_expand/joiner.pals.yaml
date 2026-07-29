@@ -1,0 +1,4 @@
+PALS:
+  load:
+    - layout.pals.yaml
+    - settings.pals.yaml

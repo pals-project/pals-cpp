@@ -7,9 +7,8 @@
 namespace {
 
 // Every problem reported for `yaml`, so a test can assert on the whole set.
-std::vector<std::string> problems_for(const char* path, const char* yaml) {
-    write_tmp(path, yaml);
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+std::vector<std::string> problems_for(const char* yaml) {
+    struct lattices lat = expand_PALS_string(yaml, nullptr);
     std::vector<std::string> out;
     for (size_t i = 0; i < lat.problems.count; ++i)
         out.push_back(lat.problems.items[i]);
@@ -19,7 +18,6 @@ std::vector<std::string> problems_for(const char* path, const char* yaml) {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
     return out;
 }
 
@@ -44,8 +42,7 @@ TEST_CASE("a misspelled element kind is reported with a suggestion",
     // downstream, so the mistake has to be caught by name. Case is the mistake
     // the CamelCase convention invites, so a name that differs only in case is
     // suggested outright.
-    auto ps = problems_for("tmp_check_kind.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - m:\n"
                            "        kind: marker\n"
@@ -65,8 +62,7 @@ TEST_CASE("a misspelled parameter group is reported with a suggestion",
     // so a key of that shape that PALS does not define is a group name spelled
     // wrong. Plain lower-case parameters are not checked -- they are not drawn
     // from a fixed vocabulary.
-    auto ps = problems_for("tmp_check_group.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - q1:\n"
                            "        kind: Quadrupole\n"
@@ -96,8 +92,7 @@ TEST_CASE("a misspelled parameter inside a group is reported",
     // Each group has a fixed component list (one section each under
     // source/parameters), so a key that is not on it is a mistake -- `xxx` is
     // no more a ForkP parameter than `FlorP` is a group.
-    auto ps = problems_for("tmp_check_param.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - f1:\n"
                            "        kind: Fork\n"
@@ -128,8 +123,7 @@ TEST_CASE("the retired actual-field bend parameters are reported",
     // particle sees is `Bn0`/`Kn0` of MagneticMultipoleP, defaulted from
     // `g_ref` when `Kn0_from_g_ref` is set. `g_actual` and `bend_field_actual`
     // are gone from BendP, and a lattice still using them is told so.
-    auto ps = problems_for("tmp_check_actual.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - b1:\n"
                            "        kind: Bend\n"
@@ -152,8 +146,7 @@ TEST_CASE("the momentum dependence of the Twiss parameters is accepted",
     // variable differentiated against, so a mode letter used where an axis
     // belongs -- `dbeta_x_dpz` for what is `dbeta_a_dpz` or `dbeta_b_dpz` --
     // is still caught.
-    auto ps = problems_for("tmp_check_dpz.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - beg:\n"
                            "        kind: BeginningEle\n"
@@ -182,8 +175,7 @@ TEST_CASE("multipole component names are accepted by shape, not by list",
     // list to check against: `Bn`/`Bs`/`Kn`/`Ks` (magnetic) or `En`/`Es`
     // (electric) plus the order, optionally `L` for the length-integrated form
     // and `_taper` for the tapering parameter, and `tilt` plus the order.
-    auto ps = problems_for("tmp_check_mult.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - q1:\n"
                            "        kind: Quadrupole\n"
@@ -216,8 +208,7 @@ TEST_CASE("a misspelled element parameter is reported", "[check][problems]") {
     // The parameters outside any group are a short fixed list
     // (lattice-element-parameters.md, s:non.params), extended by what the kind
     // is built from -- `line` for a BeamLine, `branches` for a Lattice.
-    auto ps = problems_for("tmp_check_ele.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - q1:\n"
                            "        kind: Quadrupole\n"
@@ -244,8 +235,7 @@ TEST_CASE("groups with no fixed vocabulary are left alone",
     // MetaP may hold arbitrary metadata beyond its six components (meta.md) and
     // TrackingP is program-specific by design (tracking.md), so neither is
     // checked -- nor is anything nested inside them.
-    auto ps = problems_for("tmp_check_open.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - q1:\n"
                            "        kind: Quadrupole\n"
@@ -270,8 +260,7 @@ TEST_CASE("a parameter group the element's kind does not have is reported",
     // Each kind lists the groups it carries (lattice-element-kinds.md). A group
     // PALS defines but this kind does not have is a real group in the wrong
     // place, so it is reported against the kind, not the spelling.
-    auto ps = problems_for("tmp_check_kindgroup.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - d1:\n"
                            "        kind: Drift\n"
@@ -307,8 +296,7 @@ TEST_CASE("kinds with no documented group list are not constrained",
           "[check][problems]") {
     // `Girder` is still "Under Construction" -- nothing is documented to check
     // its groups against -- while `Placeholder` says outright that it has none.
-    auto ps = problems_for("tmp_check_nolist.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - g1:\n"
                            "        kind: Girder\n"
@@ -331,8 +319,7 @@ TEST_CASE("a parameter group defined on its own is checked as a group",
     // given a `name` or `inherit` another (lattice-element-parameters.md,
     // s:inherit.params). `kind: ApertureP` is a group name, not an element
     // kind, and its entries are ApertureP's.
-    auto ps = problems_for("tmp_check_named.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - ap1:\n"
                            "        kind: ApertureP\n"
@@ -356,8 +343,7 @@ TEST_CASE("a parameter group defined on its own is checked as a group",
 
 TEST_CASE("correctly spelled kinds and groups are not reported",
           "[check][problems]") {
-    auto ps = problems_for("tmp_check_clean.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - b1:\n"
                            "        kind: Bend\n"
@@ -384,8 +370,7 @@ TEST_CASE("extension data is exempt from the spelling checks",
     // schema, and a name registered under `PALS: extension_labels`, which may be
     // matched in full, by prefix, or by suffix. Neither is PALS' to validate,
     // and an extension name may be used as an enum value -- `kind: Rotator`.
-    auto ps = problems_for("tmp_check_ext.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  extension_labels:\n"
                            "    names:\n"
                            "      Rotator: a new kind of element\n"
@@ -417,8 +402,7 @@ TEST_CASE("a misspelled key of the PALS root node is reported",
     // misspelling there is silent otherwise: `extension_names` registers no
     // extension, so the only sign of it would be a complaint about the data the
     // extension was meant to cover -- here `Bmad`, an element away.
-    auto ps = problems_for("tmp_check_root.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  extension_names:\n"
                            "    names:\n"
                            "      Bmad: bmad-specific data\n"
@@ -438,8 +422,7 @@ TEST_CASE("the documented keys of the PALS root node are not reported",
           "[check][problems]") {
     // Every key of s:palsroot, plus `phase_space_coordinates` (coordinates.md)
     // and `include` (fundamentals.md, s:include). `load` has its own tests.
-    auto ps = problems_for("tmp_check_root_ok.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  version: 1\n"
                            "  authors:\n"
                            "    - author:\n"
@@ -466,8 +449,7 @@ TEST_CASE("the documented keys of the PALS root node are not reported",
 
 TEST_CASE("a root key registered as an extension is left alone",
           "[check][problems]") {
-    auto ps = problems_for("tmp_check_root_ext.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  extension_labels:\n"
                            "    prefixes:\n"
                            "      Bmad_: bmad-specific data\n"
@@ -486,8 +468,7 @@ TEST_CASE("an unrecognisable name is reported without a guess",
     // A suggestion is offered only when something is genuinely close; a name
     // that resembles nothing is reported on its own rather than paired with the
     // nearest string in the table.
-    auto ps = problems_for("tmp_check_wild.pals.yaml",
-                           "PALS:\n"
+    auto ps = problems_for("PALS:\n"
                            "  facility:\n"
                            "    - x1:\n"
                            "        kind: Zzzyzx\n");

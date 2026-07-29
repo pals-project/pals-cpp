@@ -24,25 +24,23 @@ static std::vector<std::string> keys_of(YAMLTreeHandle tree, YAMLNodeId node) {
 
 TEST_CASE("Map keys keep their file order through a parse/emit round-trip",
           "[key_order]") {
-    const char* path = "tmp_key_order.yaml";
-    // Deliberately not alphabetical: sorting would give alpha, bravo, mike, zulu.
-    write_tmp(path, "zulu: 1\nalpha: 2\nmike: 3\nbravo: 4\n");
-
+    // This one goes through files on purpose: the round trip is what is being
+    // tested. lattices/key_order.yaml is deliberately not alphabetical --
+    // sorting would give alpha, bravo, mike, zulu.
     const std::vector<std::string> expected = {"zulu", "alpha", "mike", "bravo"};
 
-    YAMLTreeHandle tree = parse_file(path);
+    YAMLTreeHandle tree = parse_file(lattice_file("key_order.yaml").c_str());
     REQUIRE(keys_of(tree, get_root(tree)) == expected);
 
     // ... and again after emitting and reading the result back.
-    const char* out = "tmp_key_order_out.yaml";
-    REQUIRE(write_file(tree, out));
-    YAMLTreeHandle reloaded = parse_file(out);
+    const std::string out = out_path("key_order_out.yaml");
+    REQUIRE(write_file(tree, out.c_str()));
+    YAMLTreeHandle reloaded = parse_file(out.c_str());
     REQUIRE(keys_of(reloaded, get_root(reloaded)) == expected);
 
     delete_tree(tree);
     delete_tree(reloaded);
-    rm_tmp(path);
-    rm_tmp(out);
+    remove_file(out);
 }
 
 TEST_CASE("add_scalar inserts at the requested position", "[key_order]") {
@@ -58,28 +56,27 @@ TEST_CASE("add_scalar inserts at the requested position", "[key_order]") {
 }
 
 TEST_CASE("Expansion preserves the key order of the source file", "[key_order]") {
-    const char* path = "tmp_key_order.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - thingB:\n"
-              "        kind: Sextupole\n"
-              "        length: 2\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        multipass: true\n"
-              "        length: 37.8\n"
-              "        zero_point: thingC\n"
-              "        line:\n"
-              "          - thingZ:\n"
-              "              inherit: thingB\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: lat1\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - thingB:\n"
+        "        kind: Sextupole\n"
+        "        length: 2\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        multipass: true\n"
+        "        length: 37.8\n"
+        "        zero_point: thingC\n"
+        "        line:\n"
+        "          - thingZ:\n"
+        "              inherit: thingB\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: lat1\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
 
     // `main_line`'s keys are not in alphabetical order — sorting would move
     // `length` above `line` and `multipass` to the end — so the order below
@@ -133,5 +130,4 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }

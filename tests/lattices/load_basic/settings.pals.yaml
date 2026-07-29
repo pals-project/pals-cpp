@@ -1,0 +1,7 @@
+PALS:
+  notes:
+    - "settings note"
+  facility:
+    - set:
+        parameter: Q1a>MagneticMultipoleP.Kn1
+        value: 0.34

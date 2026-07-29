@@ -145,15 +145,6 @@ const char* REWRITTEN_YAML =
     "        value: 0.75\n"
     "    - use: lat1\n";
 
-// Expand a YAML string from a temp file (the only expansion entry point takes a
-// filename). The caller frees the returned trees and problem list.
-struct lattices expand_string(const char* yaml, const char* path) {
-    write_tmp(path, yaml);
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
-    rm_tmp(path);
-    return lat;
-}
-
 void free_all(struct lattices& lat) {
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
@@ -236,7 +227,7 @@ YAMLNodeId first_line(YAMLTreeHandle t) {
 
 TEST_CASE("expanded drops the parameters the bookkeeper computed",
           "[expanded]") {
-    struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
+    struct lattices lat = expand_PALS_string(SPLIT_YAML, nullptr);
 
     // Reference, floor, s-position and element index are computed for every
     // element; none of them survives, and on an element that authored nothing
@@ -268,7 +259,7 @@ TEST_CASE("expanded drops the parameters the bookkeeper computed",
 
 TEST_CASE("expanded keeps an authored group but not what completes it",
           "[expanded]") {
-    struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
+    struct lattices lat = expand_PALS_string(SPLIT_YAML, nullptr);
 
     // The author wrote ReferenceP on the BeginningEle, so it survives -- with
     // only the two members that were written. `E_tot_ref` and `time_ref` are
@@ -295,7 +286,7 @@ TEST_CASE("expanded keeps an authored group but not what completes it",
 }
 
 TEST_CASE("expanded drops materialized group defaults", "[expanded]") {
-    struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
+    struct lattices lat = expand_PALS_string(SPLIT_YAML, nullptr);
 
     // RFP is authored, so it stays -- holding the gradient and nothing else.
     // `cavity_type` and `zero_phase` are non-zero defaults the bookkeeper fills
@@ -311,7 +302,7 @@ TEST_CASE("expanded drops materialized group defaults", "[expanded]") {
 }
 
 TEST_CASE("expanded drops the branch_end the bookkeeper appends", "[expanded]") {
-    struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
+    struct lattices lat = expand_PALS_string(SPLIT_YAML, nullptr);
 
     // The Placeholder capping the branch exists only to carry the branch's
     // final reference and floor, so it has no reason to appear at all -- the
@@ -326,7 +317,7 @@ TEST_CASE("expanded drops the branch_end the bookkeeper appends", "[expanded]") 
 }
 
 TEST_CASE("expanded keeps what a post-expand_lattice set wrote", "[expanded]") {
-    struct lattices lat = expand_string(POST_SET_YAML, "tmp_post_set.pals.yaml");
+    struct lattices lat = expand_PALS_string(POST_SET_YAML, nullptr);
 
     // The set runs after the first bookkeeper pass, so it lands after the point
     // the authored parameters were recorded. Its write is an input all the same
@@ -351,7 +342,7 @@ TEST_CASE("expanded keeps what a post-expand_lattice set wrote", "[expanded]") {
 
 TEST_CASE("expanded drops the fork wiring but keeps the fork's own inputs",
           "[expanded]") {
-    struct lattices lat = expand_string(FORK_YAML, "tmp_fork.pals.yaml");
+    struct lattices lat = expand_PALS_string(FORK_YAML, nullptr);
 
     // What the author wrote on the Fork stays.
     for (const char* p : {"to_line", "destination_element", "new_branch"}) {
@@ -400,18 +391,11 @@ TEST_CASE("a parameter in both trees holds the same value in both",
     // The whole invariant, checked wholesale: `expanded` is a pruned copy of the
     // finished lattice, not a snapshot of an earlier one, so a parameter that
     // survives pruning carries the value the lattice ended up with.
-    struct {
-        const char* yaml;
-        const char* path;
-    } cases[] = {
-        {SPLIT_YAML, "tmp_same_split.pals.yaml"},
-        {POST_SET_YAML, "tmp_same_post.pals.yaml"},
-        {FORK_YAML, "tmp_same_fork.pals.yaml"},
-        {REWRITTEN_YAML, "tmp_same_rewritten.pals.yaml"},
-    };
+    const char* cases[] = {SPLIT_YAML, POST_SET_YAML, FORK_YAML,
+                           REWRITTEN_YAML};
 
-    for (const auto& c : cases) {
-        struct lattices lat = expand_string(c.yaml, c.path);
+    for (const char* yaml : cases) {
+        struct lattices lat = expand_PALS_string(yaml, nullptr);
         size_t compared = 0;
         require_same_values(lat.expanded, get_root(lat.expanded),
                             lat.full_expanded, get_root(lat.full_expanded), "",
@@ -424,7 +408,7 @@ TEST_CASE("a parameter in both trees holds the same value in both",
 TEST_CASE("expanded carries the value a controller drove, not the authored one",
           "[expanded]") {
     struct lattices lat =
-        expand_string(REWRITTEN_YAML, "tmp_rewritten.pals.yaml");
+        expand_PALS_string(REWRITTEN_YAML, nullptr);
 
     // The ABSOLUTE controller overwrites the authored Kn1L (0.33) with 0.8. The
     // parameter is the author's -- it is held -- but the value is the driven
@@ -445,7 +429,7 @@ TEST_CASE("expanded carries the value a controller drove, not the authored one",
 }
 
 TEST_CASE("expanded and full_expanded are independent trees", "[expanded]") {
-    struct lattices lat = expand_string(SPLIT_YAML, "tmp_split.pals.yaml");
+    struct lattices lat = expand_PALS_string(SPLIT_YAML, nullptr);
 
     // Both are cut from the same work tree rather than one from the other, so
     // releasing one must leave the other intact.

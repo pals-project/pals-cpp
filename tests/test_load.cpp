@@ -1,25 +1,21 @@
 #include "test_helpers.h"
 
-#include <filesystem>
-
 // `load` commands: fundamentals.md (s:load). A load merges whole files subnode
 // by subnode under the `PALS` root, where an include splices a file's contents
 // in verbatim where it is written. Both are resolved into the `combined` tree.
 
 namespace {
 
-// A set of files written into a scratch directory and parsed through one of
-// them. The directory is what makes the relative-path rule testable: the paths
-// inside the files are written relative to each other, not to wherever the
-// tests happen to run.
+// One of the multi-file cases committed under tests/lattices, parsed through
+// the file named. These are the tests that have to be about files on disk: a
+// `load` or an `include` path is resolved relative to the file that writes it,
+// so the case is a directory of files written relative to each other, and each
+// one says in its own name what it is a case of.
 struct LoadCase {
-    std::filesystem::path dir;
+    std::string dir;
     struct lattices lat = {};
 
-    explicit LoadCase(const std::string& name) : dir("tmp_load_" + name) {
-        std::filesystem::remove_all(dir);
-        std::filesystem::create_directories(dir);
-    }
+    explicit LoadCase(const std::string& name) : dir(name) {}
 
     ~LoadCase() {
         free_lattice_problems(lat.problems);
@@ -28,17 +24,11 @@ struct LoadCase {
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
         delete_tree(lat.leftover);
-        std::filesystem::remove_all(dir);
-    }
-
-    void write(const std::string& rel, const std::string& yaml) {
-        std::filesystem::path p = dir / rel;
-        std::filesystem::create_directories(p.parent_path());
-        write_tmp(p.string(), yaml);
     }
 
     void parse(const std::string& rel, const char* root_lattice = nullptr) {
-        lat = parse_and_expand_PALS((dir / rel).string().c_str(), root_lattice);
+        lat = parse_and_expand_PALS(lattice_file(dir + "/" + rel).c_str(),
+                                    root_lattice);
     }
 
     std::vector<std::string> problems() const {
@@ -120,53 +110,10 @@ std::vector<std::string> keys_under(YAMLTreeHandle t, const char* key) {
     return out;
 }
 
-// The layout/settings split fundamentals.md gives as the motivating use: one
-// file lays the machine out, another sets it up, a joiner names both.
-const char* LAYOUT =
-    "PALS:\n"
-    "  notes:\n"
-    "    - \"layout note\"\n"
-    "  facility:\n"
-    "    - main:\n"
-    "        kind: BeamLine\n"
-    "        line:\n"
-    "          - begin:\n"
-    "              kind: BeginningEle\n"
-    "              ReferenceP:\n"
-    "                species_ref: \"electron\"\n"
-    "                E_tot_ref: 1.0e9\n"
-    "          - Q1a:\n"
-    "              kind: Quadrupole\n"
-    "              length: 0.5\n"
-    "    - lat1:\n"
-    "        kind: Lattice\n"
-    "        branches:\n"
-    "          - main\n"
-    "    - use: \"lat1\"\n";
-
-const char* SETTINGS =
-    "PALS:\n"
-    "  notes:\n"
-    "    - \"settings note\"\n"
-    "  facility:\n"
-    "    - set:\n"
-    "        parameter: Q1a>MagneticMultipoleP.Kn1\n"
-    "        value: 0.34\n";
-
 }  // namespace
 
 TEST_CASE("load merges whole files subnode by subnode", "[load]") {
-    LoadCase c("basic");
-    c.write("layout.pals.yaml", LAYOUT);
-    c.write("settings.pals.yaml", SETTINGS);
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"joiner note\"\n"
-            "  load:\n"
-            "    - layout.pals.yaml\n"
-            "    - settings.pals.yaml\n"
-            "    - SELF\n");
+    LoadCase c("load_basic");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.joined_problems() == "");
 
@@ -188,14 +135,7 @@ TEST_CASE("a loaded settings file drives the lattice the layout file defines",
     // The point of the split: the merged file expands as though it had been
     // written as one, so the `set` from the settings file reaches the element
     // the layout file defined.
-    LoadCase c("expand");
-    c.write("layout.pals.yaml", LAYOUT);
-    c.write("settings.pals.yaml", SETTINGS);
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - layout.pals.yaml\n"
-            "    - settings.pals.yaml\n");
+    LoadCase c("load_expand");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.joined_problems() == "");
 
@@ -209,23 +149,7 @@ TEST_CASE("a loaded settings file drives the lattice the layout file defines",
 }
 
 TEST_CASE("SELF places the joiner's own contents in the load order", "[load]") {
-    LoadCase c("self");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"a\"\n");
-    c.write("b.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"b\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"joiner\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n"
-            "    - SELF\n"
-            "    - b.pals.yaml\n");
+    LoadCase c("load_self");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(list_of(c.lat.combined, "notes") ==
@@ -233,17 +157,7 @@ TEST_CASE("SELF places the joiner's own contents in the load order", "[load]") {
 }
 
 TEST_CASE("without SELF the joiner's own contents are merged last", "[load]") {
-    LoadCase c("noself");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"a\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"joiner\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n");
+    LoadCase c("load_noself");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(list_of(c.lat.combined, "notes") ==
@@ -254,24 +168,7 @@ TEST_CASE("load resolves nested loads bottom up", "[load]") {
     // `inner` is a complete file -- a.pals.yaml already merged into it -- before
     // it is merged into the joiner, and its own SELF refers to itself, not to
     // the joiner that loads it.
-    LoadCase c("nested");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"a\"\n");
-    c.write("inner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"inner\"\n"
-            "  load:\n"
-            "    - SELF\n"
-            "    - a.pals.yaml\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"joiner\"\n"
-            "  load:\n"
-            "    - inner.pals.yaml\n");
+    LoadCase c("load_nested");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(list_of(c.lat.combined, "notes") ==
@@ -280,25 +177,9 @@ TEST_CASE("load resolves nested loads bottom up", "[load]") {
 
 TEST_CASE("a loaded file's includes are resolved before it is merged",
           "[load][include]") {
-    LoadCase c("include");
-    c.write("parts/extra.pals.yaml",
-            "- extra_ele:\n"
-            "    kind: Marker\n");
-    // The include is written relative to the file holding it, which sits a
-    // directory below the joiner.
-    c.write("sub/layout.pals.yaml",
-            "PALS:\n"
-            "  facility:\n"
-            "    - m1:\n"
-            "        kind: Marker\n"
-            "    - include: \"../parts/extra.pals.yaml\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - sub/layout.pals.yaml\n"
-            "  facility:\n"
-            "    - m2:\n"
-            "        kind: Marker\n");
+    // The included file is named relative to the file holding the include,
+    // which in this case sits a directory below the joiner.
+    LoadCase c("load_include");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(facility_names(c.lat.combined) ==
@@ -309,22 +190,7 @@ TEST_CASE("a load path is relative to the file naming it", "[load]") {
     // joiner reaches down into sub/, and sub/inner.pals.yaml reaches back up:
     // both are written relative to themselves, so neither depends on where the
     // process happens to be running.
-    LoadCase c("relative");
-    c.write("top.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"top\"\n");
-    c.write("sub/inner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"inner\"\n"
-            "  load:\n"
-            "    - ../top.pals.yaml\n"
-            "    - SELF\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - sub/inner.pals.yaml\n");
+    LoadCase c("load_relative");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(list_of(c.lat.combined, "notes") ==
@@ -332,16 +198,7 @@ TEST_CASE("a load path is relative to the file naming it", "[load]") {
 }
 
 TEST_CASE("distinct versions collect into one comma delimited list", "[load]") {
-    LoadCase c("version");
-    c.write("a.pals.yaml", "PALS:\n  version: \"1.0\"\n");
-    c.write("b.pals.yaml", "PALS:\n  version: \"2.0\"\n");
-    c.write("c.pals.yaml", "PALS:\n  version: \"1.0\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - a.pals.yaml\n"
-            "    - b.pals.yaml\n"
-            "    - c.pals.yaml\n");
+    LoadCase c("load_version");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     // "1.0" is contributed twice and appears once; the joiner itself has no
@@ -350,13 +207,7 @@ TEST_CASE("distinct versions collect into one comma delimited list", "[load]") {
 }
 
 TEST_CASE("one version shared by every file stays a single version", "[load]") {
-    LoadCase c("version_same");
-    c.write("a.pals.yaml", "PALS:\n  version: \"1.0\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  version: \"1.0\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n");
+    LoadCase c("load_version_same");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(scalar_of(c.lat.combined, "version") == "1.0");
@@ -364,19 +215,7 @@ TEST_CASE("one version shared by every file stays a single version", "[load]") {
 
 TEST_CASE("Dict subnodes take the union and discard agreeing duplicates",
           "[load]") {
-    LoadCase c("dict");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  extension_labels:\n"
-            "    from_a: \"A\"\n"
-            "    shared: \"same\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  extension_labels:\n"
-            "    shared: \"same\"\n"
-            "    from_joiner: \"J\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n");
+    LoadCase c("load_dict");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(keys_under(c.lat.combined, "extension_labels") ==
@@ -384,17 +223,7 @@ TEST_CASE("Dict subnodes take the union and discard agreeing duplicates",
 }
 
 TEST_CASE("two files disagreeing over a Dict entry is reported", "[load]") {
-    LoadCase c("dict_clash");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  extension_labels:\n"
-            "    shared: \"one\"\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  extension_labels:\n"
-            "    shared: \"other\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n");
+    LoadCase c("load_dict_clash");
     c.parse("joiner.pals.yaml");
     REQUIRE(any_contains(c.problems(), "extension_labels.shared"));
 
@@ -408,13 +237,7 @@ TEST_CASE("two files disagreeing over a Dict entry is reported", "[load]") {
 }
 
 TEST_CASE("a load naming a file that cannot be read is reported", "[load]") {
-    LoadCase c("missing");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"joiner\"\n"
-            "  load:\n"
-            "    - no_such_file.pals.yaml\n");
+    LoadCase c("load_missing");
     c.parse("joiner.pals.yaml");
     REQUIRE(any_contains(c.problems(), "no_such_file.pals.yaml"));
     // The rest of the document still combines: one unreadable file is not
@@ -424,21 +247,7 @@ TEST_CASE("a load naming a file that cannot be read is reported", "[load]") {
 }
 
 TEST_CASE("a cycle of loads is reported rather than followed", "[load]") {
-    LoadCase c("cycle");
-    c.write("a.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"a\"\n"
-            "  load:\n"
-            "    - b.pals.yaml\n"
-            "    - SELF\n");
-    c.write("b.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"b\"\n"
-            "  load:\n"
-            "    - a.pals.yaml\n"
-            "    - SELF\n");
+    LoadCase c("load_cycle");
     c.parse("a.pals.yaml");
     REQUIRE(any_contains(c.problems(), "already being loaded"));
     // b's load of a is what closes the loop and is dropped; everything else
@@ -451,24 +260,7 @@ TEST_CASE("a file loaded by two routes is read once", "[load]") {
     // `shared` is named by both branches. It is parsed once into `original`,
     // but each branch merges its own copy, so it contributes twice -- the merge
     // is over load lists, not over files.
-    LoadCase c("diamond");
-    c.write("shared.pals.yaml",
-            "PALS:\n"
-            "  notes:\n"
-            "    - \"shared\"\n");
-    c.write("left.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - shared.pals.yaml\n");
-    c.write("right.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - shared.pals.yaml\n");
-    c.write("joiner.pals.yaml",
-            "PALS:\n"
-            "  load:\n"
-            "    - left.pals.yaml\n"
-            "    - right.pals.yaml\n");
+    LoadCase c("load_diamond");
     c.parse("joiner.pals.yaml");
     REQUIRE(c.load_problems() == "");
     REQUIRE(list_of(c.lat.combined, "notes") ==

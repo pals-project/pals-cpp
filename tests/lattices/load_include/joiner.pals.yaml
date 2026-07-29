@@ -1,0 +1,6 @@
+PALS:
+  load:
+    - sub/layout.pals.yaml
+  facility:
+    - m2:
+        kind: Marker

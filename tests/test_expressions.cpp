@@ -115,33 +115,32 @@ TEST_CASE("evaluate_pals_expression: non-evaluable inputs report failure",
 
 TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
           "[expr][lattices]") {
-    const char* path = "tmp_expr.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - variables:\n"
-              "        - a_var: 3.75e7 / c_light^2\n"
-              "        - b_var: -0.34\n"
-              "    - m_e:\n"
-              "        kind: constant\n"
-              "        value: mass_of(\"electron\")\n"
-              "    - cleo:\n"
-              "        kind: Solenoid\n"
-              "        length: 0.1*log(abs(b_var))\n"
-              "        MagneticMultipoleP:\n"
-              "          Kn1: expr(3.74 * a_var)\n"
-              "          Kn2: 0.01 + 0.003*random_gauss()\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - cleo\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - variables:\n"
+        "        - a_var: 3.75e7 / c_light^2\n"
+        "        - b_var: -0.34\n"
+        "    - m_e:\n"
+        "        kind: constant\n"
+        "        value: mass_of(\"electron\")\n"
+        "    - cleo:\n"
+        "        kind: Solenoid\n"
+        "        length: 0.1*log(abs(b_var))\n"
+        "        MagneticMultipoleP:\n"
+        "          Kn1: expr(3.74 * a_var)\n"
+        "          Kn2: 0.01 + 0.003*random_gauss()\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - cleo\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     const double a_var = 3.75e7 / (2.99792458e8 * 2.99792458e8);
@@ -184,7 +183,6 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
@@ -192,30 +190,29 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     // The compact `constants:`/`variables:` block may be written as a plain map
     // (`a_const: ...`) as well as the standard seq-of-single-key-maps form; a
     // later definition must be able to reference an earlier one by name.
-    const char* path = "tmp_mapdefs.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - constants:\n"
-              "        a_const: 0.3 * r_electron\n"
-              "        b_const: 0.45\n"
-              "    - variables:\n"
-              "        a_var: a_const^2\n"
-              "        b_var: 0.37 * atan2(0.1, 0.2)\n"
-              "    - d1:\n"
-              "        kind: Drift\n"
-              "        length: a_const + b_const\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - d1\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - constants:\n"
+        "        a_const: 0.3 * r_electron\n"
+        "        b_const: 0.45\n"
+        "    - variables:\n"
+        "        a_var: a_const^2\n"
+        "        b_var: 0.37 * atan2(0.1, 0.2)\n"
+        "    - d1:\n"
+        "        kind: Drift\n"
+        "        length: a_const + b_const\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - d1\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     const double a_const = 0.3 * evaluate_pals_expression("r_electron", nullptr);
@@ -246,7 +243,6 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
@@ -254,34 +250,33 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     // An expression may reference another element's parameter with the
     // `element>group.sub. ... .param` syntax; it resolves to that parameter's
     // value (evaluated as an expression in turn).
-    const char* path = "tmp_eleparamref.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - thingB:\n"
-              "        kind: Sextupole\n"
-              "        length: 0.3\n"
-              "        MagneticMultipoleP:\n"
-              "          Kn2L: 0.1\n"
-              "    - DH1A:\n"
-              "        kind: Bend\n"
-              "        length: 0.2\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "        BendP:\n"
-              "          edge2_int: 0.02 * thingB>MagneticMultipoleP.Kn2L\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - DH1A\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - thingB:\n"
+        "        kind: Sextupole\n"
+        "        length: 0.3\n"
+        "        MagneticMultipoleP:\n"
+        "          Kn2L: 0.1\n"
+        "    - DH1A:\n"
+        "        kind: Bend\n"
+        "        length: 0.2\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "        BendP:\n"
+        "          edge2_int: 0.02 * thingB>MagneticMultipoleP.Kn2L\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - DH1A\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     YAMLNodeId dh1a = find_by_key(lat.full_expanded, "DH1A");
@@ -300,38 +295,36 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
           "[expr][lattices]") {
     // A particle-data function may take a symbol whose value is a species name
     // (`mass_of(species)` where `species: "#3He"`), not only a quoted literal.
-    const char* path = "tmp_speciesconst.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - constants:\n"
-              "        species: \"#3He\"\n"
-              "        b_const: 0.45 * mass_of(species)\n"
-              "    - DH1A:\n"
-              "        kind: Bend\n"
-              "        ReferenceP:\n"
-              "          species_ref: species\n"
-              "          E_tot_ref: 1.0e10\n"
-              "        BendP:\n"
-              "          h1: 1.1 * mass_of(species)\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - DH1A\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - constants:\n"
+        "        species: \"#3He\"\n"
+        "        b_const: 0.45 * mass_of(species)\n"
+        "    - DH1A:\n"
+        "        kind: Bend\n"
+        "        ReferenceP:\n"
+        "          species_ref: species\n"
+        "          E_tot_ref: 1.0e10\n"
+        "        BendP:\n"
+        "          h1: 1.1 * mass_of(species)\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - DH1A\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     const double m_3he = 2809413528.3197904;  // mass_of("#3He"), CODATA 2022
@@ -368,7 +361,6 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
@@ -376,33 +368,32 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
     // s:palsroot). Prose carrying a `/` or parentheses reads as arithmetic to
     // looks_like_expression, so evaluating it at all would report a translated
     // file's provenance note as a broken expression.
-    const char* path = "tmp_rootprose.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  authors:\n"
-              "    - \"D. Sagan (Cornell)\"\n"
-              "  notes:\n"
-              "    - \"Translated from /nfs/acc/user/lat.bmad\"\n"
-              "  reminders:\n"
-              "    - \"Phase the RF (west) before tracking\"\n"
-              "  facility:\n"
-              "    - DH1A:\n"
-              "        kind: Bend\n"
-              "        length: 0.2\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - DH1A\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  authors:\n"
+        "    - \"D. Sagan (Cornell)\"\n"
+        "  notes:\n"
+        "    - \"Translated from /nfs/acc/user/lat.bmad\"\n"
+        "  reminders:\n"
+        "    - \"Phase the RF (west) before tracking\"\n"
+        "  facility:\n"
+        "    - DH1A:\n"
+        "        kind: Bend\n"
+        "        length: 0.2\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - DH1A\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     REQUIRE(lat.problems.count == 0);
@@ -413,35 +404,34 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 namespace {
 
 // Every problem reported for a one-element lattice whose `h1` is `value`.
-std::vector<std::string> problems_for_value(const char* path,
-                                            const std::string& value) {
-    write_tmp(path, "PALS:\n"
-                    "  facility:\n"
-                    "    - DH1A:\n"
-                    "        kind: Bend\n"
-                    "        length: 0.2\n"
-                    "        ReferenceP:\n"
-                    "          species_ref: proton\n"
-                    "          E_tot_ref: 1.0e9\n"
-                    "        BendP:\n"
-                    "          h1: " + value + "\n"
-                    "    - main_line:\n"
-                    "        kind: BeamLine\n"
-                    "        line:\n"
-                    "          - DH1A\n"
-                    "    - lat1:\n"
-                    "        kind: Lattice\n"
-                    "        branches:\n"
-                    "          - main_line\n"
-                    "    - use: \"lat1\"\n");
+std::vector<std::string> problems_for_value(const std::string& value) {
+    const std::string doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - DH1A:\n"
+        "        kind: Bend\n"
+        "        length: 0.2\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "        BendP:\n"
+        "          h1: " + value + "\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - DH1A\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     std::vector<std::string> out;
     for (size_t i = 0; i < lat.problems.count; ++i)
         out.push_back(lat.problems.items[i]);
@@ -451,7 +441,6 @@ std::vector<std::string> problems_for_value(const char* path,
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
     return out;
 }
 
@@ -464,71 +453,69 @@ bool any_has(const std::vector<std::string>& ps, const char* needle) {
 }  // namespace
 
 TEST_CASE("an expression that fails to evaluate says why", "[expr][lattices]") {
-    const char* path = "tmp_evalwhy.pals.yaml";
 
     // The offending symbol is named. Without it the reader is left to find it
     // in the expression themselves, which is the whole difficulty when the
     // expression came out of a translator.
-    std::vector<std::string> ps = problems_for_value(path, "1.0 / C_LIGHT");
+    std::vector<std::string> ps = problems_for_value("1.0 / C_LIGHT");
     REQUIRE(any_has(ps, "unknown constant or variable 'C_LIGHT'"));
     // Every built-in constant is lower case, so a miscased one is a spelling
     // the reader can act on.
     REQUIRE(any_has(ps, "did you mean 'c_light'?"));
 
     // A name that is nothing like a constant gets no invented suggestion.
-    ps = problems_for_value(path, "1.0 / bogus_thing");
+    ps = problems_for_value("1.0 / bogus_thing");
     REQUIRE(any_has(ps, "unknown constant or variable 'bogus_thing'"));
     REQUIRE(!any_has(ps, "did you mean"));
 
-    ps = problems_for_value(path, "SQRT(2.0)");
+    ps = problems_for_value("SQRT(2.0)");
     REQUIRE(any_has(ps, "unknown function 'SQRT'; did you mean 'sqrt'?"));
 
     // Arity is reported against the function, not as an unknown name.
-    ps = problems_for_value(path, "atan2(1.0)");
+    ps = problems_for_value("atan2(1.0)");
     REQUIRE(any_has(ps, "'atan2' takes two arguments, got 1"));
 
-    ps = problems_for_value(path, "mass_of(\"bogusium\")");
+    ps = problems_for_value("mass_of(\"bogusium\")");
     REQUIRE(any_has(ps, "unknown species 'bogusium'"));
 
-    ps = problems_for_value(path, "mass_of(\"3He\")");
+    ps = problems_for_value("mass_of(\"3He\")");
     REQUIRE(any_has(ps, "needs a leading '#' on its mass number"));
 
-    ps = problems_for_value(path, "2.0 * (3.0 + 4.0");
+    ps = problems_for_value("2.0 * (3.0 + 4.0");
     REQUIRE(any_has(ps, "missing ')'"));
 }
 
 TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
     // The reason reaches the controller messages too, which is where a
     // translated lattice tends to put its expressions.
-    const char* path = "tmp_ctrlwhy.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - oo:\n"
-              "        kind: Controller\n"
-              "        control_type: ABSOLUTE\n"
-              "        variables:\n"
-              "          vv: -1.0 / C_LIGHT\n"
-              "        controls:\n"
-              "          - parameter: q1>MagneticMultipoleP.Kn1\n"
-              "            expression: 4 ^ PI\n"
-              "    - q1:\n"
-              "        kind: Quadrupole\n"
-              "        length: 0.2\n"
-              "        ReferenceP:\n"
-              "          species_ref: proton\n"
-              "          E_tot_ref: 1.0e9\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - q1\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - oo:\n"
+        "        kind: Controller\n"
+        "        control_type: ABSOLUTE\n"
+        "        variables:\n"
+        "          vv: -1.0 / C_LIGHT\n"
+        "        controls:\n"
+        "          - parameter: q1>MagneticMultipoleP.Kn1\n"
+        "            expression: 4 ^ PI\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.2\n"
+        "        ReferenceP:\n"
+        "          species_ref: proton\n"
+        "          E_tot_ref: 1.0e9\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     std::vector<std::string> ps;
     for (size_t i = 0; i < lat.problems.count; ++i)
         ps.push_back(lat.problems.items[i]);
@@ -544,5 +531,4 @@ TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }

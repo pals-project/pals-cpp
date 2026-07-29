@@ -1,0 +1,4 @@
+PALS:
+  load:
+    - left.pals.yaml
+    - right.pals.yaml

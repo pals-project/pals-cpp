@@ -12,7 +12,8 @@ TEST_CASE("build_correspondence_map is empty for null handles", "[correspondence
 }
 
 TEST_CASE("build_correspondence_map links the document roots", "[correspondence]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", nullptr);
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
                                  lat.leftover);
@@ -54,7 +55,8 @@ TEST_CASE("build_correspondence_map links the document roots", "[correspondence]
 // trees.
 TEST_CASE("build_correspondence_map ties the two trees through combined",
           "[correspondence]") {
-    struct lattices lat = parse_and_expand_PALS("../lattice_files/ex.pals.yaml", "lat1");
+    struct lattices lat =
+        parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
                                  lat.leftover);
@@ -87,26 +89,25 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     // A constant that lives outside the expanded lattice is not part of it, so
     // it lands in leftover; the map must still connect it back to combined and
     // original.
-    const char* path = "tmp_corr.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - constants:\n"
-              "        a_const: 0.3 * r_electron\n"
-              "    - q1:\n"
-              "        kind: Quadrupole\n"
-              "        length: 1.0\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - q1\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - constants:\n"
+        "        a_const: 0.3 * r_electron\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 1.0\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
                                  lat.leftover);
@@ -151,36 +152,34 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("build_correspondence_map maps one source to many expanded copies",
           "[correspondence]") {
     // A `repeat` unrolls one combined element into several expanded nodes; the
     // map must link all copies back to a single combined source.
-    const char* path = "tmp_corr_repeat.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - d1:\n"
-              "        kind: Drift\n"
-              "        length: 2.0\n"
-              "    - cell:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - d1\n"
-              "    - main_line:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - cell:\n"
-              "              repeat: 3\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - main_line\n"
-              "    - use: \"lat1\"\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - d1:\n"
+        "        kind: Drift\n"
+        "        length: 2.0\n"
+        "    - cell:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - d1\n"
+        "    - main_line:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - cell:\n"
+        "              repeat: 3\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
                                  lat.leftover);
@@ -209,5 +208,4 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }

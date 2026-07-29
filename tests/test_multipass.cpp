@@ -19,37 +19,36 @@ TEST_CASE("Multipass sub-lines are numbered with a multipass_index",
     // both its cavities and the second pass stamps 2 on both. Matching positions
     // across passes are the same physical element on successive turns. `inj`'s
     // element, in no multipass line, gets none.
-    const char* path = "tmp_multipass.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - cavA:\n"
-              "        kind: Quadrupole\n"
-              "    - mark:\n"
-              "        kind: Marker\n"
-              "    - inj:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - mark\n"
-              "    - linac:\n"
-              "        kind: BeamLine\n"
-              "        multipass: true\n"
-              "        line:\n"
-              "          - cavA\n"
-              "          - cavA\n"
-              "    - ring:\n"
-              "        kind: BeamLine\n"
-              "        line:\n"
-              "          - inj\n"
-              "          - linac\n"
-              "          - linac\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - ring\n"
-              "    - use: lat1\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - cavA:\n"
+        "        kind: Quadrupole\n"
+        "    - mark:\n"
+        "        kind: Marker\n"
+        "    - inj:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - mark\n"
+        "    - linac:\n"
+        "        kind: BeamLine\n"
+        "        multipass: true\n"
+        "        line:\n"
+        "          - cavA\n"
+        "          - cavA\n"
+        "    - ring:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - inj\n"
+        "          - linac\n"
+        "          - linac\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - ring\n"
+        "    - use: lat1\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // Flat line: mark, cavA, cavA, cavA, cavA (5 elements), plus the appended
@@ -75,7 +74,6 @@ TEST_CASE("Multipass sub-lines are numbered with a multipass_index",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }
 
 TEST_CASE("Nested multipass lines: the nearest multipass line wins",
@@ -86,35 +84,34 @@ TEST_CASE("Nested multipass lines: the nearest multipass line wins",
     // once, so its two direct `x` are pass 1. `inner` is traversed twice inside
     // that one `outer` pass, so its first instance's `y` are pass 1 and its
     // second instance's `y` are pass 2 — the nearer line's count, not `outer`'s.
-    const char* path = "tmp_multipass_nested.pals.yaml";
-    write_tmp(path,
-              "PALS:\n"
-              "  facility:\n"
-              "    - x:\n"
-              "        kind: Marker\n"
-              "    - y:\n"
-              "        kind: Marker\n"
-              "    - inner:\n"
-              "        kind: BeamLine\n"
-              "        multipass: true\n"
-              "        line:\n"
-              "          - y\n"
-              "          - y\n"
-              "    - outer:\n"
-              "        kind: BeamLine\n"
-              "        multipass: true\n"
-              "        line:\n"
-              "          - x\n"
-              "          - inner\n"
-              "          - inner\n"
-              "          - x\n"
-              "    - lat1:\n"
-              "        kind: Lattice\n"
-              "        branches:\n"
-              "          - outer\n"
-              "    - use: lat1\n");
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - x:\n"
+        "        kind: Marker\n"
+        "    - y:\n"
+        "        kind: Marker\n"
+        "    - inner:\n"
+        "        kind: BeamLine\n"
+        "        multipass: true\n"
+        "        line:\n"
+        "          - y\n"
+        "          - y\n"
+        "    - outer:\n"
+        "        kind: BeamLine\n"
+        "        multipass: true\n"
+        "        line:\n"
+        "          - x\n"
+        "          - inner\n"
+        "          - inner\n"
+        "          - x\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - outer\n"
+        "    - use: lat1\n";
 
-    struct lattices lat = parse_and_expand_PALS(path, nullptr);
+    struct lattices lat = expand_PALS_string(doc, nullptr);
     REQUIRE(lat.full_expanded != nullptr);
 
     // Flat line: x, y, y, y, y, x.
@@ -131,5 +128,4 @@ TEST_CASE("Nested multipass lines: the nearest multipass line wins",
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
     delete_tree(lat.leftover);
-    rm_tmp(path);
 }

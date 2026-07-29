@@ -10,20 +10,43 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "../src/yaml_c_wrapper.h"
 
-// ─── generic file helpers ───────────────────────────────────────────────────
-inline void write_tmp(const std::string& path, const std::string& content) {
-    std::ofstream f(path);
-    f << content;
+// ─── file helpers ───────────────────────────────────────────────────────────
+// The tests do not create lattice files. A lattice a test needs only in order to
+// expand it is held in a string and expanded with expand_PALS_string, and the
+// few that are about files on disk -- what `include` and `load` resolve
+// against, what parse_file does -- read the fixtures committed under
+// tests/lattices.
+//
+// `name` is resolved against this header's own location, so the fixtures are
+// found whatever directory the test binary was started from.
+inline std::string lattice_file(const std::string& name) {
+    return (std::filesystem::path(__FILE__).parent_path() / "lattices" / name)
+        .string();
 }
 
-inline void rm_tmp(const std::string& path) {
+// The text of a fixture, for a test that expands the same document both from
+// the file and from a string.
+inline std::string read_lattice(const std::string& name) {
+    std::ifstream f(lattice_file(name));
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+// A path for the tests that exercise the writer to write to. Under the system
+// temp directory: nothing the tests produce belongs in the source tree.
+inline std::string out_path(const std::string& name) {
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
+inline void remove_file(const std::string& path) {
     std::remove(path.c_str());
 }
 

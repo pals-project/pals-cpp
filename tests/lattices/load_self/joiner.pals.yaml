@@ -1,0 +1,7 @@
+PALS:
+  notes:
+    - "joiner"
+  load:
+    - a.pals.yaml
+    - SELF
+    - b.pals.yaml

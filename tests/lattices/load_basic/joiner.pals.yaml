@@ -1,0 +1,7 @@
+PALS:
+  notes:
+    - "joiner note"
+  load:
+    - layout.pals.yaml
+    - settings.pals.yaml
+    - SELF

@@ -1,0 +1,6 @@
+PALS:
+  notes:
+    - "inner"
+  load:
+    - SELF
+    - a.pals.yaml
