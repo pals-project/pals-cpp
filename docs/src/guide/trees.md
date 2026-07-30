@@ -17,7 +17,7 @@ rather than part of the standard.
 | `combined` | those files spliced into one document |
 | `full_expanded` | one lattice, expanded, with every computed value |
 | `expanded` | the same lattice, back to the author's inputs |
-| `leftover` | everything the expanded trees do not carry |
+| `adjunct` | everything the expanded trees do not carry |
 
 All five are `YAMLTreeHandle`s, and each must be freed with `delete_tree`.
 Freeing one leaves the other four intact.
@@ -215,7 +215,7 @@ Two consequences worth being clear about:
 Use `expanded` to see what was asked for rather than what it implies, or to
 write a lattice back out without the derived values.
 
-### `leftover`
+### `adjunct`
 
 Everything the expanded trees do not carry, keeping the `PALS`/`facility`
 scaffolding it was written under: element and beamline definitions, `use`
@@ -224,21 +224,21 @@ statements, constants and variables, controllers, `set` commands, and any
 
 A definition substituted into the lattice is *copied* rather than moved, so it
 appears in both places: `d1` above is in the expanded lattice twice and still
-standing in `leftover` once, as the definition those two copies were made from.
+standing in `adjunct` once, as the definition those two copies were made from.
 
 ## Choosing a tree
 
 - **What does this lattice actually do?** `full_expanded`. It is the only tree
   that carries a dependent parameter, and the only one where each copy of a
   repeated element is a separate element with its own position and reference.
-- **What did the author write?** `expanded` for the lattice, `leftover` for
+- **What did the author write?** `expanded` for the lattice, `adjunct` for
   everything around it — the constants, the definitions, the controllers.
 - **Where in the file did this come from?** `original` and `combined`, which
   alone keep the expression text and the file structure.
-- **Writing a lattice back out?** `expanded` plus `leftover`.
+- **Writing a lattice back out?** `expanded` plus `adjunct`.
 
 `get_lattice_parameter_value` takes the pair that between them hold every value
-a lattice has: `full_expanded` for element parameters and `leftover` for
+a lattice has: `full_expanded` for element parameters and `adjunct` for
 constants, variables and unused definitions.
 
 ## Tracking a node across the trees
@@ -249,7 +249,7 @@ reconstructed afterwards by matching paths or names, so it survives the
 rearrangement that expansion does: one definition in `combined` maps to every
 copy expansion made of it.
 
-`original`, `combined`, `full_expanded` and `leftover` take part. `expanded`
+`original`, `combined`, `full_expanded` and `adjunct` take part. `expanded`
 does not: it is a pruned copy of `full_expanded` rather than a derivation of its
 own, so its nodes are found by path.
 

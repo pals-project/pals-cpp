@@ -138,10 +138,10 @@ TEST_CASE("constants are found under the original tree's per-file wrapper",
     delete_tree(t);
 }
 
-TEST_CASE("get_lattice_parameter_value tries expanded, then leftover",
+TEST_CASE("get_lattice_parameter_value tries expanded, then adjunct",
           "[param]") {
     // Stand-ins for the two live trees of a parse_and_expand_PALS() result: the
-    // expanded lattice carries element parameters; the leftover facility carries
+    // expanded lattice carries element parameters; the adjunct facility carries
     // constants and variables.
     YAMLTreeHandle expanded = parse_string(
         "fodo:\n"
@@ -150,7 +150,7 @@ TEST_CASE("get_lattice_parameter_value tries expanded, then leftover",
         "    - main:\n"
         "        line:\n"
         "          - Q1: {kind: Quadrupole, length: 0.5}\n");
-    YAMLTreeHandle leftover = parse_string(
+    YAMLTreeHandle adjunct = parse_string(
         "PALS:\n"
         "  facility:\n"
         "    - constants:\n"
@@ -158,21 +158,21 @@ TEST_CASE("get_lattice_parameter_value tries expanded, then leftover",
 
     // An element parameter is found in the expanded tree.
     struct param_value v =
-        get_lattice_parameter_value(expanded, leftover, "Q1>length");
+        get_lattice_parameter_value(expanded, adjunct, "Q1>length");
     REQUIRE(v.kind == PARAM_VALUE_NUMBER);
     REQUIRE(v.number == Catch::Approx(0.5));
 
-    // A constant is not in expanded, so leftover is consulted.
-    v = get_lattice_parameter_value(expanded, leftover, "a_two");
+    // A constant is not in expanded, so adjunct is consulted.
+    v = get_lattice_parameter_value(expanded, adjunct, "a_two");
     REQUIRE(v.kind == PARAM_VALUE_NUMBER);
     REQUIRE(v.number == Catch::Approx(5.0));
 
     // Found in neither -> missing.
-    REQUIRE(get_lattice_parameter_value(expanded, leftover, "nope>x").kind ==
+    REQUIRE(get_lattice_parameter_value(expanded, adjunct, "nope>x").kind ==
             PARAM_VALUE_MISSING);
 
     // Either handle may be NULL.
-    REQUIRE(get_lattice_parameter_value(nullptr, leftover, "a_two").kind ==
+    REQUIRE(get_lattice_parameter_value(nullptr, adjunct, "a_two").kind ==
             PARAM_VALUE_NUMBER);
     REQUIRE(get_lattice_parameter_value(expanded, nullptr, "Q1>length").kind ==
             PARAM_VALUE_NUMBER);
@@ -180,7 +180,7 @@ TEST_CASE("get_lattice_parameter_value tries expanded, then leftover",
             PARAM_VALUE_MISSING);
 
     delete_tree(expanded);
-    delete_tree(leftover);
+    delete_tree(adjunct);
 }
 
 TEST_CASE("get_parameter_value collapses agreeing matches, rejects conflicts",

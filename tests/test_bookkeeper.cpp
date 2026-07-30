@@ -97,7 +97,7 @@ TEST_CASE("Bookkeeper fills reference energy, momentum, and time",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper accumulates s_position from element lengths",
@@ -119,7 +119,7 @@ TEST_CASE("Bookkeeper accumulates s_position from element lengths",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives the normalized multipole strength", "[bookkeeper]") {
@@ -141,7 +141,7 @@ TEST_CASE("Bookkeeper derives the normalized multipole strength", "[bookkeeper]"
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper caps each branch with a branch_end Placeholder",
@@ -175,7 +175,7 @@ TEST_CASE("Bookkeeper caps each branch with a branch_end Placeholder",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper numbers each element with its position in the branch",
@@ -207,7 +207,7 @@ TEST_CASE("Bookkeeper numbers each element with its position in the branch",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("element_index restarts at one in each branch", "[bookkeeper]") {
@@ -267,7 +267,7 @@ TEST_CASE("element_index restarts at one in each branch", "[bookkeeper]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A branch with a single RFCavity, whose RFP body is spliced in from `rfp_body`
@@ -364,7 +364,7 @@ TEST_CASE("Bookkeeper derives RF voltage from gradient and active length",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives RF gradient from voltage and active length",
@@ -382,7 +382,7 @@ TEST_CASE("Bookkeeper derives RF gradient from voltage and active length",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper accepts consistent RF voltage and gradient",
@@ -402,7 +402,7 @@ TEST_CASE("Bookkeeper accepts consistent RF voltage and gradient",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper flags inconsistent RF voltage and gradient",
@@ -420,7 +420,7 @@ TEST_CASE("Bookkeeper flags inconsistent RF voltage and gradient",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper honors an explicit L_active for RF derivation",
@@ -440,7 +440,7 @@ TEST_CASE("Bookkeeper honors an explicit L_active for RF derivation",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper propagates floor coordinates through a bend",
@@ -474,7 +474,7 @@ TEST_CASE("Bookkeeper propagates floor coordinates through a bend",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
@@ -512,7 +512,7 @@ TEST_CASE("Bookkeeper derives all bend strength forms from the angle",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives integrated and normalized multipole forms",
@@ -534,7 +534,7 @@ TEST_CASE("Bookkeeper derives integrated and normalized multipole forms",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives the integrated electric multipole", "[bookkeeper]") {
@@ -557,7 +557,7 @@ TEST_CASE("Bookkeeper derives the integrated electric multipole", "[bookkeeper]"
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives the bend length from its angle and radius",
@@ -592,7 +592,7 @@ TEST_CASE("Bookkeeper derives the bend length from its angle and radius",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper derives the bend angle from its chord", "[bookkeeper]") {
@@ -617,7 +617,7 @@ TEST_CASE("Bookkeeper derives the bend angle from its chord", "[bookkeeper]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper gives a straight bend three equal lengths",
@@ -642,7 +642,7 @@ TEST_CASE("Bookkeeper gives a straight bend three equal lengths",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper keeps the sagitta of a nearly straight bend",
@@ -669,7 +669,7 @@ TEST_CASE("Bookkeeper keeps the sagitta of a nearly straight bend",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper flags a chord that disagrees with the bend geometry",
@@ -692,7 +692,7 @@ TEST_CASE("Bookkeeper flags a chord that disagrees with the bend geometry",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper flags an inconsistent bend strength", "[bookkeeper]") {
@@ -712,7 +712,7 @@ TEST_CASE("Bookkeeper flags an inconsistent bend strength", "[bookkeeper]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper defaults the bend actual field from g_ref",
@@ -747,7 +747,7 @@ TEST_CASE("Bookkeeper defaults the bend actual field from g_ref",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper writes no actual field when Kn0_from_g_ref is false",
@@ -773,7 +773,7 @@ TEST_CASE("Bookkeeper writes no actual field when Kn0_from_g_ref is false",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper keeps an actual bend field the author set",
@@ -801,7 +801,7 @@ TEST_CASE("Bookkeeper keeps an actual bend field the author set",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper counts an integrated actual field as set",
@@ -827,7 +827,7 @@ TEST_CASE("Bookkeeper counts an integrated actual field as set",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper adds the actual field to a group of other multipoles",
@@ -852,7 +852,7 @@ TEST_CASE("Bookkeeper adds the actual field to a group of other multipoles",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper gives a straight bend no actual field", "[bookkeeper]") {
@@ -874,7 +874,7 @@ TEST_CASE("Bookkeeper gives a straight bend no actual field", "[bookkeeper]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper flags an inconsistent multipole component",
@@ -895,7 +895,7 @@ TEST_CASE("Bookkeeper flags an inconsistent multipole component",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper materializes RF enum defaults and L_active",
@@ -915,7 +915,7 @@ TEST_CASE("Bookkeeper materializes RF enum defaults and L_active",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Bookkeeper leaves absent parameter groups alone", "[bookkeeper]") {
@@ -937,5 +937,5 @@ TEST_CASE("Bookkeeper leaves absent parameter groups alone", "[bookkeeper]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }

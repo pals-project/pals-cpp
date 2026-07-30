@@ -164,12 +164,12 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     REQUIRE(val_eq(lat.full_expanded, kn2, "0.01 + 0.003*random_gauss()"));
 
     // Expressions are evaluated before the document is split, so a definition
-    // that stayed behind is evaluated in leftover just the same. `m_e` is not
-    // referenced by the lattice, so leftover is the only place it exists.
-    YAMLNodeId m_e = facility_param(lat.leftover, "m_e");
+    // that stayed behind is evaluated in adjunct just the same. `m_e` is not
+    // referenced by the lattice, so adjunct is the only place it exists.
+    YAMLNodeId m_e = facility_param(lat.adjunct, "m_e");
     REQUIRE(m_e != YAML_NULL_ID);
-    YAMLNodeId m_e_val = get_child_by_key(lat.leftover, m_e, "value");
-    REQUIRE(close(num_val(lat.leftover, m_e_val), 510998.95069000003));
+    YAMLNodeId m_e_val = get_child_by_key(lat.adjunct, m_e, "value");
+    REQUIRE(close(num_val(lat.adjunct, m_e_val), 510998.95069000003));
     REQUIRE(find_by_key(lat.full_expanded, "m_e") == YAML_NULL_ID);
 
     // The combined tree keeps the original expression text (evaluation happens
@@ -182,7 +182,7 @@ TEST_CASE("parse_and_expand_PALS evaluates expressions in the expanded tree",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
@@ -218,16 +218,16 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     const double a_const = 0.3 * evaluate_pals_expression("r_electron", nullptr);
 
     // constants/variables blocks are not part of the lattice, so they are
-    // leftover — evaluated all the same.
-    YAMLNodeId consts = facility_param(lat.leftover, "constants");
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, consts, "a_const")),
+    // adjunct — evaluated all the same.
+    YAMLNodeId consts = facility_param(lat.adjunct, "constants");
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, consts, "a_const")),
                   a_const));
 
     // a_var references the map-form constant a_const defined above it.
-    YAMLNodeId vars = facility_param(lat.leftover, "variables");
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, vars, "a_var")),
+    YAMLNodeId vars = facility_param(lat.adjunct, "variables");
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, vars, "a_var")),
                   a_const * a_const));
 
     // An element parameter may reference the map-form definitions too; this is
@@ -242,7 +242,7 @@ TEST_CASE("parse_and_expand_PALS resolves map-form constants/variables",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
@@ -294,7 +294,7 @@ TEST_CASE("parse_and_expand_PALS resolves element-parameter references",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
@@ -329,9 +329,9 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
 
     const double m_3he = 2809413528.3197904;  // mass_of("#3He"), CODATA 2022
 
-    YAMLNodeId consts = facility_param(lat.leftover, "constants");
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, consts, "b_const")),
+    YAMLNodeId consts = facility_param(lat.adjunct, "constants");
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, consts, "b_const")),
                   0.45 * m_3he));
 
     YAMLNodeId dh1a = find_by_key(lat.full_expanded, "DH1A");
@@ -349,8 +349,8 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
                    "#3He"));
 
     // The species constant itself stays as its (string) species name.
-    REQUIRE(val_eq(lat.leftover,
-                   get_child_by_key(lat.leftover, consts, "species"), "#3He"));
+    REQUIRE(val_eq(lat.adjunct,
+                   get_child_by_key(lat.adjunct, consts, "species"), "#3He"));
 
     // No spurious problems.
     REQUIRE(lat.problems.count == 0);
@@ -360,7 +360,7 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
@@ -403,7 +403,7 @@ TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 namespace {
@@ -440,7 +440,7 @@ std::vector<std::string> problems_for_value(const std::string& value) {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
     return out;
 }
 
@@ -530,5 +530,5 @@ TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }

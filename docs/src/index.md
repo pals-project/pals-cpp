@@ -46,7 +46,7 @@ The result is returned as five independent views of the document:
 | `combined` | those files spliced into one document, still unevaluated |
 | `full_expanded` | one lattice, expanded, with every computed value |
 | `expanded` | the same lattice, back to the author's inputs |
-| `leftover` | everything the expanded trees do not carry — definitions, constants, controllers, unexpanded lattices |
+| `adjunct` | everything the expanded trees do not carry — definitions, constants, controllers, unexpanded lattices |
 
 See [The five trees](guide/trees.md) for what each one holds and which to reach
 for, [Building and using the library](guide/usage.md) to get started,
@@ -80,5 +80,5 @@ delete_tree(lat.original);
 delete_tree(lat.combined);
 delete_tree(lat.expanded);
 delete_tree(lat.full_expanded);
-delete_tree(lat.leftover);
+delete_tree(lat.adjunct);
 ```

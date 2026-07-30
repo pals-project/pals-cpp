@@ -17,7 +17,7 @@ The library sources live in `src/`, split by concern:
   `deep_copy_recursive`).
 - **`pals_expand.cpp`** — the lattice expansion pipeline that builds the
   five-tree representation (`original` / `combined` / `expanded` /
-  `full_expanded` / `leftover`): include splicing, `load` merging, structural
+  `full_expanded` / `adjunct`): include splicing, `load` merging, structural
   expansion (repeats, inherits, forks), expression, controller and `set`
   evaluation, and the element bookkeeper that walks each branch filling in
   reference parameters, floor placement, s-positions and dependent parameters.

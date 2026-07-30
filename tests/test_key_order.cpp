@@ -129,5 +129,5 @@ TEST_CASE("Expansion preserves the key order of the source file", "[key_order]")
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }

@@ -23,7 +23,7 @@ separate, under `tests/lattices/`.
 `parse_and_expand_PALS` reads a lattice file, resolves its includes and loads,
 expands the selected lattice, and returns a `lattices` struct with five
 independent views —
-`original`, `combined`, `expanded`, `full_expanded`, and `leftover` (see
+`original`, `combined`, `expanded`, `full_expanded`, and `adjunct` (see
 [The five trees](trees.md)). Each is a `YAMLTreeHandle` and must be freed with
 `delete_tree`.
 
@@ -45,7 +45,7 @@ delete_tree(lat.original);
 delete_tree(lat.combined);
 delete_tree(lat.expanded);
 delete_tree(lat.full_expanded);
-delete_tree(lat.leftover);
+delete_tree(lat.adjunct);
 ```
 
 The second argument names the lattice to expand. Pass `nullptr` (or an empty
@@ -153,7 +153,7 @@ and `deep_copy_children`. Serialize with `node_to_string` / `tree_to_string`, or
 Three more entry points build on the expanded tree:
 
 - `build_correspondence_map` links a node across the derivation chain — `original`,
-  `combined`, `full_expanded` and `leftover` (their provenance is recorded as the
+  `combined`, `full_expanded` and `adjunct` (their provenance is recorded as the
   trees are derived from one another). `expanded` takes no part: it is a pruned
   copy of `full_expanded`, so its nodes are found by path.
 - `match_names` finds every named construct that a PALS *Name Matching* string
@@ -177,8 +177,8 @@ Three more entry points build on the expanded tree:
   else if (v.kind == PARAM_VALUE_STRING) { puts(v.string); yaml_free_string(v.string); }
   ```
 - `get_lattice_parameter_value` is the whole-lattice form: pass the `full_expanded`
-  and `leftover` handles from one `parse_and_expand_PALS()` result and it looks in
-  `full_expanded` first (element parameters), then `leftover` (constants, variables,
+  and `adjunct` handles from one `parse_and_expand_PALS()` result and it looks in
+  `full_expanded` first (element parameters), then `adjunct` (constants, variables,
   and unused definitions) — never in the raw `original`/`combined` trees. Values
   therefore come back already evaluated. Pass `full_expanded` rather than
   `expanded`: a dependent parameter is a legitimate thing to ask for, and only the

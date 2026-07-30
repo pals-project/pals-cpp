@@ -151,7 +151,7 @@ void free_all(struct lattices& lat) {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // True when `ele` in `t` carries `group`, and `group` carries `param`. A null

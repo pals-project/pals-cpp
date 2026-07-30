@@ -22,7 +22,7 @@
  *
  * @defgroup correspond Node correspondence
  * @brief Map a single logical node across the original, combined, full_expanded
- *        leftover trees.
+ *        adjunct trees.
  *
  * @defgroup namematch Name matching
  * @brief Resolve a PALS name-matching string to the nodes it selects.
@@ -106,7 +106,7 @@ struct lattices {
                                    ///< PALS/facility scaffolding it was defined
                                    ///< under. Every dependent parameter is
                                    ///< computed and present.
-    YAMLTreeHandle leftover;  ///< Everything the expanded trees do not carry —
+    YAMLTreeHandle adjunct;  ///< Everything the expanded trees do not carry —
                               ///< the whole PALS/facility document minus the
                               ///< root lattice, so element/beamline
                               ///< definitions, `use` statements, constants and
@@ -122,10 +122,10 @@ struct lattices {
  * @ingroup correspond
  *
  * The trees are built as a derivation chain (original -> combined ->
- * full_expanded and leftover), and provenance is recorded at every copy, so each
+ * full_expanded and adjunct), and provenance is recorded at every copy, so each
  * link records which node in each tree a single logical entity maps to.
  *
- * The mapping is functional per link: one full_expanded (or leftover) node maps
+ * The mapping is functional per link: one full_expanded (or adjunct) node maps
  * to at most one combined node, which maps to at most one original node. Because
  * expansion can duplicate nodes (scalar substitution, `repeat`, `inherit`,
  * forks), a single combined/original node may appear in several links — one per
@@ -134,10 +134,10 @@ struct lattices {
  * source).
  *
  * Expansion splits the document, so a link carries either a `full_expanded` id
- * or a `leftover` id, never both; the two are tied together through the
+ * or a `adjunct` id, never both; the two are tied together through the
  * `combined` id they share. A definition that was substituted into the lattice
  * therefore yields links on both sides: one for the copy in `full_expanded`, one
- * for the definition still standing in `leftover`.
+ * for the definition still standing in `adjunct`.
  *
  * The `expanded` tree is not mapped: it is a pruned copy of `full_expanded`, so
  * a node in it is found by the path it sits at, not by a recorded link.
@@ -147,7 +147,7 @@ struct node_link {
     YAMLNodeId combined;  ///< Node in the `combined` tree, or YAML_NULL_ID.
     YAMLNodeId full_expanded;  ///< Node in the `full_expanded` tree, or
                                ///< YAML_NULL_ID.
-    YAMLNodeId leftover;  ///< Node in the `leftover` tree, or YAML_NULL_ID.
+    YAMLNodeId adjunct;  ///< Node in the `adjunct` tree, or YAML_NULL_ID.
 };
 
 /**
@@ -155,7 +155,7 @@ struct node_link {
  * @ingroup correspond
  *
  * One link is emitted per node of the full_expanded tree and one per node of the
- * leftover tree. Free with free_correspondence_map().
+ * adjunct tree. Free with free_correspondence_map().
  */
 struct correspondence_map {
     struct node_link* links;  ///< The links (owning).
@@ -221,7 +221,7 @@ extern "C" {
  * both, with every `set` and ABSOLUTE controller applied. Use it to see what
  * was asked for rather than what it implies, or to write a lattice back out
  * without the derived values.
- *           - `leftover`: the rest of the document, keeping its PALS/facility
+ *           - `adjunct`: the rest of the document, keeping its PALS/facility
  * scaffolding: element and beamline definitions, `use` statements, constants,
  * and any Lattice that was not the one expanded. Definitions substituted into
  * the lattice are copies, so they appear in both trees.
@@ -304,7 +304,7 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
  * @ingroup correspond
  *
  * Returns a flat list containing one `node_link` per node of the
- * `full_expanded` tree and one per node of the `leftover` tree. Each link gives
+ * `full_expanded` tree and one per node of the `adjunct` tree. Each link gives
  * the corresponding `combined` and `original` node ids (or YAML_NULL_ID where
  * none exists). Grouping the links by shared combined / original ids recovers,
  * for any node in any of those trees, the set of nodes it corresponds to in the
@@ -316,21 +316,21 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok);
  * The handles must come from the same parse_and_expand_PALS() call — the
  * provenance recorded during that call is what makes the mapping exact. The
  * `original` handle is accepted for API symmetry; the mapping is derived from
- * the provenance stored in `combined`, `full_expanded` and `leftover`.
+ * the provenance stored in `combined`, `full_expanded` and `adjunct`.
  *
  * @param original      Handle to the `original` tree.
  * @param combined      Handle to the `combined` tree.
  * @param full_expanded Handle to the `full_expanded` tree.
- * @param leftover      Handle to the `leftover` tree. May be NULL, in which case
+ * @param adjunct      Handle to the `adjunct` tree. May be NULL, in which case
  *                      only the full_expanded tree is walked.
  * @return A correspondence_map. The caller must free it with
  *         free_correspondence_map(). `links` is NULL and `count` is 0 if
- *         `combined` is NULL, or if both `full_expanded` and `leftover` are
+ *         `combined` is NULL, or if both `full_expanded` and `adjunct` are
  *         NULL.
  */
 YAML_API struct correspondence_map build_correspondence_map(
     YAMLTreeHandle original, YAMLTreeHandle combined,
-    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover);
+    YAMLTreeHandle full_expanded, YAMLTreeHandle adjunct);
 
 /**
  * Frees the link array owned by a correspondence_map. Passing a map with a NULL
@@ -430,7 +430,7 @@ struct param_value {
  * the `full_expanded` tree of a parse_and_expand_PALS() result, where constants and
  * variables referenced by a value have already been substituted; constants and
  * variables themselves live in the facility scaffolding, so look them up in any
- * view that keeps it — `original`, `combined`, or `leftover` — but not
+ * view that keeps it — `original`, `combined`, or `adjunct` — but not
  * the expanded trees, which drop it (exactly as with match_names()).
  *
  * The value is returned as stored; it is NOT evaluated. A plain numeric literal
@@ -464,14 +464,14 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
 /**
  * Looks up a parameter value across the two trees of an expanded lattice that
  * carry live values: the `full_expanded` lattice (element parameters, already
- * evaluated) and the `leftover` facility scaffolding (constants, variables, and
+ * evaluated) and the `adjunct` facility scaffolding (constants, variables, and
  * any element/beamline definitions not spliced into the lattice).
  * @ingroup param
  *
  * This is the whole-lattice form of get_parameter_value(): the caller passes the
  * two relevant handles from a parse_and_expand_PALS() result instead of picking a
  * tree by hand. `full_expanded` is consulted first; only if it does not identify
- * the parameter is `leftover` tried. The `original` and `combined` trees are
+ * the parameter is `adjunct` tried. The `original` and `combined` trees are
  * deliberately not consulted — they hold raw, pre-expansion text, so a value read
  * from them would be unevaluated and, for reused definitions, duplicated. Pass
  * `full_expanded` rather than `expanded`: a dependent parameter is a legitimate
@@ -482,13 +482,13 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
  * those of get_parameter_value().
  *
  * @param full_expanded Handle to the `full_expanded` tree (element parameters).
- * @param leftover      Handle to the `leftover` tree (constants/variables).
+ * @param adjunct      Handle to the `adjunct` tree (constants/variables).
  * @param match_string  Null-terminated name-matching string.
  * @return A param_value. If `kind` is PARAM_VALUE_STRING the caller must free
  *         `string` with yaml_free_string().
  */
 YAML_API struct param_value get_lattice_parameter_value(
-    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover,
+    YAMLTreeHandle full_expanded, YAMLTreeHandle adjunct,
     const char* match_string);
 
 /**
