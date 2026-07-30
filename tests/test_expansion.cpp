@@ -10,12 +10,12 @@ TEST_CASE("parse_and_expand_PALS returns four non-null handles", "[lattices]") {
     REQUIRE(lat.original != nullptr);
     REQUIRE(lat.combined != nullptr);
     REQUIRE(lat.full_expanded != nullptr);
-    REQUIRE(lat.leftover != nullptr);
+    REQUIRE(lat.adjunct != nullptr);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // The expanded tree holds the root lattice and nothing else: no PALS/facility
@@ -40,24 +40,24 @@ TEST_CASE("expanded holds only the root lattice", "[lattices]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
     free_lattice_problems(lat.problems);
 }
 
 // Everything else stays behind, under its PALS/facility scaffolding — including
 // the lattice that was not expanded.
-TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
+TEST_CASE("adjunct keeps the rest of the document", "[lattices]") {
     struct lattices lat =
         parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
-    YAMLNodeId fac = facility_of(lat.leftover);
+    YAMLNodeId fac = facility_of(lat.adjunct);
     REQUIRE(fac != YAML_NULL_ID);
 
     bool saw_lat1 = false, saw_lat2 = false, saw_thingB = false;
-    for (size_t i = 0; i < get_size(lat.leftover, fac); i++) {
-        YAMLNodeId item = get_child_by_index(lat.leftover, fac, i);
-        if (get_size(lat.leftover, item) != 1) continue;
-        char* key = get_node_key(lat.leftover,
-                                 get_child_by_index(lat.leftover, item, 0));
+    for (size_t i = 0; i < get_size(lat.adjunct, fac); i++) {
+        YAMLNodeId item = get_child_by_index(lat.adjunct, fac, i);
+        if (get_size(lat.adjunct, item) != 1) continue;
+        char* key = get_node_key(lat.adjunct,
+                                 get_child_by_index(lat.adjunct, item, 0));
         std::string k(key ? key : "");
         yaml_free_string(key);
         if (k == "lat1") saw_lat1 = true;
@@ -66,14 +66,14 @@ TEST_CASE("leftover keeps the rest of the document", "[lattices]") {
     }
 
     REQUIRE_FALSE(saw_lat1);  // moved to expanded
-    REQUIRE(saw_lat2);        // a non-root Lattice is leftover like anything else
+    REQUIRE(saw_lat2);        // a non-root Lattice goes to adjunct like anything else
     REQUIRE(saw_thingB);      // element definitions stay put
 
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
     free_lattice_problems(lat.problems);
 }
 
@@ -111,7 +111,7 @@ TEST_CASE("destination_pointer resolves inside the expanded tree", "[lattices]")
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
     free_lattice_problems(lat.problems);
 }
 
@@ -204,10 +204,10 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
                    "Quadrupole"));
 
     // Expansion copies a definition rather than moving it, and the definition
-    // left standing in leftover is a BeamLine still.
-    YAMLNodeId l_main = facility_param(lat.leftover, "main");
+    // left standing in adjunct is a BeamLine still.
+    YAMLNodeId l_main = facility_param(lat.adjunct, "main");
     REQUIRE(l_main != YAML_NULL_ID);
-    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, l_main, "kind"),
+    REQUIRE(val_eq(lat.adjunct, get_child_by_key(lat.adjunct, l_main, "kind"),
                    "BeamLine"));
 
     free_lattice_problems(lat.problems);
@@ -215,7 +215,7 @@ TEST_CASE("Expansion drops `kind: BeamLine` from every branch", "[lattices]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A branch's `inherit` is optional and defaults to the branch's own name
@@ -284,7 +284,7 @@ TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A written `inherit` names the root BeamLine outright, and the default must not
@@ -347,7 +347,7 @@ TEST_CASE("An explicit branch inherit wins over the branch name", "[lattices]") 
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A branch that comes out of expansion with no elements is reported in its own
@@ -363,7 +363,7 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
-        delete_tree(lat.leftover);
+        delete_tree(lat.adjunct);
         return msgs;
     };
     auto has = [](const std::vector<std::string>& msgs, const char* needle) {
@@ -473,7 +473,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("repeat with an unusable count keeps the entry",
@@ -522,7 +522,7 @@ TEST_CASE("repeat with an unusable count keeps the entry",
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
-        delete_tree(lat.leftover);
+        delete_tree(lat.adjunct);
         return reported && kept;
     };
 
@@ -598,7 +598,7 @@ TEST_CASE("repeat expands the copies it splices", "[lattices]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("parse_and_expand_PALS reports a missing lattice",
@@ -615,18 +615,18 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
     REQUIRE(std::string(lat.problems.items[0]) == "lattice 'not_here' not found");
 
     // With no lattice to expand, expanded is an empty map and the whole document
-    // is leftover — both handles are still valid.
+    // lands in adjunct — both handles are still valid.
     REQUIRE(lat.full_expanded != nullptr);
-    REQUIRE(lat.leftover != nullptr);
+    REQUIRE(lat.adjunct != nullptr);
     REQUIRE(get_size(lat.full_expanded, get_root(lat.full_expanded)) == 0);
-    REQUIRE(facility_of(lat.leftover) != YAML_NULL_ID);
+    REQUIRE(facility_of(lat.adjunct) != YAML_NULL_ID);
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing",
@@ -676,7 +676,7 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a Fork needs only to_line; destination_element and new_branch default",
@@ -739,7 +739,7 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // Helper: the keyed element definition of a branch's first line element.
@@ -826,7 +826,7 @@ TEST_CASE("a Fork propagates reference and floor into its new branch",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
@@ -889,7 +889,7 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a half-declared branch reference is reported for what it lacks",
@@ -953,7 +953,7 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("new_branch: null forks into an existing branch, creating none",
@@ -1031,7 +1031,7 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a destination of a kind that cannot be forked to is reported",
@@ -1095,7 +1095,7 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
@@ -1167,7 +1167,7 @@ TEST_CASE("a fork destination lists its incoming Forks in ForkFromP",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // Read `ForkP.forked_to` off an element of a branch line.
@@ -1254,7 +1254,7 @@ TEST_CASE("a Fork names its destination in ForkP.forked_to", "[lattices]") {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
@@ -1334,7 +1334,7 @@ TEST_CASE("a Fork inside a forked-to branch resolves exactly once",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // Every node keyed `key` in the tree, in walk order.
@@ -1459,7 +1459,7 @@ TEST_CASE("a destination_pointer survives expression substitution intact",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
@@ -1505,7 +1505,7 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("a document held in a string expands like one read from a file",
@@ -1542,7 +1542,7 @@ TEST_CASE("a document held in a string expands like one read from a file",
         delete_tree(lat->combined);
         delete_tree(lat->expanded);
         delete_tree(lat->full_expanded);
-        delete_tree(lat->leftover);
+        delete_tree(lat->adjunct);
     }
 }
 
@@ -1581,7 +1581,7 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
     REQUIRE(lat.original == nullptr);
     REQUIRE(lat.combined == nullptr);
     REQUIRE(lat.full_expanded == nullptr);
-    REQUIRE(lat.leftover == nullptr);
+    REQUIRE(lat.adjunct == nullptr);
 
     // A single problem, naming the file and the offending line.
     REQUIRE(lat.problems.count == 1);
@@ -1594,5 +1594,5 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }

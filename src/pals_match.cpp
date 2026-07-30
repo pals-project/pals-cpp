@@ -368,7 +368,7 @@ static void match_const_var_in_pals(const ryml::Tree& t, size_t pals,
 }
 
 // Match constant/variable names across the tree. The PALS node sits at the root
-// in the combined, leftover and expanded views; in the `original` view it is
+// in the combined, adjunct and expanded views; in the `original` view it is
 // nested one level down under a per-file wrapper keyed by filename, and there
 // may be several (one per included file). Look in both places so a constant is
 // found in whichever tree actually holds it. The `seen` set keeps the root-level
@@ -517,14 +517,14 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
 }
 
 YAML_API struct param_value get_lattice_parameter_value(
-    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover,
+    YAMLTreeHandle full_expanded, YAMLTreeHandle adjunct,
     const char* match_string) {
     // Element parameters live in the expanded lattice; look there first.
     struct param_value v = get_parameter_value(full_expanded, match_string);
     if (v.kind != PARAM_VALUE_MISSING) return v;
     // Constants, variables and unused definitions live in the facility
-    // scaffolding kept by the leftover tree.
-    return get_parameter_value(leftover, match_string);
+    // scaffolding kept by the adjunct tree.
+    return get_parameter_value(adjunct, match_string);
 }
 
 }  // extern "C"

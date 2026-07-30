@@ -33,7 +33,7 @@ void free_all(struct lattices& lat) {
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A one-branch lattice holding `body` elements, wrapped in the PALS/facility
@@ -121,46 +121,46 @@ TEST_CASE("parse_and_expand_PALS evaluates controller expressions",
                      "                      Kn0: 0.5\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(lat.leftover != nullptr);
+    REQUIRE(lat.adjunct != nullptr);
 
     const double cur1 = 0.023;
     const double cur2 = 1e8 / 2.99792458e8;
 
-    // Controllers are facility-level, so they are leftover rather than part of
+    // Controllers are facility-level, so they land in adjunct rather than in
     // the lattice; their expressions are evaluated all the same. An initial
     // value is a constant expression -- it may use the built-in and user
     // constants (c_light here) but no variable.
-    YAMLNodeId ps27 = facility_param(lat.leftover, "ps27");
+    YAMLNodeId ps27 = facility_param(lat.adjunct, "ps27");
     REQUIRE(ps27 != YAML_NULL_ID);
-    YAMLNodeId vars = get_child_by_key(lat.leftover, ps27, "variables");
-    REQUIRE(close(num_val(lat.leftover, get_child_by_key(lat.leftover, vars,
+    YAMLNodeId vars = get_child_by_key(lat.adjunct, ps27, "variables");
+    REQUIRE(close(num_val(lat.adjunct, get_child_by_key(lat.adjunct, vars,
                                                          "cur2")),
                   cur2));
 
     // Each control `expression` is computed and its value stored in place.
-    YAMLNodeId controls = get_child_by_key(lat.leftover, ps27, "controls");
-    YAMLNodeId c0 = get_child_by_index(lat.leftover, controls, 0);
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, c0, "expression")),
+    YAMLNodeId controls = get_child_by_key(lat.adjunct, ps27, "controls");
+    YAMLNodeId c0 = get_child_by_index(lat.adjunct, controls, 0);
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, c0, "expression")),
                   0.075 * std::sin(cur1) + 0.3 * cur2));
     // Control expressions may reference lattice constants (my_const = 2).
-    YAMLNodeId c1 = get_child_by_index(lat.leftover, controls, 1);
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, c1, "expression")),
+    YAMLNodeId c1 = get_child_by_index(lat.adjunct, controls, 1);
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, c1, "expression")),
                   cur1 * 2.0));
     // random_gauss() stays deferred, exactly as elsewhere.
-    YAMLNodeId c2 = get_child_by_index(lat.leftover, controls, 2);
-    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, c2, "expression"),
+    YAMLNodeId c2 = get_child_by_index(lat.adjunct, controls, 2);
+    REQUIRE(val_eq(lat.adjunct, get_child_by_key(lat.adjunct, c2, "expression"),
                    "0.01 + random_gauss()"));
 
     // The `parameter` target spec and `control_type` are names, left untouched,
     // and a MetaP rides along for documentation.
-    REQUIRE(val_eq(lat.leftover, get_child_by_key(lat.leftover, c0, "parameter"),
+    REQUIRE(val_eq(lat.adjunct, get_child_by_key(lat.adjunct, c0, "parameter"),
                    "Qa.*>MagneticMultipoleP.Ks2L"));
-    REQUIRE(val_eq(lat.leftover,
-                   get_child_by_key(lat.leftover, ps27, "control_type"),
+    REQUIRE(val_eq(lat.adjunct,
+                   get_child_by_key(lat.adjunct, ps27, "control_type"),
                    "ABSOLUTE"));
-    REQUIRE(get_child_by_key(lat.leftover, ps27, "MetaP") != YAML_NULL_ID);
+    REQUIRE(get_child_by_key(lat.adjunct, ps27, "MetaP") != YAML_NULL_ID);
 
     // The combined tree keeps the original controller expression text.
     YAMLNodeId c_ps27 = facility_param(lat.combined, "ps27");
@@ -252,9 +252,9 @@ TEST_CASE("several ABSOLUTE controllers on one parameter sum",
                   0.075 * std::sin(0.023) + 0.123 * 0.044));
 
     // An omitted control_type is materialized as the ABSOLUTE default.
-    YAMLNodeId ps1 = facility_param(lat.leftover, "ps1");
-    REQUIRE(val_eq(lat.leftover,
-                   get_child_by_key(lat.leftover, ps1, "control_type"),
+    YAMLNodeId ps1 = facility_param(lat.adjunct, "ps1");
+    REQUIRE(val_eq(lat.adjunct,
+                   get_child_by_key(lat.adjunct, ps1, "control_type"),
                    "ABSOLUTE"));
 
     free_all(lat);
@@ -346,11 +346,11 @@ TEST_CASE("a RELATIVE controller leaves the lattice alone",
                                  "Kn2L"),
                   0.33));
 
-    YAMLNodeId chrom = facility_param(lat.leftover, "chrom_a");
+    YAMLNodeId chrom = facility_param(lat.adjunct, "chrom_a");
     YAMLNodeId cc0 = get_child_by_index(
-        lat.leftover, get_child_by_key(lat.leftover, chrom, "controls"), 0);
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, cc0, "expression")),
+        lat.adjunct, get_child_by_key(lat.adjunct, chrom, "controls"), 0);
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, cc0, "expression")),
                   5.62 * 0.4 + 0.02 * 0.4 * 0.4));
 
     free_all(lat);
@@ -390,10 +390,10 @@ TEST_CASE("a controller drives another controller's variable",
     REQUIRE(close(expanded_param(lat.full_expanded, "Q1", "MagneticMultipoleP",
                                  "Kn1L"),
                   7.5));
-    YAMLNodeId low = facility_param(lat.leftover, "low");
-    YAMLNodeId lvars = get_child_by_key(lat.leftover, low, "variables");
-    REQUIRE(close(num_val(lat.leftover,
-                          get_child_by_key(lat.leftover, lvars, "cur")),
+    YAMLNodeId low = facility_param(lat.adjunct, "low");
+    YAMLNodeId lvars = get_child_by_key(lat.adjunct, low, "variables");
+    REQUIRE(close(num_val(lat.adjunct,
+                          get_child_by_key(lat.adjunct, lvars, "cur")),
                   0.75));
 
     free_all(lat);

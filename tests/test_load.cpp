@@ -23,7 +23,7 @@ struct LoadCase {
         delete_tree(lat.combined);
         delete_tree(lat.expanded);
         delete_tree(lat.full_expanded);
-        delete_tree(lat.leftover);
+        delete_tree(lat.adjunct);
     }
 
     void parse(const std::string& rel, const char* root_lattice = nullptr) {

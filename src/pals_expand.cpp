@@ -1,5 +1,5 @@
 // PALS lattice expansion pipeline: builds the four-tree representation
-// (original / combined / expanded / leftover) from a PALS YAML file. Splices
+// (original / combined / expanded / adjunct) from a PALS YAML file. Splices
 // includes, merges `load`ed files, expands the selected lattice (repeats,
 // inherits, forks), evaluates expressions into the expanded tree, and applies
 // the controllers that drive
@@ -46,7 +46,7 @@
 // prov[dst_node] = src_node for every copied node. The destination root keeps
 // no key even if src_node has one (a tree root cannot be keyed). `skip` names a
 // source node to leave out along with its descendants (ryml::NONE copies
-// everything); it is how the leftover tree is built as the document minus the
+// everything); it is how the adjunct tree is built as the document minus the
 // lattice that went into the expanded tree.
 static void deep_copy_tracked_except(ryml::Tree& dst_t, size_t dst_node,
                                      const ryml::Tree& src_t, size_t src_node,
@@ -89,7 +89,7 @@ static void deep_copy_tracked(ryml::Tree& dst_t, size_t dst_node,
 
 // Rewrite `prov` (ids -> ids in some intermediate tree) so that it points at
 // whatever that intermediate tree was itself derived from, using its own
-// provenance. This is what lets `expanded` and `leftover` be cut out of the
+// provenance. This is what lets `expanded` and `adjunct` be cut out of the
 // temporary work tree and still record provenance straight back to `combined`:
 // the work tree is discarded, so links through it would dangle. Nodes with no
 // entry in `via` (created during expansion, e.g. `destination_pointer`) have
@@ -4182,24 +4182,24 @@ static ParsedData* split_out_lattice(ryml::Tree& t, size_t lat_node,
     return out;
 }
 
-// Builds the `expanded`, `full_expanded` and `leftover` trees from `combined`.
+// Builds the `expanded`, `full_expanded` and `adjunct` trees from `combined`.
 //
 // Expansion has to run on the whole document at once — the lattice pulls in
 // element and beamline definitions from the rest of the file — so it happens on
 // a single throwaway work tree, which is then cut up: the root lattice is taken
 // twice, once whole as `full_expanded` and once pruned back to the author's
-// inputs as `expanded`, and `leftover` takes everything the lattice left behind.
+// inputs as `expanded`, and `adjunct` takes everything the lattice left behind.
 // All three record provenance straight back to `combined`, so the work tree can
 // be discarded.
-static void make_expanded_and_leftover(ParsedData* comb,
+static void make_expanded_and_adjunct(ParsedData* comb,
                                        const char* root_lattice,
                                        ProblemList& problems,
                                        YAMLTreeHandle& expanded_out,
                                        YAMLTreeHandle& full_expanded_out,
-                                       YAMLTreeHandle& leftover_out) {
+                                       YAMLTreeHandle& adjunct_out) {
     expanded_out = nullptr;
     full_expanded_out = nullptr;
-    leftover_out = nullptr;
+    adjunct_out = nullptr;
     if (!comb) return;
 
     ParsedData work;
@@ -4227,8 +4227,8 @@ static void make_expanded_and_leftover(ParsedData* comb,
     std::string name_str = root_lattice ? root_lattice : "";
     size_t lat_node = find_lattice(t, name_str);
 
-    // `skip` is the node the leftover tree must not copy: the lattice, together
-    // with the facility list entry wrapping it, so leftover is not left holding
+    // `skip` is the node the adjunct tree must not copy: the lattice, together
+    // with the facility list entry wrapping it, so adjunct is not left holding
     // an empty entry. A lattice that is not a lone entry under a wrapper (e.g.
     // one keyed directly into a map) is skipped on its own.
     size_t skip = ryml::NONE;
@@ -4332,7 +4332,7 @@ static void make_expanded_and_leftover(ParsedData* comb,
         prune_computed_params(mini->tree, entry, authored, mini->provenance);
     }
 
-    // leftover: the whole document minus what went to the expanded trees.
+    // adjunct: the whole document minus what went to the expanded trees.
     ParsedData* left = new ParsedData();
     left->tree.reserve(left->tree.capacity() + t.capacity() + 16);
     left->tree.reserve_arena(left->tree.arena_capacity() + t.arena_capacity());
@@ -4342,7 +4342,7 @@ static void make_expanded_and_leftover(ParsedData* comb,
 
     expanded_out = mini;
     full_expanded_out = full;
-    leftover_out = left;
+    adjunct_out = left;
 }
 
 /**
@@ -4466,7 +4466,7 @@ static struct lattices expand_document(ParsedData* src,
     ProblemList problems;
     // Built as a derivation chain so provenance can be recorded at each step:
     //   original --(splice includes, merge loads)--> combined
-    //   combined  --(expand, split)--> expanded, full_expanded, leftover
+    //   combined  --(expand, split)--> expanded, full_expanded, adjunct
     std::string parse_error;
     lat.original = make_original(src, top_path, parse_error);
     if (!parse_error.empty()) {
@@ -4487,9 +4487,9 @@ static struct lattices expand_document(ParsedData* src,
         // expansion made of it.
         check_pals_names(GET_TREE(lat.combined), problems);
 
-        make_expanded_and_leftover(static_cast<ParsedData*>(lat.combined),
+        make_expanded_and_adjunct(static_cast<ParsedData*>(lat.combined),
                                    root_lattice, problems, lat.expanded,
-                                   lat.full_expanded, lat.leftover);
+                                   lat.full_expanded, lat.adjunct);
     }
 
     // Hand the problem list to the caller as an owning C string array (freed
@@ -4543,10 +4543,10 @@ YAML_API double evaluate_pals_expression(const char* expr, bool* ok) {
 
 YAML_API struct correspondence_map build_correspondence_map(
     YAMLTreeHandle original, YAMLTreeHandle combined,
-    YAMLTreeHandle full_expanded, YAMLTreeHandle leftover) {
-    (void)original;  // provenance is in combined, full_expanded & leftover
+    YAMLTreeHandle full_expanded, YAMLTreeHandle adjunct) {
+    (void)original;  // provenance is in combined, full_expanded & adjunct
     struct correspondence_map out = {nullptr, 0};
-    if (!combined || (!full_expanded && !leftover)) return out;
+    if (!combined || (!full_expanded && !adjunct)) return out;
 
     ParsedData* comb = static_cast<ParsedData*>(combined);
     const std::map<size_t, size_t>& c2o = comb->provenance;  // combined->original
@@ -4557,7 +4557,7 @@ YAML_API struct correspondence_map build_correspondence_map(
     // exactly the live nodes are visited. Expansion splits the document in two,
     // so a link names a node in one derived tree and YAML_NULL_ID in the other;
     // the shared combined id is what ties the two sides together.
-    auto walk = [&](YAMLTreeHandle handle, bool is_leftover) {
+    auto walk = [&](YAMLTreeHandle handle, bool is_adjunct) {
         if (!handle) return;
         ParsedData* pd = static_cast<ParsedData*>(handle);
         const std::map<size_t, size_t>& d2c = pd->provenance;  // derived->combined
@@ -4570,8 +4570,8 @@ YAML_API struct correspondence_map build_correspondence_map(
             stack.pop_back();
 
             struct node_link link;
-            link.full_expanded = is_leftover ? YAML_NULL_ID : n;
-            link.leftover = is_leftover ? n : YAML_NULL_ID;
+            link.full_expanded = is_adjunct ? YAML_NULL_ID : n;
+            link.adjunct = is_adjunct ? n : YAML_NULL_ID;
             auto dc = d2c.find(n);
             if (dc != d2c.end()) {
                 link.combined = dc->second;
@@ -4590,7 +4590,7 @@ YAML_API struct correspondence_map build_correspondence_map(
     };
 
     walk(full_expanded, false);
-    walk(leftover, true);
+    walk(adjunct, true);
 
     out.count = links.size();
     if (out.count > 0) {

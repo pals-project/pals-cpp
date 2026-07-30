@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
     std::cout << "========== Printing full expanded lattice ==========" << std::endl;
     std::cout << tree_to_string(lat.full_expanded) << std::endl << "\n\n";
 
-    std::cout << "========== Printing leftover ==========" << std::endl;
-    std::cout << tree_to_string(lat.leftover) << std::endl;
+    std::cout << "========== Printing adjunct ==========" << std::endl;
+    std::cout << tree_to_string(lat.adjunct) << std::endl;
     return 0;
 }

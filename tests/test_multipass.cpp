@@ -73,7 +73,7 @@ TEST_CASE("Multipass sub-lines are numbered with a multipass_index",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("Nested multipass lines: the nearest multipass line wins",
@@ -127,5 +127,5 @@ TEST_CASE("Nested multipass lines: the nearest multipass line wins",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }

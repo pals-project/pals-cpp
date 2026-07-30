@@ -16,18 +16,18 @@ TEST_CASE("build_correspondence_map links the document roots", "[correspondence]
         parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
-                                 lat.leftover);
+                                 lat.adjunct);
 
     REQUIRE(m.count > 0);
 
-    // leftover is what still carries the document root, so that is the node
+    // adjunct is what still carries the document root, so that is the node
     // corresponding to the combined root. (The expanded root is synthesised to
     // hold the lattice entry and has no counterpart — see below.)
-    YAMLNodeId left_root = get_root(lat.leftover);
+    YAMLNodeId left_root = get_root(lat.adjunct);
 
     bool found_root = false;
     for (size_t i = 0; i < m.count; i++) {
-        if (m.links[i].leftover == left_root) {
+        if (m.links[i].adjunct == left_root) {
             found_root = true;
             REQUIRE(m.links[i].combined == get_root(lat.combined));
             // The original tree's first child is the top-level file's contents.
@@ -38,7 +38,7 @@ TEST_CASE("build_correspondence_map links the document roots", "[correspondence]
         }
         // A link names a node in exactly one of the two derived trees.
         REQUIRE((m.links[i].full_expanded == YAML_NULL_ID) !=
-                (m.links[i].leftover == YAML_NULL_ID));
+                (m.links[i].adjunct == YAML_NULL_ID));
     }
     REQUIRE(found_root);
 
@@ -47,11 +47,11 @@ TEST_CASE("build_correspondence_map links the document roots", "[correspondence]
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 // A definition that expansion substituted into the lattice is a copy: the
-// definition still stands in leftover, so the same combined node reaches both
+// definition still stands in adjunct, so the same combined node reaches both
 // trees.
 TEST_CASE("build_correspondence_map ties the two trees through combined",
           "[correspondence]") {
@@ -59,10 +59,10 @@ TEST_CASE("build_correspondence_map ties the two trees through combined",
         parse_and_expand_PALS(lattice_file("ex.pals.yaml").c_str(), "lat1");
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
-                                 lat.leftover);
+                                 lat.adjunct);
 
     // inj_line is defined at facility level and used by lat1's branches, so it
-    // is expanded into lat1 while its definition stays in leftover.
+    // is expanded into lat1 while its definition stays in adjunct.
     std::map<YAMLNodeId, int> sides;  // combined id -> bitmask of trees reached
     for (size_t i = 0; i < m.count; i++) {
         if (m.links[i].combined == YAML_NULL_ID) continue;
@@ -80,14 +80,14 @@ TEST_CASE("build_correspondence_map ties the two trees through combined",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
     free_lattice_problems(lat.problems);
 }
 
 TEST_CASE("build_correspondence_map connects a node across trees by value",
           "[correspondence]") {
     // A constant that lives outside the expanded lattice is not part of it, so
-    // it lands in leftover; the map must still connect it back to combined and
+    // it lands in adjunct; the map must still connect it back to combined and
     // original.
     const char* doc =
         "PALS:\n"
@@ -110,20 +110,20 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     struct lattices lat = expand_PALS_string(doc, nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
-                                 lat.leftover);
+                                 lat.adjunct);
 
-    // Locate a_const in the leftover tree: facility[0] -> constants -> a_const.
-    YAMLNodeId l_const = get_child_by_index(lat.leftover, facility_of(lat.leftover), 0);
+    // Locate a_const in the adjunct tree: facility[0] -> constants -> a_const.
+    YAMLNodeId l_const = get_child_by_index(lat.adjunct, facility_of(lat.adjunct), 0);
     YAMLNodeId l_a_const =
-        get_child_by_key(lat.leftover,
-                         get_child_by_key(lat.leftover, l_const, "constants"),
+        get_child_by_key(lat.adjunct,
+                         get_child_by_key(lat.adjunct, l_const, "constants"),
                          "a_const");
     REQUIRE(l_a_const != YAML_NULL_ID);
     // Expressions are evaluated across the whole document before it is split, so
-    // this constant holds a number in leftover too; the combined/original copies
+    // this constant holds a number in adjunct too; the combined/original copies
     // (checked below) still carry the original expression text.
     {
-        char* s = as_string(lat.leftover, l_a_const);
+        char* s = as_string(lat.adjunct, l_a_const);
         REQUIRE(s != nullptr);
         double got = std::strtod(s, nullptr);
         yaml_free_string(s);
@@ -136,7 +136,7 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     // Find its link and follow it to the combined and original copies.
     bool found = false;
     for (size_t i = 0; i < m.count; i++) {
-        if (m.links[i].leftover != l_a_const) continue;
+        if (m.links[i].adjunct != l_a_const) continue;
         found = true;
         REQUIRE(m.links[i].full_expanded == YAML_NULL_ID);
         REQUIRE(m.links[i].combined != YAML_NULL_ID);
@@ -151,7 +151,7 @@ TEST_CASE("build_correspondence_map connects a node across trees by value",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
 
 TEST_CASE("build_correspondence_map maps one source to many expanded copies",
@@ -182,7 +182,7 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     struct lattices lat = expand_PALS_string(doc, nullptr);
     struct correspondence_map m =
         build_correspondence_map(lat.original, lat.combined, lat.full_expanded,
-                                 lat.leftover);
+                                 lat.adjunct);
 
     // Unrolling `repeat: 3` over a one-element cell produces three `d1` entries
     // in the expanded line, all copied from the same combined source. They are
@@ -192,7 +192,7 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     // them without expanding them.)
     std::map<YAMLNodeId, int> combined_hits;
     for (size_t i = 0; i < m.count; i++) {
-        // Skip the leftover half of the map: those ids index a different tree.
+        // Skip the adjunct half of the map: those ids index a different tree.
         if (m.links[i].full_expanded == YAML_NULL_ID) continue;
         if (!key_eq(lat.full_expanded, m.links[i].full_expanded, "d1")) continue;
         REQUIRE(m.links[i].combined != YAML_NULL_ID);  // has a source
@@ -207,5 +207,5 @@ TEST_CASE("build_correspondence_map maps one source to many expanded copies",
     delete_tree(lat.combined);
     delete_tree(lat.expanded);
     delete_tree(lat.full_expanded);
-    delete_tree(lat.leftover);
+    delete_tree(lat.adjunct);
 }
