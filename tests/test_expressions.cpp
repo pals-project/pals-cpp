@@ -364,14 +364,16 @@ TEST_CASE("parse_and_expand_PALS resolves a species-name constant",
 }
 
 TEST_CASE("parse_and_expand_PALS leaves root prose alone", "[expr][lattices]") {
-    // `authors`, `notes` and `reminders` are free-form prose (fundamentals.md,
-    // s:palsroot). Prose carrying a `/` or parentheses reads as arithmetic to
+    // `notes` and `reminders` are free-form prose, and `authors` entries carry
+    // prose values like names and affiliations (fundamentals.md, s:palsroot).
+    // Prose carrying a `/` or parentheses reads as arithmetic to
     // looks_like_expression, so evaluating it at all would report a translated
     // file's provenance note as a broken expression.
     const char* doc =
         "PALS:\n"
         "  authors:\n"
-        "    - \"D. Sagan (Cornell)\"\n"
+        "    - name: \"D. Sagan\"\n"
+        "      affiliation: \"Cornell University (CLASSE)\"\n"
         "  notes:\n"
         "    - \"Translated from /nfs/acc/user/lat.bmad\"\n"
         "  reminders:\n"
