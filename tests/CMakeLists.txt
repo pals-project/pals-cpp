@@ -34,7 +34,7 @@ target_compile_features(tests PRIVATE cxx_std_17)
 # this implementation via the public C API.
 # Not a ctest test: the standard_examples GitHub workflow runs it against a
 # fresh checkout of the standard, pinned to the commit named in
-# tests/pals_standard_ref.txt. To run it locally against a checkout of
+# tests/standard_examples_git_reference.txt. To run it locally against a checkout of
 # https://github.com/pals-project/pals, from the repository root:
 #   cmake --build build --target validate_standard_examples
 #   build/tests/validate_standard_examples \
