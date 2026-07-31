@@ -434,7 +434,7 @@ std::vector<std::string> problems_for_value(const std::string& value) {
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
     std::vector<std::string> out;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        out.push_back(lat.problems.items[i]);
+        out.push_back(lat.problems.items[i].message);
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
@@ -518,7 +518,7 @@ TEST_CASE("a controller says why an expression failed", "[expr][controllers]") {
     struct lattices lat = expand_PALS_string(doc, nullptr);
     std::vector<std::string> ps;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        ps.push_back(lat.problems.items[i]);
+        ps.push_back(lat.problems.items[i].message);
 
     REQUIRE(any_has(ps, "variable 'vv': could not evaluate"));
     REQUIRE(any_has(ps, "unknown constant or variable 'C_LIGHT'"));

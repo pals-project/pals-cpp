@@ -68,17 +68,75 @@ typedef size_t YAMLNodeId;
 #define YAML_END YAML_NULL_ID
 
 /**
- * @brief A flat, owning list of C strings.
+ * @brief Whether a problem stops the expanded trees from being trustworthy.
+ * @ingroup parse
+ */
+enum problem_severity {
+    /**
+     * The document is wrong here and the expansion could not work around it: a
+     * value is missing, unresolved, or left at a stand-in. Do not trust the
+     * affected part of `expanded` / `full_expanded`.
+     */
+    PROBLEM_ERROR = 0,
+    /**
+     * Expansion produced a usable result. Something was assumed, skipped, or
+     * merely looks wrong -- worth reporting, but the trees are still sound.
+     */
+    PROBLEM_WARNING = 1
+};
+
+/**
+ * @brief Who has to act on a problem.
  * @ingroup parse
  *
- * Used to return the human-readable problems encountered while building the
- * `full_expanded` tree (undefined lattice, dangling element/line references,
- * undefined `inherit`/`repeat`/`Fork` targets, expressions that could not be
- * evaluated, ...). Free with free_lattice_problems().
+ * Separated from @ref problem_severity because the two answer different
+ * questions: severity says whether the output can be trusted, origin says
+ * whether the lattice author can do anything about it. A caller writing a
+ * lattice editor wants to underline @ref PROBLEM_INPUT and stay quiet about the
+ * rest; a caller filing bug reports wants the opposite.
  */
-struct string_list {
-    char** items;  ///< The strings (owning).
-    size_t count;  ///< Number of strings in @ref items.
+enum problem_origin {
+    /** The document is wrong. The author can fix it. */
+    PROBLEM_INPUT = 0,
+    /** Valid PALS that this library does not implement yet. Not the author's
+     *  fault, and not fixable by editing the lattice. */
+    PROBLEM_UNSUPPORTED = 1,
+    /** The PALS standard does not define this case, so nothing was invented.
+     *  Neither the author nor this library is in the wrong. */
+    PROBLEM_UNSPECIFIED = 2
+};
+
+/**
+ * @brief One problem found while reading or expanding a document.
+ * @ingroup parse
+ */
+struct problem {
+    char* message;  ///< Human-readable description, always present (owning).
+    /**
+     * Logical location within the document -- typically `group.parameter` or an
+     * element name -- or the empty string when the problem is not tied to one
+     * spot. Deliberately shallow, so a definition reached through several
+     * expansion copies reports one location rather than one per copy. This is
+     * not a file name or a line number; @ref message already names the file
+     * where the file is the point.
+     */
+    char* path;
+    enum problem_severity severity;  ///< Is the output still trustworthy?
+    enum problem_origin origin;      ///< Whose problem is it?
+};
+
+/**
+ * @brief A flat, owning list of problems.
+ * @ingroup parse
+ *
+ * Used to return everything encountered while building the `full_expanded` tree
+ * (undefined lattice, dangling element/line references, undefined
+ * `inherit`/`repeat`/`Fork` targets, expressions that could not be evaluated,
+ * ...). Free with free_lattice_problems().
+ */
+struct problem_list {
+    struct problem* items;  ///< The problems (owning).
+    size_t count;           ///< Number of entries in @ref items.
 };
 
 /**
@@ -111,9 +169,9 @@ struct lattices {
                               ///< root lattice, so element/beamline
                               ///< definitions, `use` statements, constants and
                               ///< any non-root Lattice.
-    struct string_list problems;  ///< Problems found while building
-                                  ///< `full_expanded`; free with
-                                  ///< free_lattice_problems().
+    struct problem_list problems;  ///< Problems found while building
+                                   ///< `full_expanded`; free with
+                                   ///< free_lattice_problems().
 };
 
 /**
@@ -227,14 +285,16 @@ extern "C" {
  * the lattice are copies, so they appear in both trees.
  *         All five handles must be freed individually with delete_tree().
  *
- *         The returned struct also carries `problems`: an owning list of
- *         human-readable messages for every issue met while building the
- *         `full_expanded` tree (undefined lattice, dangling element/line
- *         references, undefined `inherit`/`repeat`/`Fork` targets, and
- *         expressions that could not be evaluated). It is empty when expansion
- *         was clean. The caller owns it and must release it with
- *         free_lattice_problems(). The library does not print — the caller
- *         decides whether to report.
+ *         The returned struct also carries `problems`: an owning list of every
+ *         issue met while building the `full_expanded` tree (undefined lattice,
+ *         dangling element/line references, undefined `inherit`/`repeat`/`Fork`
+ *         targets, and expressions that could not be evaluated). Each carries a
+ *         message, a shallow logical path, a @ref problem_severity saying
+ *         whether the trees can still be trusted, and a @ref problem_origin
+ *         saying whether the lattice author can do anything about it. The list
+ *         is empty when expansion was clean. The caller owns it and must
+ *         release it with free_lattice_problems(). The library does not print —
+ *         the caller decides whether to report.
  */
 YAML_API struct lattices parse_and_expand_PALS(const char* filename,
                                       const char* root_lattice);
@@ -264,7 +324,8 @@ YAML_API struct lattices expand_PALS_string(const char* yaml_str,
                                             const char* root_lattice);
 
 /**
- * Frees the string array owned by the `problems` list of a `lattices` value.
+ * Frees the problem array owned by the `problems` list of a `lattices` value,
+ * along with the strings each entry holds.
  * @ingroup parse
  *
  * Passing a list with a NULL `items` pointer (e.g. when there were no problems)
@@ -272,7 +333,7 @@ YAML_API struct lattices expand_PALS_string(const char* yaml_str,
  *
  * @param problems The `lattices::problems` list to free (passed by value).
  */
-YAML_API void free_lattice_problems(struct string_list problems);
+YAML_API void free_lattice_problems(struct problem_list problems);
 
 /**
  * Evaluates a single PALS mathematical expression to a double.

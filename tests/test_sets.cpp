@@ -6,16 +6,16 @@
 
 namespace {
 
-std::vector<std::string> problem_list(const struct lattices& lat) {
+std::vector<std::string> problem_messages(const struct lattices& lat) {
     std::vector<std::string> msgs;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        msgs.emplace_back(lat.problems.items[i]);
+        msgs.emplace_back(lat.problems.items[i].message);
     return msgs;
 }
 
 std::string joined(const struct lattices& lat) {
     std::string s;
-    for (const std::string& m : problem_list(lat)) s += m + "; ";
+    for (const std::string& m : problem_messages(lat)) s += m + "; ";
     return s;
 }
 
@@ -225,7 +225,7 @@ TEST_CASE("reading a not-yet-derived parameter in a set is an error",
                       "main");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "'Q1>MagneticMultipoleP.Bs1' has no value yet"));
 
     free_all(lat);
@@ -519,7 +519,7 @@ TEST_CASE("a set with an error term reports that it is not applied",
                       "main");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "absolute_error/relative_error are not applied"));
     REQUIRE(close(one_param(lat.full_expanded, "Q1", "MagneticMultipoleP", "Kn1L"),
                   0.4));
@@ -540,7 +540,7 @@ TEST_CASE("a set whose target matches nothing is reported",
                       "main");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "set 'nosuch>length': target matches nothing defined "
                          "before it"));
 

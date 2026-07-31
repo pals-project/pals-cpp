@@ -11,6 +11,7 @@
 #include "pals_util.h"
 #include "pals_floor.h"
 #include "pals_check.h"
+#include "pals_problem.h"
 
 #include "apc/apc.h"
 
@@ -181,20 +182,16 @@ static void make_ele_map(std::map<std::string, size_t>& emap,
         make_ele_map(emap, t, c);
 }
 
-// A list of human-readable problems found while building the expanded tree
-// (undefined lattice, dangling references, undefined inherit/repeat/fork
-// targets, un-evaluable expressions, ...). Returned to the caller so it can
-// decide whether to print, save, or ignore them.
-using ProblemList = std::vector<std::string>;
-
-// Append a problem, skipping exact duplicates. Expansion copies a definition
-// into every use, so the same underlying issue can be reached many times; the
-// shallow locations used below keep those copies collapsing to one message.
-static void add_problem(ProblemList& problems, const std::string& msg) {
-    for (const std::string& p : problems)
-        if (p == msg) return;
-    problems.push_back(msg);
-}
+// The problems found while building the expanded tree (undefined lattice,
+// dangling references, undefined inherit/repeat/fork targets, un-evaluable
+// expressions, ...), returned to the caller so it can decide whether to print,
+// save, or ignore them. Defined in pals_problem.h, which pals_check.cpp reports
+// into as well; pulled into this file's scope so the call sites below read as
+// they did when the list was local.
+using pals::add_problem;
+using pals::Origin;
+using pals::ProblemList;
+using pals::Severity;
 
 // A short "group.param" (or just "param") location for a value node, for use in
 // problem messages. Deliberately shallow so the identical parameter reached
@@ -2667,10 +2664,12 @@ static void execute_set(ryml::Tree& t, const SetCommand& cmd,
     // never invents randomness (random()/random_gauss() are deferred for the
     // same reason). The deterministic value is written and the error is not.
     if (cmd.has_error)
-        add_problem(problems, what +
-                                  ": absolute_error/relative_error are not "
-                                  "applied -- the standard does not specify "
-                                  "the error distribution");
+        add_problem(problems,
+                    what +
+                        ": absolute_error/relative_error are not "
+                        "applied -- the standard does not specify "
+                        "the error distribution",
+                    cmd.param, Severity::Warning, Origin::Unspecified);
 
     // Only a pre-expansion set needs the element map, to spot a reference to a
     // parameter whose value has still to be derived.
@@ -3028,8 +3027,10 @@ static RefState downstream_ref(const ryml::Tree& t, size_t ele,
         std::string ename = t.has_key(ele) ? std::string(t.key(ele).str,
                                                           t.key(ele).len)
                                            : "<foil>";
-        add_problem(problems, "Foil element '" + ename +
-                                  "': downstream species change is not computed");
+        add_problem(problems,
+                    "Foil element '" + ename +
+                        "': downstream species change is not computed",
+                    ename, Severity::Warning, Origin::Unsupported);
     }
 
     complete_energy(down);  // refill whichever of E/pc a change above cleared
@@ -4455,6 +4456,15 @@ static YAMLTreeHandle make_original(ParsedData* src,
 // read with parse_and_expand_PALS, which resolves them against itself.
 static const char* STRING_DOC_PATH = "<string>";
 
+// An owning C copy of `s`, for handing a std::string across the C API. Always
+// returns a string, empty rather than null, so a caller reading `path` never
+// has to null-check before comparing.
+static char* dup_cstr(const std::string& s) {
+    char* out = new char[s.size() + 1];
+    std::memcpy(out, s.c_str(), s.size() + 1);
+    return out;
+}
+
 // The whole of parse_and_expand_PALS below the reading of the top-level
 // document: `src` is that document parsed (null if it could not be), `top_path`
 // the path it is keyed by, and `source_name` what a parse failure calls it.
@@ -4475,8 +4485,9 @@ static struct lattices expand_document(ParsedData* src,
         // location as the single problem so the caller can pinpoint the fault.
         delete_tree(lat.original);
         lat.original = nullptr;
-        problems.push_back("could not parse '" + source_name +
-                           "': " + parse_error);
+        add_problem(problems,
+                    "could not parse '" + source_name + "': " + parse_error,
+                    source_name);
     } else {
         lat.combined = make_combined_from_original(
             static_cast<ParsedData*>(lat.original), top_path, problems);
@@ -4492,16 +4503,29 @@ static struct lattices expand_document(ParsedData* src,
                                    lat.full_expanded, lat.adjunct);
     }
 
-    // Hand the problem list to the caller as an owning C string array (freed
-    // with free_lattice_problems). The library never prints — the caller
-    // decides whether to report, save, or ignore.
+    // Hand the problem list to the caller as an owning C array (freed with
+    // free_lattice_problems). The library never prints — the caller decides
+    // whether to report, save, or ignore.
     lat.problems.count = problems.size();
     lat.problems.items =
-        problems.empty() ? nullptr : new char*[problems.size()];
+        problems.empty() ? nullptr : new struct problem[problems.size()];
     for (size_t i = 0; i < problems.size(); ++i) {
-        lat.problems.items[i] = new char[problems[i].size() + 1];
-        std::memcpy(lat.problems.items[i], problems[i].c_str(),
-                    problems[i].size() + 1);
+        lat.problems.items[i].message = dup_cstr(problems[i].message);
+        lat.problems.items[i].path = dup_cstr(problems[i].path);
+        lat.problems.items[i].severity =
+            problems[i].severity == Severity::Warning ? PROBLEM_WARNING
+                                                      : PROBLEM_ERROR;
+        switch (problems[i].origin) {
+            case Origin::Unsupported:
+                lat.problems.items[i].origin = PROBLEM_UNSUPPORTED;
+                break;
+            case Origin::Unspecified:
+                lat.problems.items[i].origin = PROBLEM_UNSPECIFIED;
+                break;
+            case Origin::Input:
+                lat.problems.items[i].origin = PROBLEM_INPUT;
+                break;
+        }
     }
     return lat;
 }
@@ -4525,8 +4549,11 @@ YAML_API struct lattices expand_PALS_string(const char* yaml_str,
                            STRING_DOC_PATH, STRING_DOC_PATH, root_lattice);
 }
 
-YAML_API void free_lattice_problems(struct string_list problems) {
-    for (size_t i = 0; i < problems.count; ++i) delete[] problems.items[i];
+YAML_API void free_lattice_problems(struct problem_list problems) {
+    for (size_t i = 0; i < problems.count; ++i) {
+        delete[] problems.items[i].message;
+        delete[] problems.items[i].path;
+    }
     delete[] problems.items;
 }
 

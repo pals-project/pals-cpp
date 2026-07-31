@@ -13,6 +13,7 @@ add_executable(tests
   test_bookkeeper.cpp
   test_expanded_minus_dependent.cpp
   test_check.cpp
+  test_problems.cpp
   test_load.cpp
   test_floor.cpp
   # pals_floor.cpp carries hidden visibility in the shared library, so its

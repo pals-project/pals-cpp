@@ -305,7 +305,7 @@ static struct lattices expand_rf(const std::string& rfp_body) {
 
 static bool any_problem_contains(struct lattices& lat, const char* needle) {
     for (size_t i = 0; i < lat.problems.count; ++i)
-        if (std::string(lat.problems.items[i]).find(needle) != std::string::npos)
+        if (std::string(lat.problems.items[i].message).find(needle) != std::string::npos)
             return true;
     return false;
 }

@@ -38,7 +38,7 @@ yaml_free_string(s);
 
 // Report any problems met while expanding (see below), then free everything.
 for (size_t i = 0; i < lat.problems.count; ++i)
-    std::fprintf(stderr, "  - %s\n", lat.problems.items[i]);
+    std::fprintf(stderr, "  - %s\n", lat.problems.items[i].message);
 free_lattice_problems(lat.problems);
 
 delete_tree(lat.original);
@@ -70,11 +70,26 @@ file that made it.
 ### Problems found during expansion
 
 Expansion does not abort on a recoverable problem. It leaves the offending
-value as it found it, carries on with the rest of the lattice, and appends a
-human‑readable message to `lat.problems`, an owning `string_list`. The list is
-empty when expansion was clean. The library never prints — the caller decides
-whether to report, save, or ignore the messages — and must release the list
-with `free_lattice_problems`.
+value as it found it, carries on with the rest of the lattice, and appends an
+entry to `lat.problems`, an owning `problem_list`. The list is empty when
+expansion was clean. The library never prints — the caller decides whether to
+report, save, or ignore what it finds — and must release the list with
+`free_lattice_problems`.
+
+Each entry carries more than its `message`. A `path` gives the logical spot it
+was found at (`q1>ApertureP.shape`), empty when the problem is not tied to one
+place. The other two answer questions a caller usually has to guess at:
+
+- `severity` — `PROBLEM_ERROR` when the trees can no longer be trusted around
+  the fault, `PROBLEM_WARNING` when expansion produced a sound result anyway.
+- `origin` — `PROBLEM_INPUT` when the lattice author can fix it,
+  `PROBLEM_UNSUPPORTED` when it is valid PALS this library does not implement
+  yet, and `PROBLEM_UNSPECIFIED` when the standard does not define the case, so
+  nothing was invented.
+
+Editing the lattice can only ever clear a `PROBLEM_INPUT`, which is what makes
+the distinction worth carrying: a tool that fails a build on any problem at all
+will fail on lattices whose author has nothing left to fix.
 
 Expansion is therefore always worth reading: a lattice with problems still
 comes back expanded as far as it could be, with the trees around the fault

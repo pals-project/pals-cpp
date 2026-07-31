@@ -7,17 +7,17 @@
 namespace {
 
 // Every problem message parse_and_expand_PALS reported, as strings.
-std::vector<std::string> problem_list(const struct lattices& lat) {
+std::vector<std::string> problem_messages(const struct lattices& lat) {
     std::vector<std::string> msgs;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        msgs.emplace_back(lat.problems.items[i]);
+        msgs.emplace_back(lat.problems.items[i].message);
     return msgs;
 }
 
 // The problems as one string, so a failing REQUIRE shows what they were.
 std::string joined(const struct lattices& lat) {
     std::string s;
-    for (const std::string& m : problem_list(lat)) s += m + "; ";
+    for (const std::string& m : problem_messages(lat)) s += m + "; ";
     return s;
 }
 
@@ -449,7 +449,7 @@ TEST_CASE("controller expressions may not reach outside their controller",
                      "                      Kn1L: 0.0\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    std::vector<std::string> msgs = problem_list(lat);
+    std::vector<std::string> msgs = problem_messages(lat);
     REQUIRE(any_contains(msgs, "variable 'derived' may not reference"));
     REQUIRE(any_contains(msgs, "control expression may not reference"));
 
@@ -481,7 +481,7 @@ TEST_CASE("a variable initial value may not reference a variable",
                      "                      Kn1L: 0.0\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "variable 'cur2': an initial value may not reference "
                          "the variable 'cur1'"));
 
@@ -542,7 +542,7 @@ TEST_CASE("a circular control hierarchy is reported",
                      "                    kind: Quadrupole\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "circular control hierarchy: 'a', 'b'"));
 
     free_all(lat);
@@ -570,7 +570,7 @@ TEST_CASE("a parameter may not be driven by both controller types",
                      "                      Kn1L: 0.11\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "Q1>MagneticMultipoleP.Kn1L is controlled by both an "
                          "ABSOLUTE and a RELATIVE controller"));
     // Neither is applied, so the element keeps its own value.
@@ -595,7 +595,7 @@ TEST_CASE("a controlled parameter may not also be delayed",
                      "                      Kn1L: expr(0.1 + 0.2)\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "Q1>MagneticMultipoleP.Kn1L is both controlled and "
                          "assigned a delayed evaluation expression"));
 
@@ -614,7 +614,7 @@ TEST_CASE("a controller target that matches nothing is reported",
                      "                    kind: Quadrupole\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "target 'nosuch>MagneticMultipoleP.Kn1L' matches "
                          "nothing in the expanded lattice"));
 
@@ -660,7 +660,7 @@ TEST_CASE("a controller reaches an element in a branch named by its key",
         "    - use: \"machine\"\n";
 
     struct lattices lat = expand_PALS_string(doc, nullptr);
-    REQUIRE_FALSE(any_contains(problem_list(lat), "matches nothing"));
+    REQUIRE_FALSE(any_contains(problem_messages(lat), "matches nothing"));
     REQUIRE(joined(lat).find("branch 'ln'") == std::string::npos);
     REQUIRE(close(expanded_param(lat.full_expanded, "q", "MagneticMultipoleP", "Kn1"),
                   16.0));
@@ -682,7 +682,7 @@ TEST_CASE("an unknown control_type is reported",
                      "                    length: 0.2\n");
 
     struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
-    REQUIRE(any_contains(problem_list(lat),
+    REQUIRE(any_contains(problem_messages(lat),
                          "control_type must be ABSOLUTE or RELATIVE, not "
                          "SOMETHING"));
 
