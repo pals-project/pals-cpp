@@ -276,7 +276,7 @@ TEST_CASE("A branch with no inherit takes its root BeamLine from its name",
 
     // Nothing about the branch is a problem.
     for (size_t i = 0; i < lat.problems.count; ++i)
-        REQUIRE(std::string(lat.problems.items[i]).find("branch 'ln'") ==
+        REQUIRE(std::string(lat.problems.items[i].message).find("branch 'ln'") ==
                 std::string::npos);
 
     free_lattice_problems(lat.problems);
@@ -357,7 +357,7 @@ TEST_CASE("An empty branch is reported", "[lattices][problems]") {
         struct lattices lat = expand_PALS_string(yaml, nullptr);
         std::vector<std::string> msgs;
         for (size_t i = 0; i < lat.problems.count; ++i)
-            msgs.emplace_back(lat.problems.items[i]);
+            msgs.emplace_back(lat.problems.items[i].message);
         free_lattice_problems(lat.problems);
         delete_tree(lat.original);
         delete_tree(lat.combined);
@@ -444,7 +444,7 @@ TEST_CASE("parse_and_expand_PALS reports expansion problems",
     // Collect the messages so the assertions do not depend on their order.
     std::vector<std::string> msgs;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        msgs.emplace_back(lat.problems.items[i]);
+        msgs.emplace_back(lat.problems.items[i].message);
 
     auto has = [&](const std::string& needle) {
         for (const std::string& m : msgs)
@@ -508,7 +508,7 @@ TEST_CASE("repeat with an unusable count keeps the entry",
 
         bool reported = false;
         for (size_t i = 0; i < lat.problems.count; ++i)
-            if (std::string(lat.problems.items[i])
+            if (std::string(lat.problems.items[i].message)
                     .find("repeat: invalid count") != std::string::npos)
                 reported = true;
 
@@ -573,7 +573,7 @@ TEST_CASE("repeat expands the copies it splices", "[lattices]") {
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
-        REQUIRE(std::string(lat.problems.items[i]).find("repeat") ==
+        REQUIRE(std::string(lat.problems.items[i].message).find("repeat") ==
                 std::string::npos);
 
     // Three copies of a two-element cell, flattened: d1 q1 d1 q1 d1 q1.
@@ -612,7 +612,7 @@ TEST_CASE("parse_and_expand_PALS reports a missing lattice",
 
     struct lattices lat = expand_PALS_string(doc, "not_here");
     REQUIRE(lat.problems.count == 1);
-    REQUIRE(std::string(lat.problems.items[0]) == "lattice 'not_here' not found");
+    REQUIRE(std::string(lat.problems.items[0].message) == "lattice 'not_here' not found");
 
     // With no lattice to expand, expanded is an empty map and the whole document
     // lands in adjunct — both handles are still valid.
@@ -662,7 +662,7 @@ TEST_CASE("a Fork with a ForkP sequence is reported as wrong-shape, not missing"
     bool wrong_shape = false;
     bool missing = false;
     for (size_t i = 0; i < lat.problems.count; ++i) {
-        std::string msg = lat.problems.items[i];
+        std::string msg = lat.problems.items[i].message;
         if (msg.find("f1") != std::string::npos) {
             if (msg.find("must be a map") != std::string::npos) wrong_shape = true;
             if (msg.find("missing ForkP") != std::string::npos) missing = true;
@@ -717,7 +717,7 @@ TEST_CASE("a Fork needs only to_line; destination_element and new_branch default
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
-        REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
+        REQUIRE(std::string(lat.problems.items[i].message).find("f1") ==
                 std::string::npos);
 
     // The fork resolved to a target, so its ForkP carries a
@@ -879,7 +879,7 @@ TEST_CASE("propagate_reference: false leaves the new branch's reference unset",
 
     // `ring` has its reference from `begin`; only `extraction` is reported.
     REQUIRE(lat.problems.count == 1);
-    REQUIRE(std::string(lat.problems.items[0]) ==
+    REQUIRE(std::string(lat.problems.items[0].message) ==
             "branch 'extraction': first element 'm1' has no reference species "
             "or energy, and none was propagated into the branch; the reference "
             "parameters cannot be computed");
@@ -940,7 +940,7 @@ TEST_CASE("a half-declared branch reference is reported for what it lacks",
 
     std::vector<std::string> msgs;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        msgs.emplace_back(lat.problems.items[i]);
+        msgs.emplace_back(lat.problems.items[i].message);
     REQUIRE(msgs.size() == 2);
 
     REQUIRE(msgs[0].find("branch 'line_a': first element 'no_energy' has no "
@@ -1000,7 +1000,7 @@ TEST_CASE("new_branch: null forks into an existing branch, creating none",
     REQUIRE(lat.full_expanded != nullptr);
 
     for (size_t i = 0; i < lat.problems.count; ++i)
-        REQUIRE(std::string(lat.problems.items[i]).find("f1") ==
+        REQUIRE(std::string(lat.problems.items[i].message).find("f1") ==
                 std::string::npos);
 
     // Exactly the two declared branches: the Fork added none.
@@ -1076,7 +1076,7 @@ TEST_CASE("a destination of a kind that cannot be forked to is reported",
 
     int reported = 0;
     for (size_t i = 0; i < lat.problems.count; ++i) {
-        std::string p(lat.problems.items[i]);
+        std::string p(lat.problems.items[i].message);
         if (p.find("must be a Marker") != std::string::npos) {
             REQUIRE(p.find("'d1'") != std::string::npos);
             REQUIRE(p.find("'Drift'") != std::string::npos);
@@ -1495,7 +1495,7 @@ TEST_CASE("new_branch: null with a to_line that is not a branch is reported",
 
     bool reported = false;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        if (std::string(lat.problems.items[i]).find("is not an existing branch") !=
+        if (std::string(lat.problems.items[i].message).find("is not an existing branch") !=
             std::string::npos)
             reported = true;
     REQUIRE(reported);
@@ -1559,7 +1559,7 @@ TEST_CASE("a malformed document held in a string is a fatal parse problem",
 
     REQUIRE(lat.original == nullptr);
     REQUIRE(lat.problems.count == 1);
-    std::string msg = lat.problems.items[0];
+    std::string msg = lat.problems.items[0].message;
     REQUIRE(msg.find("<string>") != std::string::npos);
     REQUIRE(msg.find("line") != std::string::npos);
 
@@ -1585,7 +1585,7 @@ TEST_CASE("a malformed top-level file is a fatal parse problem, not a crash",
 
     // A single problem, naming the file and the offending line.
     REQUIRE(lat.problems.count == 1);
-    std::string msg = lat.problems.items[0];
+    std::string msg = lat.problems.items[0].message;
     REQUIRE(msg.find(path) != std::string::npos);
     REQUIRE(msg.find("line") != std::string::npos);
 

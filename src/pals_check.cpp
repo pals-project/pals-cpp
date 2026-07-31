@@ -112,6 +112,58 @@ const std::map<std::string, std::set<std::string>>& group_params() {
     return p;
 }
 
+// The parameters whose value is drawn from a fixed set of words rather than
+// being a number, string or expression -- the ones the spec marks `[enum]` --
+// and every word each accepts, from the "Possible settings are" list in its
+// section under source/parameters.
+//
+// These are worth checking for the same reason a misspelled group name is: an
+// unrecognised word is valid YAML, so nothing downstream objects to it. It is
+// worse than a misspelled name, though, because the parameter that holds it does
+// exist and does have a default: `shape: ELLIPTICAL` written as `shape:
+// eliptical` leaves an aperture silently keeping its default shape rather than
+// taking the one the author asked for.
+//
+// A parameter absent from this table takes a value no fixed list can describe.
+// `kind` is a fixed list too but is checked against known_kinds() instead, since
+// it is not a parameter group component.
+const std::map<std::string, std::map<std::string, std::set<std::string>>>&
+enum_values() {
+    static const std::map<std::string,
+                          std::map<std::string, std::set<std::string>>>
+        e = {
+            {"ApertureP",
+             {{"location",
+               {"ENTRANCE_END", "CENTER", "EXIT_END", "BOTH_ENDS", "NOWHERE",
+                "EVERYWHERE"}},
+              {"shape",
+               {"RECTANGULAR", "ELLIPTICAL", "VERTICES", "CUSTOM_SHAPE"}}}},
+            {"BendP",
+             {// multipole_geometry has no ARC setting: with `ref_geometry: ARC`
+              // the FOLLOWS_REF_GEOMETRY default already means vertically pure.
+              {"multipole_geometry",
+               {"FOLLOWS_REF_GEOMETRY", "VERTICALLY_PURE", "HORIZONTALLY_PURE",
+                "CHORD", "ENTRANCE_COORDS", "EXIT_COORDS"}},
+              {"ref_geometry",
+               {"ARC", "CHORD", "ENTRANCE_COORDS", "EXIT_COORDS"}}}},
+            {"ForkP", {{"direction", {"FORWARDS", "BACKWARDS"}}}},
+            {"PatchP", {{"ref_coords", {"ENTRANCE_END", "EXIT_END"}}}},
+            {"RFP",
+             {{"cavity_type", {"STANDING_WAVE", "TRAVELING_WAVE"}},
+              {"zero_phase",
+               {"ACCELERATING", "BELOW_TRANSITION", "ABOVE_TRANSITION"}}}}};
+    return e;
+}
+
+// The words `param` of `group` accepts, or null when it is not an enum.
+const std::set<std::string>* enum_domain(const std::string& group,
+                                         const std::string& param) {
+    auto g = enum_values().find(group);
+    if (g == enum_values().end()) return nullptr;
+    auto p = g->second.find(param);
+    return p == g->second.end() ? nullptr : &p->second;
+}
+
 // The parameter groups each element kind may carry, from the "Element parameter
 // groups associated with this element kind are" list in its section of
 // lattice-element-kinds.md.
@@ -403,16 +455,36 @@ std::string suggest(const std::string& bad, const std::set<std::string>& known,
     return best_d <= cap ? best : std::string();
 }
 
-// Append a problem, skipping exact duplicates (mirrors expansion's add_problem).
-void add(std::vector<std::string>& problems, const std::string& msg) {
-    for (const std::string& p : problems)
-        if (p == msg) return;
-    problems.push_back(msg);
+// Append a problem, skipping exact duplicates.
+//
+// Everything this file reports is a name or value that PALS does not define, so
+// the kind is the same at every call site and is fixed here rather than passed
+// in: the author's, and fatal. Fatal even though a misspelling parses as good
+// YAML and expansion carries it through untouched -- what the author asked for
+// is not what the trees come back holding, and nothing downstream will say so.
+// A `FlorP` group is dropped on the floor; a `shape: eliptical` leaves the
+// aperture silently at its default. Both are wrong answers rather than
+// blemishes, so a caller that stops on PROBLEM_ERROR should stop on these.
+void add(pals::ProblemList& problems, const std::string& msg,
+         const std::string& path = "") {
+    pals::add_problem(problems, msg, path, pals::Severity::Error,
+                      pals::Origin::Input);
 }
 
-// "element 'q1': " when the map is keyed, "" when it is not. `group` names the
-// parameter group being looked at, and is empty at element level; it joins the
-// element name with the same `>` the parameter paths use: "element 'q1>ForkP': ".
+// The bare location of `node`: "q1", or "q1>ForkP" when `group` names the
+// parameter group being looked at (empty at element level), joined with the
+// same `>` the parameter paths use. Empty when the map is not keyed. This is
+// what goes in a problem's `path`; where() wraps it for the prose message.
+std::string path_of(const ryml::Tree& t, size_t node,
+                    const std::string& group) {
+    std::string name;
+    if (t.has_key(node)) name = std::string(t.key(node).str, t.key(node).len);
+    if (name.empty()) return group;
+    if (!group.empty()) name += ">" + group;
+    return name;
+}
+
+// "element 'q1': " when the map is keyed, "" when it is not.
 std::string where(const ryml::Tree& t, size_t node, const std::string& group) {
     std::string name;
     if (t.has_key(node)) name = std::string(t.key(node).str, t.key(node).len);
@@ -421,14 +493,36 @@ std::string where(const ryml::Tree& t, size_t node, const std::string& group) {
     return "element '" + name + "': ";
 }
 
-void report(std::vector<std::string>& problems, const ryml::Tree& t,
+void report(pals::ProblemList& problems, const ryml::Tree& t,
             size_t node, const std::string& group, const std::string& what,
             const std::string& bad, const std::set<std::string>& known) {
     std::string msg =
         where(t, node, group) + "unknown " + what + " '" + bad + "'";
     std::string fix = suggest(bad, known);
     if (!fix.empty()) msg += "; did you mean '" + fix + "'?";
-    add(problems, msg);
+    add(problems, msg, path_of(t, node, group));
+}
+
+// Check the value held by `node`, a component of `group` named `param` that has
+// already been recognised as a real parameter, against the words it accepts.
+// Does nothing for a parameter that is not an enum.
+void check_enum_value(const ryml::Tree& t, size_t owner, size_t node,
+                      const std::string& group, const std::string& param,
+                      pals::ProblemList& problems) {
+    const std::set<std::string>* domain = enum_domain(group, param);
+    if (!domain) return;
+    // Only a plain scalar can be checked. A null value means "unset", which is
+    // how the parameter arrives before a default is written into it, and is not
+    // the author naming a word that does not exist.
+    if (!t.has_val(node) || t.val_is_null(node)) return;
+    std::string v(t.val(node).str, t.val(node).len);
+    if (v.empty() || domain->count(v) != 0) return;
+
+    std::string msg = where(t, owner, group) + "'" + param +
+                      "' is set to '" + v + "', which is not one of its values";
+    std::string fix = suggest(v, *domain);
+    if (!fix.empty()) msg += "; did you mean '" + fix + "'?";
+    add(problems, msg, path_of(t, owner, group) + "." + param);
 }
 
 // Check the entries of one parameter group. `owner` is the element the group
@@ -436,7 +530,7 @@ void report(std::vector<std::string>& problems, const ryml::Tree& t,
 // name the group in the message.
 void check_group(const ryml::Tree& t, size_t owner, size_t group_node,
                  const std::string& group, const Extensions& ext,
-                 std::vector<std::string>& problems) {
+                 pals::ProblemList& problems) {
     auto entry = group_params().find(group);
     bool listed = entry != group_params().end();
     bool multipole = group == "MagneticMultipoleP" ||
@@ -465,8 +559,10 @@ void check_group(const ryml::Tree& t, size_t owner, size_t group_node,
             std::string k(t.key(c).str, t.key(c).len);
             if (ext.marks(k) || is_group_meta_key(k)) continue;
             if (multipole ? is_multipole_param(group, k)
-                          : entry->second.count(k) != 0)
+                          : entry->second.count(k) != 0) {
+                check_enum_value(t, owner, c, group, k, problems);
                 continue;
+            }
             // A multipole name is generated, so there is no table to suggest
             // from -- the nearest listed name would be a guess at a different
             // order, which is worse than no guess at all.
@@ -479,7 +575,7 @@ void check_group(const ryml::Tree& t, size_t owner, size_t group_node,
 // Check the parameters an element carries outside any parameter group.
 void check_element(const ryml::Tree& t, size_t node, const std::string& kind,
                    const Extensions& ext,
-                   std::vector<std::string>& problems) {
+                   pals::ProblemList& problems) {
     const std::set<std::string>& known = element_params(kind);
     for (size_t c = t.first_child(node); c != ryml::NONE;
          c = t.next_sibling(c)) {
@@ -498,7 +594,7 @@ void check_element(const ryml::Tree& t, size_t node, const std::string& kind,
 }
 
 void walk(const ryml::Tree& t, size_t node, const Extensions& ext,
-          std::vector<std::string>& problems) {
+          pals::ProblemList& problems) {
     if (node == ryml::NONE) return;
 
     std::string ele_kind;  // set when this map is an element definition
@@ -573,7 +669,7 @@ void walk(const ryml::Tree& t, size_t node, const Extensions& ext,
 // Anything outside the `PALS` node is outside the standard and ignored
 // (fundamentals.md, s:palsroot), so only this node's own keys are checked.
 void check_pals_root(const ryml::Tree& t, const Extensions& ext,
-                     std::vector<std::string>& problems) {
+                     pals::ProblemList& problems) {
     size_t pals = t.find_child(t.root_id(), ryml::to_csubstr("PALS"));
     if (pals == ryml::NONE || !t.is_map(pals)) return;
     for (size_t c = t.first_child(pals); c != ryml::NONE;
@@ -593,7 +689,7 @@ void check_pals_root(const ryml::Tree& t, const Extensions& ext,
 
 }  // namespace
 
-void check_pals_names(const ryml::Tree& t, std::vector<std::string>& problems) {
+void check_pals_names(const ryml::Tree& t, pals::ProblemList& problems) {
     Extensions ext = collect_extensions(t);
     check_pals_root(t, ext, problems);
     walk(t, t.root_id(), ext, problems);

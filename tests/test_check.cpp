@@ -11,7 +11,7 @@ std::vector<std::string> problems_for(const char* yaml) {
     struct lattices lat = expand_PALS_string(yaml, nullptr);
     std::vector<std::string> out;
     for (size_t i = 0; i < lat.problems.count; ++i)
-        out.push_back(lat.problems.items[i]);
+        out.push_back(lat.problems.items[i].message);
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);
     delete_tree(lat.combined);
@@ -475,4 +475,82 @@ TEST_CASE("an unrecognisable name is reported without a guess",
 
     REQUIRE(has(ps, "element 'x1': unknown kind 'Zzzyzx'"));
     REQUIRE(!has(ps, "'Zzzyzx'; did you mean"));
+}
+
+// ============================================================
+// Enumerated parameter values (the spec's `[enum]` parameters)
+// ============================================================
+
+TEST_CASE("a misspelled enumerated value is reported with a suggestion",
+          "[check][problems]") {
+    // Worse than a misspelled parameter name: `shape` really does exist and
+    // really does have a default, so `eliptical` leaves the aperture silently
+    // ELLIPTICAL rather than failing anywhere the author would notice.
+    auto ps = problems_for("PALS:\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        ApertureP:\n"
+                           "          shape: eliptical\n");
+
+    REQUIRE(has(ps,
+                "element 'q1>ApertureP': 'shape' is set to 'eliptical', which "
+                "is not one of its values; did you mean 'ELLIPTICAL'?"));
+}
+
+TEST_CASE("every documented enumerated value is accepted",
+          "[check][problems]") {
+    // The point of the table is to reject words PALS does not define, so a typo
+    // in the table itself would reject words it does -- the more damaging
+    // failure, since it is a valid lattice that gets the complaint. One
+    // non-default value from each enum, which is where such a typo would hide:
+    // the defaults are exercised by every other test in the suite.
+    auto ps = problems_for("PALS:\n"
+                           "  facility:\n"
+                           "    - b1:\n"
+                           "        kind: Bend\n"
+                           "        length: 1\n"
+                           "        BendP:\n"
+                           "          ref_geometry: CHORD\n"
+                           "          multipole_geometry: HORIZONTALLY_PURE\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        ApertureP:\n"
+                           "          shape: CUSTOM_SHAPE\n"
+                           "          location: BOTH_ENDS\n"
+                           "    - c1:\n"
+                           "        kind: RFCavity\n"
+                           "        length: 1\n"
+                           "        RFP:\n"
+                           "          cavity_type: TRAVELING_WAVE\n"
+                           "          zero_phase: BELOW_TRANSITION\n"
+                           "    - p1:\n"
+                           "        kind: Patch\n"
+                           "        PatchP:\n"
+                           "          ref_coords: ENTRANCE_END\n"
+                           "    - f1:\n"
+                           "        kind: Fork\n"
+                           "        ForkP:\n"
+                           "          to_line: somewhere\n"
+                           "          direction: BACKWARDS\n");
+
+    REQUIRE(count_with(ps, "not one of its values") == 0);
+}
+
+TEST_CASE("an unset enumerated value is not reported", "[check][problems]") {
+    // A parameter written with no value is how it arrives before a default is
+    // materialised into it. That is not the author naming a word that does not
+    // exist, so it must not be reported as one.
+    auto ps = problems_for("PALS:\n"
+                           "  facility:\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "        ApertureP:\n"
+                           "          shape:\n"
+                           "          location: null\n");
+
+    REQUIRE(count_with(ps, "not one of its values") == 0);
 }

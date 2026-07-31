@@ -34,7 +34,7 @@ struct LoadCase {
     std::vector<std::string> problems() const {
         std::vector<std::string> out;
         for (size_t i = 0; i < lat.problems.count; ++i)
-            out.emplace_back(lat.problems.items[i]);
+            out.emplace_back(lat.problems.items[i].message);
         return out;
     }
 
