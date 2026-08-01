@@ -528,7 +528,9 @@ TEST_CASE("repeat with an unusable count keeps the entry",
 
     REQUIRE(counts_rejected("bogus"));  // not a number at all
     REQUIRE(counts_rejected("3x"));     // stoi would stop early and return 3
-    REQUIRE(counts_rejected("-1"));     // parses, but meaningless
+    REQUIRE(counts_rejected("1.5"));    // a count is a whole number
+    // A negative count is not an unusable one: it is the reflection spelling
+    // (beamlines.md, s:repetition), covered by the reflection cases below.
 }
 
 TEST_CASE("repeat expands the copies it splices", "[lattices]") {
@@ -592,6 +594,155 @@ TEST_CASE("repeat expands the copies it splices", "[lattices]") {
         REQUIRE(val_eq(lat.expanded, get_child_by_key(lat.expanded, def, "kind"),
                        even ? "Drift" : "Quadrupole"));
     }
+
+    free_lattice_problems(lat.problems);
+    delete_tree(lat.original);
+    delete_tree(lat.combined);
+    delete_tree(lat.expanded);
+    delete_tree(lat.full_expanded);
+    delete_tree(lat.adjunct);
+}
+
+// The names of the branch entries of an expanded document, in order. The
+// reflection cases below are entirely about order, so this is all they ask for.
+static std::vector<std::string> line_names(YAMLTreeHandle tree) {
+    std::vector<std::string> names;
+    YAMLNodeId line = find_by_key(tree, "line");
+    if (line == YAML_NULL_ID) return names;
+    for (size_t i = 0; i < get_size(tree, line); i++) {
+        YAMLNodeId entry = get_child_by_index(tree, line, i);
+        YAMLNodeId def = get_child_by_index(tree, entry, 0);
+        char* key = get_node_key(tree, def);
+        names.push_back(key ? key : "");
+        yaml_free_string(key);
+    }
+    return names;
+}
+
+TEST_CASE("a negative repeat count reflects the elements it repeats",
+          "[lattices]") {
+    // `repeat: -n` is the reflection spelling (beamlines.md, s:repetition): n
+    // copies whose elements come out in reverse order. It used to be rejected
+    // as an unusable count, which left the entry unexpanded and the branch a
+    // bare beamline name -- an error on a lattice the standard allows.
+    //
+    // `inner` is nested inside the reflected `cell` to pin the point that what
+    // is reversed is the *expanded* elements: the sub-line flattens first, so
+    // the elements it contributes are reversed along with the rest, rather than
+    // the sub-line staying forward as one lump.
+    auto doc = [](const char* count) {
+        return std::string(
+                   "PALS:\n"
+                   "  facility:\n"
+                   "    - a:\n"
+                   "        kind: Drift\n"
+                   "        length: 1.0\n"
+                   "    - b:\n"
+                   "        kind: Drift\n"
+                   "        length: 1.0\n"
+                   "    - c:\n"
+                   "        kind: Drift\n"
+                   "        length: 1.0\n"
+                   "    - inner:\n"
+                   "        kind: BeamLine\n"
+                   "        line:\n"
+                   "          - b\n"
+                   "          - c\n"
+                   "    - cell:\n"
+                   "        kind: BeamLine\n"
+                   "        line:\n"
+                   "          - a\n"
+                   "          - inner\n"
+                   "    - main_line:\n"
+                   "        kind: BeamLine\n"
+                   "        line:\n"
+                   "          - cell:\n"
+                   "              repeat: ") +
+               count + "\n" +
+               "    - lat1:\n"
+               "        kind: Lattice\n"
+               "        branches:\n"
+               "          - main_line\n"
+               "    - use: \"lat1\"\n";
+    };
+
+    auto expanded_names = [&](const char* count) {
+        struct lattices lat = expand_PALS_string(doc(count).c_str(), nullptr);
+        REQUIRE(lat.full_expanded != nullptr);
+        for (size_t i = 0; i < lat.problems.count; ++i)
+            REQUIRE(std::string(lat.problems.items[i].message).find("repeat") ==
+                    std::string::npos);
+        std::vector<std::string> names = line_names(lat.expanded);
+        free_lattice_problems(lat.problems);
+        delete_tree(lat.original);
+        delete_tree(lat.combined);
+        delete_tree(lat.expanded);
+        delete_tree(lat.full_expanded);
+        delete_tree(lat.adjunct);
+        return names;
+    };
+
+    // `cell` expands to a b c, so a single reflection is c b a ...
+    REQUIRE(expanded_names("-1") == std::vector<std::string>{"c", "b", "a"});
+    // ... and each of n reflected copies is reversed in its turn, the whole run
+    // reading as the reverse of the n unreflected copies.
+    REQUIRE(expanded_names("-3") ==
+            std::vector<std::string>{"c", "b", "a", "c", "b", "a", "c", "b",
+                                     "a"});
+    // The positive count is the same list forwards, and -0 is 0: nothing.
+    REQUIRE(expanded_names("2") ==
+            std::vector<std::string>{"a", "b", "c", "a", "b", "c"});
+    REQUIRE(expanded_names("-0").empty());
+}
+
+TEST_CASE("a reflection nested inside a reflection is undone", "[lattices]") {
+    // Reflection composes: a line reflecting a sub-line that itself reflects
+    // one puts that innermost stretch back the way it was written. This only
+    // works because the outer reflection reverses the run *after* the copies
+    // are expanded -- by then the inner reflection has already turned its own
+    // stretch around, and the outer pass reverses the result.
+    const char* doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - a:\n"
+        "        kind: Drift\n"
+        "        length: 1.0\n"
+        "    - b:\n"
+        "        kind: Drift\n"
+        "        length: 1.0\n"
+        "    - c:\n"
+        "        kind: Drift\n"
+        "        length: 1.0\n"
+        "    - inner:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - b\n"
+        "          - c\n"
+        "    - cell:\n"          // a, then inner reflected: a c b
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - a\n"
+        "          - inner:\n"
+        "              repeat: -1\n"
+        "    - main_line:\n"     // cell reflected: b c a
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - cell:\n"
+        "              repeat: -1\n"
+        "    - lat1:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - main_line\n"
+        "    - use: \"lat1\"\n";
+
+    struct lattices lat = expand_PALS_string(doc, nullptr);
+    REQUIRE(lat.full_expanded != nullptr);
+    for (size_t i = 0; i < lat.problems.count; ++i)
+        REQUIRE(std::string(lat.problems.items[i].message).find("repeat") ==
+                std::string::npos);
+
+    REQUIRE(line_names(lat.expanded) ==
+            std::vector<std::string>{"b", "c", "a"});
 
     free_lattice_problems(lat.problems);
     delete_tree(lat.original);

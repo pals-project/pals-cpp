@@ -317,7 +317,7 @@ const std::set<std::string>& element_params(const std::string& kind) {
         "multipass_index", "element_index"};
     static const std::set<std::string> beamline = [] {
         std::set<std::string> s = base;
-        s.insert({"line", "multipass", "zero_point", "repeat"});
+        s.insert({"line", "multipass", "zero_point", "periodic", "repeat"});
         return s;
     }();
     static const std::set<std::string> lattice = [] {
