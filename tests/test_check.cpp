@@ -230,6 +230,32 @@ TEST_CASE("a misspelled element parameter is reported", "[check][problems]") {
     REQUIRE(count_with(ps, "unknown parameter") == 1);
 }
 
+TEST_CASE("the components of a BeamLine are all accepted",
+          "[check][problems]") {
+    // The full component list of a BeamLine (beamlines.md,
+    // s:beamline.components). `periodic` used to be missing from it, so a
+    // storage ring saying it was one was told the component did not exist.
+    auto ps = problems_for("PALS:\n"
+                           "  facility:\n"
+                           "    - m1:\n"
+                           "        kind: Marker\n"
+                           "    - q1:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n"
+                           "    - ring:\n"
+                           "        kind: BeamLine\n"
+                           "        name: ring\n"
+                           "        multipass: false\n"
+                           "        length: 1\n"
+                           "        periodic: true\n"
+                           "        zero_point: m1\n"
+                           "        line:\n"
+                           "          - m1\n"
+                           "          - q1\n");
+
+    REQUIRE(count_with(ps, "unknown parameter") == 0);
+}
+
 TEST_CASE("groups with no fixed vocabulary are left alone",
           "[check][problems]") {
     // MetaP may hold arbitrary metadata beyond its six components (meta.md) and

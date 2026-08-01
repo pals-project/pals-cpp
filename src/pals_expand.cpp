@@ -467,11 +467,19 @@ static void stamp_multipass_pass(ryml::Tree& t, size_t first, size_t stop,
         set_multipass_index(t, e, pass);
 }
 
+static void expand_seq_range(ryml::Tree& t, size_t node, size_t first,
+                             size_t stop, std::map<std::string, size_t>& emap,
+                             std::map<size_t, size_t>& prov,
+                             ProblemList& problems, size_t branches,
+                             std::map<size_t, int>& mp_pass,
+                             std::set<size_t>& done);
+
 /**
  * Perform lattice expansion on the element `node`.
  * 1. Substitute scalar elements with their full definition taken from emap.
- * 2. Beamlines that contain "repeat: n" have their contents repeated n times,
- *    each copy expanded in turn like any other entry of the enclosing line.
+ * 2. Beamlines that contain "repeat: n" have their contents repeated |n| times,
+ *    each copy expanded in turn like any other entry of the enclosing line. A
+ *    negative n reflects: the repeated elements come out in reverse order.
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
  * 4. A beamline referenced by bare name inside a `line:` is a sub-line: its
@@ -496,115 +504,8 @@ static void expand(ryml::Tree& t, size_t node,
 
     // Sequence — handle 'repeat'
     if (t.is_seq(node)) {
-        size_t child = t.first_child(node);
-        // loop over all children
-        while (child != ryml::NONE) {
-            size_t next = t.next_sibling(child);
-            if (t.is_map(child) && t.has_children(child)) {
-                // first_child because elements are defined as maps with only
-                // one key
-                size_t entry = t.first_child(child);
-                if (t.has_key(entry) && t.is_map(entry)) {
-                    size_t repeat_id =
-                        t.find_child(entry, ryml::to_csubstr("repeat"));
-                    if (repeat_id != ryml::NONE && t.has_val(repeat_id)) {
-                        std::string cnt_txt(t.val(repeat_id).str,
-                                            t.val(repeat_id).len);
-                        std::string target(t.key(entry).str, t.key(entry).len);
-
-                        // stoi stops at the first character it cannot use and
-                        // reports how far it got, so require the whole value to
-                        // be consumed: "3x" is a typo, not a count of 3. A
-                        // negative count is meaningless too. Both land on
-                        // count < 0 and are reported the same way.
-                        int count = -1;
-                        try {
-                            size_t used = 0;
-                            count = std::stoi(cnt_txt, &used);
-                            if (used != cnt_txt.size()) count = -1;
-                        } catch (...) {
-                            count = -1;
-                        }
-
-                        if (count < 0) {
-                            add_problem(problems, "repeat: invalid count '" +
-                                                      cnt_txt + "' for '" +
-                                                      target + "'");
-                        } else if (!emap.count(target)) {
-                            // check if the beamline to be repeated has been
-                            // defined in the file
-                            add_problem(problems, "repeat: beamline '" + target +
-                                                      "' is not defined");
-                        } else {
-                            size_t def = emap[target];
-                            size_t line_id =
-                                t.find_child(def, ryml::to_csubstr("line"));
-                            // `before`/`next` bracket the run about to be
-                            // spliced in: both are outside it and stay put
-                            // while it is built, so they still bracket it once
-                            // `child` itself is gone.
-                            size_t before = t.prev_sibling(child);
-                            size_t after = before;
-                            // if beamline to be repeated has a line, duplicate
-                            // it `count` times, else just duplicate the name of
-                            // the beamline `count` times
-                            if (line_id != ryml::NONE && t.is_seq(line_id)) {
-                                for (int r = 0; r < count; r++)
-                                    for (size_t c2 = t.first_child(line_id);
-                                         c2 != ryml::NONE;
-                                         c2 = t.next_sibling(c2)) {
-                                        ensure_capacity(t, 2);
-                                        after = duplicate_tracked(t, c2, node,
-                                                                  after, prov);
-                                    }
-                            } else {
-                                for (int r = 0; r < count; r++) {
-                                    ensure_capacity(t, 2);
-                                    size_t wrapper =
-                                        t.insert_child(node, after);
-                                    t.ref(wrapper) |= ryml::MAP;
-                                    duplicate_tracked(t, def, wrapper,
-                                                      ryml::NONE, prov);
-                                    after = wrapper;
-                                }
-                            }
-                            erase_prov_subtree(t, child, prov);
-                            t.remove(child);
-
-                            // Expand the copies just spliced in. They are
-                            // duplicates of the repeated definition's own
-                            // entries -- element references and nested
-                            // sub-lines -- so they need exactly the expansion
-                            // the enclosing loop would have given them had they
-                            // been written out by hand. Skipping them left a
-                            // branch of bare names that extracted as an empty
-                            // lattice, and reported nothing.
-                            for (size_t cur = (before == ryml::NONE)
-                                                  ? t.first_child(node)
-                                                  : t.next_sibling(before);
-                                 cur != ryml::NONE && cur != next;) {
-                                size_t nx = t.next_sibling(cur);
-                                expand(t, cur, emap, prov, problems, branches,
-                                       mp_pass, done);
-                                cur = nx;
-                            }
-
-                            child = next;
-                            continue;
-                        }
-                        // Either problem path falls through to leave the entry
-                        // exactly as written. Only a repeat we fully understood
-                        // removes it: dropping an entry on the strength of a
-                        // count we could not read would delete part of the
-                        // lattice, leaving a plausible-looking `line: []` that
-                        // is only explained by a problem the caller may not
-                        // check.
-                    }
-                }
-            }
-            expand(t, child, emap, prov, problems, branches, mp_pass, done);
-            child = next;
-        }
+        expand_seq_range(t, node, t.first_child(node), ryml::NONE, emap, prov,
+                         problems, branches, mp_pass, done);
         return;
     }
 
@@ -712,6 +613,161 @@ static void expand(ryml::Tree& t, size_t node,
         for (size_t i = 0; i < original_size && c != ryml::NONE;
              i++, c = t.next_sibling(c))
             expand(t, c, emap, prov, problems, node_branches, mp_pass, done);
+    }
+}
+
+/**
+ * Expand the entries [`first`, `stop`) of the sequence `node` -- `stop` ==
+ * ryml::NONE meaning "to the end" -- handling the `repeat` of each entry.
+ *
+ * Split out of expand() because `repeat` belongs to a line *entry* but is read
+ * from the sequence holding it: expanding an entry on its own walks straight
+ * past it. The copies a `repeat` splices in are entries of that same sequence
+ * and may carry `repeat`s of their own, so they go back through this loop
+ * rather than being expanded one at a time.
+ */
+static void expand_seq_range(ryml::Tree& t, size_t node, size_t first,
+                             size_t stop, std::map<std::string, size_t>& emap,
+                             std::map<size_t, size_t>& prov,
+                             ProblemList& problems, size_t branches,
+                             std::map<size_t, int>& mp_pass,
+                             std::set<size_t>& done) {
+    size_t child = first;
+    // loop over all children
+    while (child != ryml::NONE && child != stop) {
+        size_t next = t.next_sibling(child);
+        if (t.is_map(child) && t.has_children(child)) {
+            // first_child because elements are defined as maps with only
+            // one key
+            size_t entry = t.first_child(child);
+            if (t.has_key(entry) && t.is_map(entry)) {
+                size_t repeat_id =
+                    t.find_child(entry, ryml::to_csubstr("repeat"));
+                if (repeat_id != ryml::NONE && t.has_val(repeat_id)) {
+                    std::string cnt_txt(t.val(repeat_id).str,
+                                        t.val(repeat_id).len);
+                    std::string target(t.key(entry).str, t.key(entry).len);
+
+                    // stoll stops at the first character it cannot use and
+                    // reports how far it got, so require the whole value to be
+                    // consumed: "3x" is a typo, not a count of 3.
+                    //
+                    // A negative count is a reflection: |count| copies whose
+                    // elements come out in reverse order (beamlines.md,
+                    // s:repetition). Reversed order is not direction reversal
+                    // -- that is the separate `direction` component -- so the
+                    // copies themselves are left untouched and only their order
+                    // is turned around, below.
+                    bool count_ok = true;
+                    long long count = 0;
+                    try {
+                        size_t used = 0;
+                        count = std::stoll(cnt_txt, &used);
+                        if (used != cnt_txt.size()) count_ok = false;
+                    } catch (...) {
+                        count_ok = false;
+                    }
+                    const bool reflect = count < 0;
+                    const long long copies = reflect ? -count : count;
+
+                    if (!count_ok) {
+                        add_problem(problems, "repeat: invalid count '" +
+                                                  cnt_txt + "' for '" +
+                                                  target + "'");
+                    } else if (!emap.count(target)) {
+                        // check if the beamline to be repeated has been
+                        // defined in the file
+                        add_problem(problems, "repeat: beamline '" + target +
+                                                  "' is not defined");
+                    } else {
+                        size_t def = emap[target];
+                        size_t line_id =
+                            t.find_child(def, ryml::to_csubstr("line"));
+                        // `before`/`next` bracket the run about to be
+                        // spliced in: both are outside it and stay put
+                        // while it is built, so they still bracket it once
+                        // `child` itself is gone.
+                        size_t before = t.prev_sibling(child);
+                        size_t after = before;
+                        // if beamline to be repeated has a line, duplicate
+                        // it `copies` times, else just duplicate the name
+                        // of the beamline `copies` times
+                        if (line_id != ryml::NONE && t.is_seq(line_id)) {
+                            for (long long r = 0; r < copies; r++)
+                                for (size_t c2 = t.first_child(line_id);
+                                     c2 != ryml::NONE;
+                                     c2 = t.next_sibling(c2)) {
+                                    ensure_capacity(t, 2);
+                                    after = duplicate_tracked(t, c2, node,
+                                                              after, prov);
+                                }
+                        } else {
+                            for (long long r = 0; r < copies; r++) {
+                                ensure_capacity(t, 2);
+                                size_t wrapper =
+                                    t.insert_child(node, after);
+                                t.ref(wrapper) |= ryml::MAP;
+                                duplicate_tracked(t, def, wrapper,
+                                                  ryml::NONE, prov);
+                                after = wrapper;
+                            }
+                        }
+                        erase_prov_subtree(t, child, prov);
+                        t.remove(child);
+
+                        // Expand the copies just spliced in. They are
+                        // duplicates of the repeated definition's own
+                        // entries -- element references, nested sub-lines,
+                        // and `repeat`s of their own -- so they get exactly
+                        // the pass this loop would have given them had they
+                        // been written out by hand. Skipping them left a
+                        // branch of bare names that extracted as an empty
+                        // lattice, and reported nothing.
+                        expand_seq_range(t, node,
+                                         (before == ryml::NONE)
+                                             ? t.first_child(node)
+                                             : t.next_sibling(before),
+                                         next, emap, prov, problems, branches,
+                                         mp_pass, done);
+
+                        // A negative count reflects the run just spliced in.
+                        // Reversing it only now, after the copies are expanded,
+                        // is what makes this a reversal of *elements*: by this
+                        // point every sub-line the copies held has been spliced
+                        // inline, so the run is the flat element list the
+                        // standard defines the reflection on, and a reflection
+                        // nested inside this one has already turned its own
+                        // stretch around.
+                        if (reflect) {
+                            std::vector<size_t> run;
+                            for (size_t cur =
+                                     (before == ryml::NONE)
+                                         ? t.first_child(node)
+                                         : t.next_sibling(before);
+                                 cur != ryml::NONE && cur != next;
+                                 cur = t.next_sibling(cur))
+                                run.push_back(cur);
+                            // Moving each entry in turn to the head of the
+                            // run leaves them in the opposite order.
+                            for (size_t i = 1; i < run.size(); i++)
+                                t.move(run[i], before);
+                        }
+
+                        child = next;
+                        continue;
+                    }
+                    // Either problem path falls through to leave the entry
+                    // exactly as written. Only a repeat we fully understood
+                    // removes it: dropping an entry on the strength of a
+                    // count we could not read would delete part of the
+                    // lattice, leaving a plausible-looking `line: []` that
+                    // is only explained by a problem the caller may not
+                    // check.
+                }
+            }
+        }
+        expand(t, child, emap, prov, problems, branches, mp_pass, done);
+        child = next;
     }
 }
 
@@ -1407,7 +1463,8 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
  * the file. Last expansion performs the following:
  * 1. Substitute scalar elements with their full definition, if defined in the
  * file outside the lattice.
- * 2. Beamlines that contain "repeat: n" have their contents repeated n times.
+ * 2. Beamlines that contain "repeat: n" have their contents repeated |n| times,
+ * in reverse order when n is negative.
  * 3. Elements that contain "inherit: ancestor" have the contents of ancestor
  * copied into element.
  */
