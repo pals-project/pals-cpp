@@ -6,7 +6,7 @@ YAML lattice files with [rapidyaml](https://github.com/biojppm/rapidyaml),
 expands a lattice according to the PALS specification, evaluates the
 mathematical expressions in the expanded lattice, and exposes everything through
 a C API (`PALSParserCpp.h`) that other languages — such as
-[PALSJulia](https://github.com/pals-project/PALSJulia) — wrap.
+[PALSParserJ](https://github.com/pals-project/PALSParserJ.jl) — wrap.
 
 ```{toctree}
 :hidden:
