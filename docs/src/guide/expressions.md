@@ -18,7 +18,7 @@ Constant values come from
 [AtomicAndPhysicalConstantsCLib](https://github.com/pals-project/AtomicAndPhysicalConstantsCLib)
 (APC — a C++ mirror of
 [AtomicAndPhysicalConstants.jl](https://github.com/bmad-sim/AtomicAndPhysicalConstants.jl),
-CODATA 2022), fetched automatically by CMake, so pals-cpp shares one set of
+CODATA 2022), fetched automatically by CMake, so PALSParserCpp shares one set of
 numbers with the rest of the toolchain.
 
 ## Where the standard leaves a choice

@@ -4,9 +4,9 @@
 // inherits, forks), evaluates expressions into the expanded tree, and applies
 // the controllers that drive
 // its parameters. Name matching and parameter lookup live in pals_match.cpp;
-// the generic YAML tree wrapper in yaml_c_wrapper.cpp.
+// the generic YAML tree wrapper in PALSParserCpp.cpp.
 
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 #include "yaml_tree.h"
 #include "pals_util.h"
 #include "pals_floor.h"
@@ -2694,6 +2694,24 @@ struct SetCommand {
 // `written`, when given, collects one target per parameter actually written --
 // what the `expanded` tree needs in order to tell a post-expansion set's input
 // apart from a value the bookkeeper derived from it (see AuthoredParams).
+// Give a bare line reference somewhere to hold a parameter, returning the node
+// the parameter hangs off. `- q1` and `- q1:` are the same entry -- the second
+// just has room for values of its own -- so a `set` naming the first rewrites it
+// into the second rather than refusing the write. The node comes back unchanged
+// when it is already keyed, which every other kind of match is.
+//
+// The new nodes carry no provenance, like the ReferenceP/FloorP the bookkeeper
+// adds: they answer to nothing in the source, since the source did not write
+// them.
+static size_t materialize_line_reference(ryml::Tree& t, size_t node) {
+    if (node == ryml::NONE || t.has_key(node) || !t.has_val(node)) return node;
+    std::string name(t.val(node).str, t.val(node).len);
+    t.to_map(node);  // the seq entry becomes the anonymous wrapper map
+    size_t def = t.append_child(node);
+    t.to_map(def, t.to_arena(ryml::to_csubstr(name)));
+    return def;
+}
+
 static void execute_set(ryml::Tree& t, const SetCommand& cmd,
                         const ElementMatches& matches, bool pre,
                         const pals::SymbolLookup& resolve,
@@ -2733,7 +2751,8 @@ static void execute_set(ryml::Tree& t, const SetCommand& cmd,
     std::map<std::string, size_t> emap;
     if (pre) make_ele_map(emap, t, t.root_id());
 
-    for (size_t ele : matches.elements) {
+    for (size_t match : matches.elements) {
+        size_t ele = materialize_line_reference(t, match);
         SetTarget tg = make_target(ele, matches.path);
         std::string ename(t.key(ele).str, t.key(ele).len);
         std::string where = what + " on '" + ename + "'";

@@ -19,7 +19,7 @@
 
 namespace pals {
 
-// The `expr` group is defined in yaml_c_wrapper.h (@defgroup expr); the symbols
+// The `expr` group is defined in PALSParserCpp.h (@defgroup expr); the symbols
 // below join it so the C entry point and this C++ interface document together.
 
 /**

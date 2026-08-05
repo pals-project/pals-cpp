@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the pals-cpp documentation.
+"""Build the PALSParserCpp documentation.
 
 Runs Doxygen (C/C++ API -> XML) and then Sphinx (MyST + Furo narrative, with the
 API embedded via Breathe). The finished site is written to ``docs/build/html``.

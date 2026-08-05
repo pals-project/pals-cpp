@@ -8,7 +8,7 @@ actually is.
 
 The PALS standard deliberately leaves this open — it says what lattice expansion
 must produce, not how a parser must hold the result. The five trees are this
-library's answer, and everything on this page is pals-cpp's own arrangement
+library's answer, and everything on this page is PALSParserCpp's own arrangement
 rather than part of the standard.
 
 | Tree | Holds |
@@ -122,7 +122,7 @@ put them.
 
 ### What the expansion adds
 
-Everything below is written by pals-cpp into `full_expanded` and appears in no
+Everything below is written by PALSParserCpp into `full_expanded` and appears in no
 other tree.
 
 **Per element, from the element bookkeeper:**

@@ -1,4 +1,4 @@
-# Doxygen configuration for the pals-cpp documentation site.
+# Doxygen configuration for the PALSParserCpp documentation site.
 #
 # This produces *XML only*: the narrative site is built by Sphinx (MyST + Furo)
 # and the C/C++ API is pulled in from this XML by the Breathe extension. See
@@ -6,11 +6,11 @@
 #
 # Unset options take Doxygen's defaults.
 
-PROJECT_NAME           = "pals-cpp"
+PROJECT_NAME           = "PALSParserCpp"
 PROJECT_BRIEF          = "A C++ parser for the PALS accelerator-lattice language"
 
 # Document the public headers (the C API and the expression evaluator).
-INPUT                  = ../src/yaml_c_wrapper.h ../src/pals_expression.h
+INPUT                  = ../src/PALSParserCpp.h ../src/pals_expression.h
 FILE_PATTERNS          = *.h *.hpp
 RECURSIVE              = NO
 

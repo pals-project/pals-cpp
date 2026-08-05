@@ -174,6 +174,168 @@ TEST_CASE("a set only reaches elements defined before it",
     free_all(lat);
 }
 
+namespace {
+
+// The example of lattice-elements.md (element name matching), as a whole file:
+// `q1` defined as a facility entry, a second `q1` written inside `myline`, and a
+// branch inheriting myline so expansion makes a third. `body` is the facility
+// entries that follow, which is where each test puts its sets.
+std::string facility_qualifier_file(const std::string& body) {
+    return "PALS:\n"
+           "  facility:\n"
+           "    - q1:\n"
+           "        kind: Quadrupole\n"
+           "        length: 0.1\n"
+           "    - myline:\n"
+           "        kind: BeamLine\n"
+           "        line:\n" +
+           std::string(BEGIN_ENTRY) +
+           "          - q1:\n"
+           "              kind: Quadrupole\n"
+           "              length: 0.9\n"
+           "    - mylat:\n"
+           "        kind: Lattice\n"
+           "        branches:\n"
+           "          - mybranch:\n"
+           "              inherit: myline\n"
+           "    - use: \"mylat\"\n" +
+           body;
+}
+
+}  // namespace
+
+TEST_CASE("a set on a bare line reference gives it values of its own",
+          "[expr][lattices][set]") {
+    // `- q1` and `- q1: {length: 0.6}` are the same line entry, the second with
+    // room for values the definition does not give it. A set naming the first
+    // through its beamline writes it, so the two files expand alike.
+    const char* DEF_AND_LINE =
+        "PALS:\n"
+        "  facility:\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.1\n"
+        "    - myline:\n"
+        "        kind: BeamLine\n"
+        "        line:\n";
+    const char* TAIL =
+        "    - mylat:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - mybranch:\n"
+        "              inherit: myline\n"
+        "    - use: \"mylat\"\n";
+
+    const std::string with_set = DEF_AND_LINE + std::string(BEGIN_ENTRY) +
+                                 "          - q1\n" + TAIL +
+                                 "    - sets:\n"
+                                 "        - myline>>q1>length: 0.6\n";
+    const std::string written_out = DEF_AND_LINE + std::string(BEGIN_ENTRY) +
+                                    "          - q1:\n"
+                                    "              length: 0.6\n" +
+                                    TAIL;
+
+    struct lattices a = expand_PALS_string(with_set.c_str(), nullptr);
+    struct lattices b = expand_PALS_string(written_out.c_str(), nullptr);
+    REQUIRE(joined(a) == "");
+    REQUIRE(joined(b) == "");
+
+    REQUIRE(close(one_param(a.full_expanded, "q1", nullptr, "length"), 0.6));
+    REQUIRE(close(one_param(b.full_expanded, "q1", nullptr, "length"), 0.6));
+
+    // The definition the reference points at is not what was named, so it keeps
+    // the length it was given.
+    struct param_value v =
+        get_lattice_parameter_value(a.full_expanded, a.adjunct,
+                                    "facility>>q1>length");
+    REQUIRE(v.kind == PARAM_VALUE_NUMBER);
+    REQUIRE(close(v.number, 0.1));
+
+    free_all(a);
+    free_all(b);
+}
+
+TEST_CASE("an unqualified set targets the definition, not the references to it",
+          "[expr][lattices][set]") {
+    // s:expand.lat: without expand_lattice a set "targets the single q1
+    // definition", and every use of it follows along. If the bare `- q1` in the
+    // line were written too, its 0.6 would override the definition's 0.7 in the
+    // expanded lattice.
+    const std::string doc =
+        "PALS:\n"
+        "  facility:\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.1\n"
+        "    - myline:\n"
+        "        kind: BeamLine\n"
+        "        line:\n" +
+        std::string(BEGIN_ENTRY) +
+        "          - q1\n"
+        "    - mylat:\n"
+        "        kind: Lattice\n"
+        "        branches:\n"
+        "          - mybranch:\n"
+        "              inherit: myline\n"
+        "    - use: \"mylat\"\n"
+        "    - sets:\n"
+        "        - q1>length: 0.7\n";
+
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
+    REQUIRE(joined(lat) == "");
+    REQUIRE(close(one_param(lat.full_expanded, "q1", nullptr, "length"), 0.7));
+
+    free_all(lat);
+}
+
+TEST_CASE("a set qualified with `facility>>` writes only the definition",
+          "[expr][lattices][set]") {
+    // lattice-elements.md: `facility>>q1` names the definition of q1 outside of
+    // myline and mybranch. Before expansion it is the one thing a set can name
+    // that the plain `q1` -- which reaches the copy inside myline -- does not.
+    const std::string doc =
+        facility_qualifier_file("    - sets:\n"
+                                "        - facility>>q1>length: 0.4\n");
+
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
+    REQUIRE(joined(lat) == "");
+
+    struct param_value v =
+        get_lattice_parameter_value(lat.full_expanded, lat.adjunct,
+                                    "facility>>q1>length");
+    REQUIRE(v.kind == PARAM_VALUE_NUMBER);
+    REQUIRE(close(v.number, 0.4));
+
+    // The q1 inside myline, and so the copy expansion made from it, is untouched.
+    REQUIRE(close(one_param(lat.full_expanded, "q1", nullptr, "length"), 0.9));
+
+    free_all(lat);
+}
+
+TEST_CASE("a `facility>>` set after expand_lattice still writes the definition",
+          "[expr][lattices][set]") {
+    // A post-expansion set otherwise acts on the expanded lattice, and the
+    // definitions sit outside it -- naming them is what the qualifier is for.
+    const std::string doc =
+        facility_qualifier_file("    - expand_lattice\n"
+                                "    - sets:\n"
+                                "        - facility>>q1>length: 0.4\n"
+                                "        - mybranch>>q1>length: 0.5\n");
+
+    struct lattices lat = expand_PALS_string(doc.c_str(), nullptr);
+    REQUIRE(joined(lat) == "");
+
+    struct param_value v =
+        get_lattice_parameter_value(lat.full_expanded, lat.adjunct,
+                                    "facility>>q1>length");
+    REQUIRE(v.kind == PARAM_VALUE_NUMBER);
+    REQUIRE(close(v.number, 0.4));
+
+    REQUIRE(close(one_param(lat.full_expanded, "q1", nullptr, "length"), 0.5));
+
+    free_all(lat);
+}
+
 TEST_CASE("a set creates a parameter that defaults to zero",
           "[expr][lattices][set]") {
     // s:lattice.expand: an unwritten parameter of a known element reads as zero,

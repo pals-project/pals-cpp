@@ -9,7 +9,7 @@ cmake -S . -B build
 cmake --build build
 ```
 
-This builds `libyaml_c_wrapper` (`.dylib`/`.so`), a shared library that other
+This builds `libPALSParserCpp` (`.dylib`/`.so`), a shared library that other
 languages can load. CMake fetches the dependencies —
 [rapidyaml](https://github.com/biojppm/rapidyaml),
 [PCRE2](https://www.pcre.org), and
@@ -28,7 +28,7 @@ independent views —
 `delete_tree`.
 
 ```cpp
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 
 struct lattices lat = parse_and_expand_PALS("ex.pals.yaml", nullptr);
 
@@ -224,7 +224,7 @@ The `examples/` directory contains runnable programs:
 
 ## Extensions
 
-[PALSJulia](https://github.com/pals-project/PALSJulia) extends pals-cpp with a
+[PALSJulia](https://github.com/pals-project/PALSJulia) extends PALSParserCpp with a
 Julia interface to the C API and translators from PALS to
 [Bmad](https://github.com/bmad-sim/bmad-ecosystem) and
 [SciBmad](https://github.com/bmad-sim/SciBmad.jl) lattice files.

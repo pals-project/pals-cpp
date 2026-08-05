@@ -3,9 +3,9 @@
 
 // The concrete YAML tree representation (the type behind the opaque
 // YAMLTreeHandle) and its low-level helpers, shared between the generic YAML
-// tree wrapper (yaml_c_wrapper.cpp) and the PALS lattice logic
+// tree wrapper (PALSParserCpp.cpp) and the PALS lattice logic
 // (pals_lattice.cpp). This header is not installed and is not part of the
-// public C API declared in yaml_c_wrapper.h.
+// public C API declared in PALSParserCpp.h.
 
 #include <cstddef>
 #include <map>
@@ -13,7 +13,7 @@
 
 #include <ryml.hpp>
 
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 
 // Underlying object for YAMLTreeHandle. Contains the parsed YAML tree and the
 // string buffer it was parsed from. Nodes are identied by their index (of type

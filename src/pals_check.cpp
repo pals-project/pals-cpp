@@ -660,6 +660,39 @@ void walk(const ryml::Tree& t, size_t node, const Extensions& ext,
     }
 }
 
+// Collect every construct wrongly named `facility`. The word is reserved: in a
+// name-matching string `facility>>q1` selects the `q1` held by the facility node
+// itself rather than any branch's (lattice-elements.md), so an element, BeamLine
+// or Lattice answering to `facility` would make the qualifier ambiguous.
+//
+// The three places a construct is given a name are an entry of the `facility`
+// list, an entry of a `line`, and an entry of `branches` -- each a sequence of
+// anonymous maps wrapping one keyed definition. Looking for the shape rather
+// than for a `kind` is what also catches a branch that only `inherit`s a
+// beamline, which carries no kind of its own. Node ids are collected in a set so
+// a construct reachable two ways is still reported once.
+void collect_reserved_names(const ryml::Tree& t, size_t node,
+                            std::set<size_t>& bad) {
+    if (node == ryml::NONE) return;
+
+    if (t.is_seq(node) && t.has_key(node)) {
+        std::string k(t.key(node).str, t.key(node).len);
+        if (k == "facility" || k == "line" || k == "branches") {
+            for (size_t e = t.first_child(node); e != ryml::NONE;
+                 e = t.next_sibling(e)) {
+                if (!t.is_map(e)) continue;
+                size_t def = t.first_child(e);
+                if (def == ryml::NONE || !t.has_key(def)) continue;
+                if (std::string(t.key(def).str, t.key(def).len) == "facility")
+                    bad.insert(def);
+            }
+        }
+    }
+
+    for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
+        collect_reserved_names(t, c, bad);
+}
+
 // Check the keys of the `PALS` root node itself. walk() judges what is below it
 // in context, but the root's own vocabulary is closed and small, and a
 // misspelling there is otherwise silent: `extension_names` registers no
@@ -693,4 +726,20 @@ void check_pals_names(const ryml::Tree& t, pals::ProblemList& problems) {
     Extensions ext = collect_extensions(t);
     check_pals_root(t, ext, problems);
     walk(t, t.root_id(), ext, problems);
+
+    // One problem however many constructs are misnamed: the name, the reason
+    // and the fix are the same for all of them, so a message per occurrence
+    // would repeat itself word for word. The count is what varies, so that is
+    // what the message carries.
+    std::set<size_t> reserved;
+    collect_reserved_names(t, t.root_id(), reserved);
+    if (!reserved.empty()) {
+        std::string msg =
+            "'facility' is a reserved name and cannot name an element, "
+            "BeamLine or Lattice: 'facility>>' selects the definitions the "
+            "facility node itself holds";
+        if (reserved.size() > 1)
+            msg += " (" + std::to_string(reserved.size()) + " uses)";
+        add(problems, msg, "facility");
+    }
 }

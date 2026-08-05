@@ -1,10 +1,10 @@
 // PALS name matching and parameter lookup: resolves a PALS name-matching
-// string (see match_names in yaml_c_wrapper.h) against a tree using PCRE2, and
+// string (see match_names in PALSParserCpp.h) against a tree using PCRE2, and
 // reads the value of a matched element parameter, constant, or variable. The
 // lattice expansion that produces the trees this runs on lives in
-// pals_expand.cpp; the generic YAML tree wrapper in yaml_c_wrapper.cpp.
+// pals_expand.cpp; the generic YAML tree wrapper in PALSParserCpp.cpp.
 
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 #include "yaml_tree.h"
 #include "pals_util.h"
 
@@ -40,6 +40,11 @@
 // parameter path — additionally matches constants and variables. The node
 // returned for a match is whatever the string resolves to: the element node,
 // the parameter-group or parameter node, or the constant/variable node.
+//
+// `facility` as the branch name is the one reserved word here: it selects
+// element *definitions* held by the `facility` list rather than elements of any
+// branch (lattice-elements.md). That is why no element, BeamLine or Lattice may
+// be named `facility` — pals_check.cpp reports one that is.
 //
 // Not yet implemented from Element Name Matching: '#N' instance selection,
 // '{e1}:{e2}' ranges, ',' unions, and '&' intersections.
@@ -89,6 +94,7 @@ struct NameSelector {
     std::string kind;
     bool lattice_present = false;
     bool branch_present = false;
+    bool facility_scope = false;  // the branch qualifier was `facility`
     bool has_kind = false;
     bool has_param = false;
     std::vector<std::string> path;
@@ -121,6 +127,13 @@ static NameSelector parse_selector(const std::string& spec) {
         branch = s.substr(0, p2);
         s = s.substr(p2 + 2);
         sel.branch_present = true;
+        // `facility` names the facility node, not a branch, so it is taken as
+        // the literal word rather than compiled as a pattern: a branch pattern
+        // wide enough to cover it (`.*`) still means branches only.
+        if (branch == "facility") {
+            sel.facility_scope = true;
+            branch.clear();
+        }
     }
     size_t p1 = s.find('>');
     std::string elem_part;
@@ -294,13 +307,31 @@ static void match_elements(const ryml::Tree& t, size_t node,
         if (lattice_ok && branch_ok) {
             for (size_t entry = t.first_child(line); entry != ryml::NONE;
                  entry = t.next_sibling(entry)) {
-                // A named element is a map whose first child is keyed with the
-                // element name; bare scalar entries are unresolved references
-                // with no parameters, so they are skipped.
-                if (!t.is_map(entry)) continue;
-                size_t def = t.first_child(entry);
-                if (def == ryml::NONE || !t.has_key(def)) continue;
-                if (!full_match(sel.name, node_key_str(t, def))) continue;
+                // A line entry is either a map whose first child is keyed with
+                // the element name -- an inline definition, or a reference
+                // carrying values of its own -- or a bare scalar naming an
+                // element defined elsewhere.
+                size_t def = ryml::NONE;
+                std::string ename;
+                if (t.is_map(entry)) {
+                    def = t.first_child(entry);
+                    if (def == ryml::NONE || !t.has_key(def)) continue;
+                    ename = node_key_str(t, def);
+                } else if (t.has_val(entry) && sel.branch_present) {
+                    // A bare `- q1` holds no parameters of its own, but it can
+                    // be given them -- `- q1: {length: 0.6}` is the same entry
+                    // written longhand -- so it is a settable element, not a
+                    // dead reference. It answers only to a name qualified by the
+                    // line it sits in: unqualified, `q1` is the definition it
+                    // points at, and a `set` before expansion "targets the
+                    // single q1 definition" (lattice-construction.md,
+                    // s:expand.lat) with every reference following along.
+                    def = entry;
+                    ename = std::string(t.val(entry).str, t.val(entry).len);
+                } else {
+                    continue;
+                }
+                if (!full_match(sel.name, ename)) continue;
                 if (sel.has_kind && child_val_str(t, def, "kind") != sel.kind)
                     continue;
                 size_t hit = (sel.has_param && resolve_params)
@@ -315,6 +346,63 @@ static void match_elements(const ryml::Tree& t, size_t node,
     for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
         match_elements(t, c, cur_lattice, cur_beamlines, sel, resolve_params,
                        out, seen);
+}
+
+// Match the element definitions held directly by one `facility` list -- what the
+// reserved branch name `facility` selects. Each entry is an anonymous map
+// wrapping a single keyed definition, the shape match_definition_parameters
+// walks. Elements written inside a beamline's `line` under this facility are
+// deliberately out of reach: it is the definition standing *outside* the
+// beamlines that `facility>>` names, and match_elements already covers the rest.
+static void match_facility_entries(const ryml::Tree& t, size_t fac,
+                                   const NameSelector& sel, bool resolve_params,
+                                   std::vector<size_t>& out,
+                                   std::set<size_t>& seen) {
+    for (size_t w = t.first_child(fac); w != ryml::NONE; w = t.next_sibling(w)) {
+        if (!t.is_map(w)) continue;
+        size_t def = t.first_child(w);
+        if (def == ryml::NONE || !t.has_key(def) || !t.is_map(def)) continue;
+        if (!full_match(sel.name, node_key_str(t, def))) continue;
+        if (sel.has_kind && child_val_str(t, def, "kind") != sel.kind) continue;
+        size_t hit = (sel.has_param && resolve_params)
+                         ? resolve_param_path(t, def, sel.path)
+                         : def;
+        if (hit != ryml::NONE && seen.insert(hit).second) out.push_back(hit);
+    }
+}
+
+// Every `facility` list in the tree. There is one per PALS node, and the PALS
+// node sits at the root in most views but one level down per included file in
+// `original`, so the whole tree is walked rather than a fixed path guessed at.
+static void match_facility(const ryml::Tree& t, size_t node,
+                           const NameSelector& sel, bool resolve_params,
+                           std::vector<size_t>& out, std::set<size_t>& seen) {
+    if (node == ryml::NONE) return;
+    if (t.is_seq(node) && node_key_str(t, node) == "facility") {
+        match_facility_entries(t, node, sel, resolve_params, out, seen);
+        return;  // a `facility` nested under a facility is not one
+    }
+    for (size_t c = t.first_child(node); c != ryml::NONE; c = t.next_sibling(c))
+        match_facility(t, c, sel, resolve_params, out, seen);
+}
+
+// Send `sel` to whichever population of elements it names: the definitions under
+// `facility`, or the elements sitting in beamlines below `root`.
+//
+// A `facility>>` selector ignores `root`. Callers scope `root` to the expanded
+// lattice, and the definitions the qualifier asks for are outside it by
+// construction -- naming them is the whole point of the qualifier. A lattice
+// qualifier alongside it matches nothing, since a definition belongs to no
+// lattice until the lattice is expanded.
+static void match_selected(const ryml::Tree& t, size_t root,
+                           const NameSelector& sel, bool resolve_params,
+                           std::vector<size_t>& out, std::set<size_t>& seen) {
+    if (sel.facility_scope) {
+        if (!sel.lattice_present)
+            match_facility(t, t.root_id(), sel, resolve_params, out, seen);
+        return;
+    }
+    match_elements(t, root, "", {}, sel, resolve_params, out, seen);
 }
 
 // Classify a single keyed node as a constant/variable and, if its name matches,
@@ -395,8 +483,8 @@ ElementMatches match_element_parameters(const ryml::Tree& t, size_t root,
     out.path = sel.path;
     if (sel.valid) {
         std::set<size_t> seen;
-        match_elements(t, root == ryml::NONE ? t.root_id() : root, "", {}, sel,
-                       false, out.elements, seen);
+        match_selected(t, root == ryml::NONE ? t.root_id() : root, sel, false,
+                       out.elements, seen);
     }
     free_selector(sel);
     return out;
@@ -407,7 +495,12 @@ ElementMatches match_definition_parameters(const ryml::Tree& t,
                                            const std::string& spec) {
     ElementMatches out;
     NameSelector sel = parse_selector(spec);
-    out.valid = sel.valid && !sel.lattice_present && !sel.branch_present;
+    // A `{lattice}>>>` qualifier still cannot apply: no lattice has been built
+    // yet, so nothing here belongs to one. A `{branch}>>` qualifier does apply,
+    // to the beamlines these entries define -- `myline>>q1` is the q1 sitting in
+    // myline's line, whether that entry is written out in full or is the bare
+    // reference `- q1`.
+    out.valid = sel.valid && !sel.lattice_present;
     out.has_param = sel.has_param;
     out.path = sel.path;
     if (out.valid) {
@@ -419,14 +512,20 @@ ElementMatches match_definition_parameters(const ryml::Tree& t,
             if (entry == ryml::NONE || !t.is_map(entry)) continue;
             size_t def = t.first_child(entry);
             if (def == ryml::NONE || !t.has_key(def) || !t.is_map(def)) continue;
-            if (full_match(sel.name, node_key_str(t, def)) &&
+            // A definition standing as an entry of its own is inside no
+            // beamline, so a `{branch}>>` qualifier passes it over -- except
+            // `facility>>`, which names exactly these.
+            if ((!sel.branch_present || sel.facility_scope) &&
+                full_match(sel.name, node_key_str(t, def)) &&
                 !(sel.has_kind && child_val_str(t, def, "kind") != sel.kind) &&
                 seen.insert(def).second)
                 out.elements.push_back(def);
             // An element may equally be defined inline inside a beamline of
             // this entry rather than as an entry of its own, and it is just as
-            // much "defined by this point" in the list.
-            match_elements(t, entry, "", {}, sel, false, out.elements, seen);
+            // much "defined by this point" in the list -- but it is inside a
+            // beamline, which is what `facility>>` excludes.
+            if (!sel.facility_scope)
+                match_elements(t, entry, "", {}, sel, false, out.elements, seen);
         }
     }
     free_selector(sel);
@@ -446,7 +545,7 @@ YAML_API struct name_matches match_names(YAMLTreeHandle tree,
     std::set<size_t> seen;
 
     if (sel.valid) {
-        match_elements(t, t.root_id(), "", {}, sel, true, hits, seen);
+        match_selected(t, t.root_id(), sel, true, hits, seen);
 
         // A bare name (no lattice/branch/kind qualifier and no parameter path)
         // also matches constants and variables directly by name.
@@ -493,7 +592,7 @@ YAML_API struct param_value get_parameter_value(YAMLTreeHandle tree,
         sel.has_param = false;
         std::vector<size_t> eles;
         std::set<size_t> seen;
-        match_elements(t, t.root_id(), "", {}, sel, true, eles, seen);
+        match_selected(t, t.root_id(), sel, true, eles, seen);
         free_selector(sel);
         if (eles.empty()) return out;  // no such element -> missing
         for (size_t ele : eles)

@@ -1,4 +1,4 @@
-# Working on pals-cpp
+# Working on PALSParserCpp
 
 Notes for working on the library itself: where the code lives, how trees are
 held in memory, how to run the tests, and how to build this documentation.
@@ -7,9 +7,9 @@ held in memory, how to run the tests, and how to build this documentation.
 
 The library sources live in `src/`, split by concern:
 
-- **`yaml_c_wrapper.h`** — the public C API: the opaque handle types and every
+- **`PALSParserCpp.h`** — the public C API: the opaque handle types and every
   exported function. This is the only header consumers include.
-- **`yaml_c_wrapper.cpp`** — the generic YAML tree wrapper over rapidyaml
+- **`PALSParserCpp.cpp`** — the generic YAML tree wrapper over rapidyaml
   (parse, traverse, query, modify, emit). Knows nothing about PALS.
 - **`yaml_tree.h`** — internal declarations shared between the wrapper and the
   PALS code: the tree representation behind `YAMLTreeHandle` (`ParsedData`)
@@ -37,7 +37,7 @@ The library sources live in `src/`, split by concern:
 - **`pals_expression.{h,cpp}`** — the standalone PALS expression grammar and
   evaluator (arithmetic, functions, built-in constants, particle-data lookups).
 
-Everything builds into `libyaml_c_wrapper`; see `CMakeLists.txt`.
+Everything builds into `libPALSParserCpp`; see `CMakeLists.txt`.
 
 ## Memory model
 
@@ -103,7 +103,7 @@ a different story: `example_rw` and `print_lattices` reach their lattices throug
 
 The site is built with Sphinx (MyST Markdown + the Furo theme), with the C/C++
 API pulled in from Doxygen via [Breathe](https://breathe.readthedocs.io). The
-published site is at <https://pals-project.github.io/pals-cpp/>.
+published site is at <https://pals-project.github.io/PALSParserCpp/>.
 
 To build and preview it locally (requires `doxygen` and `python3`):
 
@@ -117,5 +117,5 @@ This runs `docs/build.py` — Doxygen (API → XML), then Sphinx →
 elsewhere.
 
 Narrative pages live in `docs/src/`; the API reference is generated from the
-doc comments in `src/yaml_c_wrapper.h` and `src/pals_expression.h`, so API
+doc comments in `src/PALSParserCpp.h` and `src/pals_expression.h`, so API
 documentation is edited in the headers themselves.

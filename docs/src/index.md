@@ -1,11 +1,11 @@
-# pals-cpp
+# PALSParserCpp
 
-**pals-cpp** is a C++ parser library for the Particle Accelerator Lattice
+**PALSParserCpp** is a C++ parser library for the Particle Accelerator Lattice
 Standard ([PALS](https://github.com/pals-project/pals)). It reads PALS-format
 YAML lattice files with [rapidyaml](https://github.com/biojppm/rapidyaml),
 expands a lattice according to the PALS specification, evaluates the
 mathematical expressions in the expanded lattice, and exposes everything through
-a C API (`yaml_c_wrapper.h`) that other languages — such as
+a C API (`PALSParserCpp.h`) that other languages — such as
 [PALSJulia](https://github.com/pals-project/PALSJulia) — wrap.
 
 ```{toctree}
@@ -52,7 +52,7 @@ See [The five trees](guide/trees.md) for what each one holds and which to reach
 for, [Building and using the library](guide/usage.md) to get started,
 [Evaluating expressions](guide/expressions.md) for this library's evaluation
 model, and the [API Reference](api.md) for the full C interface.
-[Working on pals-cpp](develop.md) covers the source layout, the memory model,
+[Working on PALSParserCpp](develop.md) covers the source layout, the memory model,
 the tests, and building this site.
 
 The PALS standard itself — the schema, the element kinds and parameter groups,
@@ -67,10 +67,10 @@ cmake -S . -B build
 cmake --build build
 ```
 
-This builds `libyaml_c_wrapper`, a shared library other languages can load.
+This builds `libPALSParserCpp`, a shared library other languages can load.
 
 ```cpp
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 
 struct lattices lat = parse_and_expand_PALS("ex.pals.yaml", nullptr);
 char* s = tree_to_string(lat.full_expanded);  // the expanded lattice as YAML

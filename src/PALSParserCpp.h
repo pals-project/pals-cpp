@@ -1,8 +1,8 @@
-#ifndef YAML_C_WRAPPER_H
-#define YAML_C_WRAPPER_H
+#ifndef PALS_PARSER_CPP_H
+#define PALS_PARSER_CPP_H
 
 /**
- * @file yaml_c_wrapper.h
+ * @file PALSParserCpp.h
  * @brief Public C API for parsing and manipulating PALS YAML lattices.
  */
 
@@ -416,6 +416,18 @@ YAML_API void free_correspondence_map(struct correspondence_map map);
  * omitted or empty pattern component matches any name at that level. `{branch}`
  * matches an element if any enclosing BeamLine/Branch name matches, so elements
  * in sub-lines are included.
+ *
+ * A line entry written as a bare reference (`- q1`) is matched only through a
+ * `{branch}` qualifier. It holds no parameters of its own until something writes
+ * one — `- q1: {length: 0.6}` is the same entry with room for them — so
+ * unqualified, `q1` is the definition it points at rather than the reference.
+ *
+ * `facility` is reserved as a `{branch}` name: it selects the element
+ * definitions held directly by the `facility` list rather than the elements of
+ * any branch, and being a keyword it is matched literally, not as a pattern.
+ * Definitions written inline inside a beamline are not reached by it — they
+ * belong to that beamline — and neither is anything when a `{lattice}`
+ * qualifier is also given, since a definition belongs to no lattice.
  *
  * The node returned for each match is whatever the string resolves to: the
  * element node (no parameter path), the parameter-group or parameter node (with
@@ -908,4 +920,4 @@ YAML_API void yaml_free_string(char* str);
 }
 #endif
 
-#endif  // YAML_C_WRAPPER_H
+#endif  // PALS_PARSER_CPP_H
