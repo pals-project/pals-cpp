@@ -175,6 +175,127 @@ TEST_CASE("`>>` filters by BeamLine/Branch, including sub-lines", "[matching]") 
     delete_tree(t);
 }
 
+namespace {
+
+// The example of lattice-elements.md (element name matching): `q1` defined as a
+// facility entry, and a second `q1` written inside the beamline `myline`. Only
+// the first is what `facility>>q1` names.
+const char* FACILITY_YAML =
+    "PALS:\n"
+    "  facility:\n"
+    "    - q1:\n"
+    "        kind: Quadrupole\n"
+    "        length: 0.1\n"
+    "    - unused:\n"
+    "        kind: Sextupole\n"
+    "        length: 0.7\n"
+    "    - myline:\n"
+    "        kind: BeamLine\n"
+    "        line:\n"
+    "          - q1:\n"
+    "              kind: Quadrupole\n"
+    "              length: 0.9\n"
+    "    - mylat:\n"
+    "        kind: Lattice\n"
+    "        branches:\n"
+    "          - mybranch:\n"
+    "              inherit: myline\n";
+
+}  // namespace
+
+TEST_CASE("the branch name `facility` selects the facility node's definitions",
+          "[matching]") {
+    YAMLTreeHandle t = parse_string(FACILITY_YAML);
+
+    // The definition standing outside any beamline, not the `q1` in myline.
+    struct name_matches m = match_names(t, "facility>>q1>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.1"));
+    free_name_matches(m);
+
+    // A beamline qualifier still names the one inside that beamline.
+    m = match_names(t, "myline>>q1>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.9"));
+    free_name_matches(m);
+
+    // A definition no beamline uses is reachable only this way: elements are
+    // otherwise matched where they sit in a `line`, and this one sits in none.
+    m = match_names(t, "facility>>unused>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.7"));
+    free_name_matches(m);
+
+    // The name is still a pattern, and `::` still filters by kind.
+    m = match_names(t, "facility>>.*>length");
+    REQUIRE(m.count == 2);
+    free_name_matches(m);
+
+    m = match_names(t, "facility>>Sextupole::.*>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.7"));
+    free_name_matches(m);
+
+    delete_tree(t);
+}
+
+TEST_CASE("a bare line reference is matched only through its beamline",
+          "[matching]") {
+    // `- q1` names the element without holding any parameter of its own, but it
+    // can be given them, so it is an element of myline like any other. Named
+    // without saying which line it sits in, though, `q1` is the definition it
+    // points at -- otherwise a set before expansion could not target the
+    // definition alone (lattice-construction.md, s:expand.lat).
+    YAMLTreeHandle t = parse_string(
+        "PALS:\n"
+        "  facility:\n"
+        "    - q1:\n"
+        "        kind: Quadrupole\n"
+        "        length: 0.1\n"
+        "    - myline:\n"
+        "        kind: BeamLine\n"
+        "        line:\n"
+        "          - q1\n");
+
+    struct name_matches m = match_names(t, "myline>>q1");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "q1"));  // still the bare reference scalar
+    free_name_matches(m);
+
+    // Unqualified, the reference is passed over, and nothing else here sits in
+    // a line -- the definition is reached by naming the facility node instead.
+    m = match_names(t, "q1>length");
+    REQUIRE(m.count == 0);
+    free_name_matches(m);
+
+    m = match_names(t, "facility>>q1>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.1"));
+    free_name_matches(m);
+
+    delete_tree(t);
+}
+
+TEST_CASE("`facility` is a keyword where a branch name goes, not a pattern",
+          "[matching]") {
+    YAMLTreeHandle t = parse_string(FACILITY_YAML);
+
+    // A branch pattern wide enough to spell `facility` still means branches
+    // only: it reaches the `q1` in myline and nothing in the facility list.
+    struct name_matches m = match_names(t, ".*>>q1>length");
+    REQUIRE(m.count == 1);
+    REQUIRE(val_eq(t, m.nodes[0], "0.9"));
+    free_name_matches(m);
+
+    // A lattice qualifier cannot apply: a definition belongs to no lattice
+    // until a lattice is expanded around it.
+    m = match_names(t, "mylat>>>facility>>q1>length");
+    REQUIRE(m.count == 0);
+    free_name_matches(m);
+
+    delete_tree(t);
+}
+
 TEST_CASE("`>>>` selects among lattices with the same element name",
           "[matching]") {
     YAMLTreeHandle t = parse_string(MATCH_YAML);

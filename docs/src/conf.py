@@ -8,9 +8,9 @@
 import os
 
 # -- Project information -----------------------------------------------------
-project = 'pals-cpp'
-copyright = '2026, pals-cpp Contributors'
-author = 'pals-cpp Contributors'
+project = 'PALSParserCpp'
+copyright = '2026, PALSParserCpp Contributors'
+author = 'PALSParserCpp Contributors'
 
 # -- General configuration ---------------------------------------------------
 extensions = [
@@ -25,8 +25,8 @@ numfig = True
 # -- Breathe (Doxygen bridge) ------------------------------------------------
 # Doxygen writes its XML to docs/doxygen/xml (see docs/Doxyfile and build.py).
 # The path is relative to this conf.py, which lives in docs/src.
-breathe_projects = {'pals-cpp': '../doxygen/xml'}
-breathe_default_project = 'pals-cpp'
+breathe_projects = {'PALSParserCpp': '../doxygen/xml'}
+breathe_default_project = 'PALSParserCpp'
 breathe_domain_by_extension = {'h': 'cpp', 'hpp': 'cpp'}
 breathe_show_include = False
 
@@ -43,7 +43,7 @@ myst_heading_anchors = 3
 # -- HTML output (Furo) ------------------------------------------------------
 html_theme = 'furo'
 html_theme_options = {
-    'source_repository': 'https://github.com/pals-project/pals-cpp',
+    'source_repository': 'https://github.com/pals-project/PALSParserCpp',
     'source_branch': 'main',
     'source_directory': 'docs/src/',
     'navigation_with_keys': True,
@@ -53,7 +53,7 @@ html_theme_options = {
     'footer_icons': [
         {
             'name': 'GitHub',
-            'url': 'https://github.com/pals-project/pals-cpp',
+            'url': 'https://github.com/pals-project/PALSParserCpp',
             'html': """
                 <svg stroke="currentColor" fill="currentColor" stroke-width="0"
                      viewBox="0 0 16 16">
@@ -64,4 +64,4 @@ html_theme_options = {
         },
     ],
 }
-html_title = 'pals-cpp'
+html_title = 'PALSParserCpp'

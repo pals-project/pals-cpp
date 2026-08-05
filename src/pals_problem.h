@@ -7,16 +7,16 @@
 //
 // Kept in its own header, rather than in pals_expand.cpp where the expander's
 // problems are raised, because the name checks in pals_check.cpp report into
-// the same list. Not part of the public C API declared in yaml_c_wrapper.h.
+// the same list. Not part of the public C API declared in PALSParserCpp.h.
 
 #include <string>
 #include <vector>
 
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 
 namespace pals {
 
-// Mirrors the C enums of the same names; see yaml_c_wrapper.h for what the
+// Mirrors the C enums of the same names; see PALSParserCpp.h for what the
 // values mean. Kept as a scoped enum internally so an unannotated call site
 // cannot silently pass the wrong one -- the two are both small ints, and the
 // argument order would not protect us.

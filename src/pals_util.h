@@ -4,7 +4,7 @@
 // Small helpers shared between the PALS expansion pipeline (pals_expand.cpp)
 // and PALS name matching / parameter lookup (pals_match.cpp): dotted
 // parameter-path utilities and the expr(...) unwrapper. Not part of the public
-// C API declared in yaml_c_wrapper.h.
+// C API declared in PALSParserCpp.h.
 
 #include <cstddef>
 #include <string>
@@ -28,7 +28,7 @@ size_t resolve_param_path(const ryml::Tree& t, size_t ele,
 // it. `was_expr` reports whether an `expr(...)` wrapper was present.
 std::string strip_expr_wrapper(const std::string& s, bool& was_expr);
 
-// What a PALS name-matching string (match_names syntax, see yaml_c_wrapper.h)
+// What a PALS name-matching string (match_names syntax, see PALSParserCpp.h)
 // selected, reported as the element definitions it matched plus the parameter
 // path it named. Elements are listed whether or not they carry that parameter,
 // so a caller that *writes* the parameter -- a controller driving it -- can
@@ -43,7 +43,8 @@ struct ElementMatches {
 // Run a name-matching string over the subtree at `root` (ryml::NONE for the
 // whole tree). Scoping to the expanded lattice node is what keeps a controller
 // from also matching the unexpanded element definitions still sitting in
-// `facility`.
+// `facility`. The `facility>>` qualifier is the deliberate exception: it asks
+// for those definitions by name, so it looks outside `root`.
 ElementMatches match_element_parameters(const ryml::Tree& t, size_t root,
                                         const std::string& spec);
 
@@ -52,8 +53,11 @@ ElementMatches match_element_parameters(const ryml::Tree& t, size_t root,
 // each an anonymous wrapper map holding one keyed definition. This is what a
 // `set` ahead of `expand_lattice` acts on, so passing only the entries that
 // precede the set is what restricts it to the elements defined by that point.
-// A `{lattice}>>>` or `{branch}>>` qualifier cannot apply to a definition and
-// makes the match string invalid here.
+// A `{lattice}>>>` qualifier cannot apply -- no lattice has been built yet --
+// and makes the match string invalid here. A `{branch}>>` one does apply, to the
+// beamlines these entries define, and then excludes the entries themselves; the
+// exception is `facility>>`, which names exactly those and nothing inside a
+// beamline.
 ElementMatches match_definition_parameters(const ryml::Tree& t,
                                            const std::vector<size_t>& entries,
                                            const std::string& spec);

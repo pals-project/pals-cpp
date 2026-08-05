@@ -3,7 +3,7 @@
 // lattice logic that builds on it lives in pals_lattice.cpp. Declarations
 // shared between the two are in yaml_tree.h.
 
-#include "yaml_c_wrapper.h"
+#include "PALSParserCpp.h"
 #include "yaml_tree.h"
 
 #include <cstring>

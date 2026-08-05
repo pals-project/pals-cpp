@@ -10,7 +10,7 @@
 //
 // pals_floor.cpp is compiled straight into the tests executable (see
 // tests/CMakeLists.txt): its symbols carry hidden visibility and so are not
-// reachable through the yaml_c_wrapper shared library.
+// reachable through the PALSParserCpp shared library.
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>

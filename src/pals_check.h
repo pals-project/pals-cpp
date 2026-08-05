@@ -8,7 +8,7 @@
 // why they are caught here. Expansion has nothing to object to, so the trees
 // come back sound but holding something other than what the author wrote, with
 // no other pass to notice. Reported as PROBLEM_ERROR for that reason.
-// Not part of the public C API declared in yaml_c_wrapper.h.
+// Not part of the public C API declared in PALSParserCpp.h.
 
 #include <string>
 #include <vector>

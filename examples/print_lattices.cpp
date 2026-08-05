@@ -3,7 +3,7 @@
 #include <ryml.hpp>
 #include <ryml_std.hpp>
 
-#include "../src/yaml_c_wrapper.h"
+#include "../src/PALSParserCpp.h"
 
 int main(int argc, char* argv[]) {
     const char* file_name = nullptr;

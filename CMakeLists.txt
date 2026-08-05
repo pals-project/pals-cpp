@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(YAMLWrapper)
+project(PALSParserCpp)
 
 # Default to Release when no build type is given. This is not just about
 # optimization: an empty build type leaves NDEBUG undefined, and c4core (vendored
@@ -43,7 +43,7 @@ FetchContent_Declare(
   GIT_TAG pcre2-10.44
 )
 # Build only the 8-bit library, statically, and skip the tooling/tests so the
-# regex code is embedded directly into libyaml_c_wrapper.
+# regex code is embedded directly into libPALSParserCpp.
 set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "" FORCE)
 set(PCRE2_BUILD_PCRE2_16 OFF CACHE BOOL "" FORCE)
 set(PCRE2_BUILD_PCRE2_32 OFF CACHE BOOL "" FORCE)
@@ -74,21 +74,21 @@ FetchContent_MakeAvailable(apc)
 file(COPY ${CMAKE_SOURCE_DIR}/lattice_files/
      DESTINATION ${CMAKE_BINARY_DIR}/lattice_files/)
 
-add_library(yaml_c_wrapper SHARED
-  src/yaml_c_wrapper.cpp
+add_library(PALSParserCpp SHARED
+  src/PALSParserCpp.cpp
   src/pals_expand.cpp
   src/pals_match.cpp
   src/pals_util.cpp
   src/pals_expression.cpp
   src/pals_floor.cpp
   src/pals_check.cpp)
-target_link_libraries(yaml_c_wrapper PUBLIC ryml PRIVATE pcre2-8-static apc)
+target_link_libraries(PALSParserCpp PUBLIC ryml PRIVATE pcre2-8-static apc)
 
 add_executable(example_rw examples/example_rw.cpp)
-target_link_libraries(example_rw yaml_c_wrapper ryml)
+target_link_libraries(example_rw PALSParserCpp ryml)
 
 add_executable(print_lattices examples/print_lattices.cpp)
-target_link_libraries(print_lattices yaml_c_wrapper ryml)
+target_link_libraries(print_lattices PALSParserCpp ryml)
 
-# Must come after yaml_c_wrapper is defined: tests/CMakeLists.txt links it.
+# Must come after PALSParserCpp is defined: tests/CMakeLists.txt links it.
 add_subdirectory(tests)

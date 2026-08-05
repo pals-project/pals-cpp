@@ -1,6 +1,6 @@
 # API Reference
 
-The public interface is the C API declared in `yaml_c_wrapper.h`, together with
+The public interface is the C API declared in `PALSParserCpp.h`, together with
 the expression evaluator in `pals_expression.h`. Everything below is generated
 from the header doc comments by [Doxygen](https://www.doxygen.nl) and embedded
 with [Breathe](https://breathe.readthedocs.io).
@@ -24,19 +24,19 @@ with its matching `free_*` function. See
 The opaque handles and sentinel values shared across the API.
 
 ```{doxygentypedef} YAMLTreeHandle
-:project: pals-cpp
+:project: PALSParserCpp
 ```
 
 ```{doxygentypedef} YAMLNodeId
-:project: pals-cpp
+:project: PALSParserCpp
 ```
 
 ```{doxygendefine} YAML_NULL_ID
-:project: pals-cpp
+:project: PALSParserCpp
 ```
 
 ```{doxygendefine} YAML_END
-:project: pals-cpp
+:project: PALSParserCpp
 ```
 
 ## Parsing & expansion
@@ -45,7 +45,7 @@ Read PALS/YAML from disk or memory and expand a lattice into its four
 representations (`original`, `combined`, `expanded`, `adjunct`).
 
 ```{doxygengroup} parse
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -56,7 +56,7 @@ Map a single logical node across the four trees produced by
 {cpp:func}`parse_and_expand_PALS`.
 
 ```{doxygengroup} correspond
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -66,7 +66,7 @@ Map a single logical node across the four trees produced by
 Resolve a PALS name-matching string to the nodes it selects.
 
 ```{doxygengroup} namematch
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -76,7 +76,7 @@ Resolve a PALS name-matching string to the nodes it selects.
 Look up the stored value of a single element parameter, constant, or variable.
 
 ```{doxygengroup} param
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -86,7 +86,7 @@ Look up the stored value of a single element parameter, constant, or variable.
 Walk a tree, read node keys and values, and test node types.
 
 ```{doxygengroup} nav
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -96,7 +96,7 @@ Walk a tree, read node keys and values, and test node types.
 Create trees and add, set, copy, or remove nodes.
 
 ```{doxygengroup} edit
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -106,7 +106,7 @@ Create trees and add, set, copy, or remove nodes.
 Emit a node or whole tree back to YAML text or a file.
 
 ```{doxygengroup} emit
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -119,7 +119,7 @@ Release the handles and strings the API returns. (The subsystem-specific
 {cpp:func}`free_name_matches`.)
 
 ```{doxygengroup} lifecycle
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```
@@ -127,12 +127,12 @@ Release the handles and strings the API returns. (The subsystem-specific
 ## Expression evaluation
 
 The recursive-descent evaluator behind the PALS expression grammar. The C entry
-point {cpp:func}`evaluate_pals_expression` (declared in `yaml_c_wrapper.h`)
+point {cpp:func}`evaluate_pals_expression` (declared in `PALSParserCpp.h`)
 evaluates a standalone string; the `pals::` interface in `pals_expression.h` is
 the C++ evaluator it and lattice expansion are built on.
 
 ```{doxygengroup} expr
-:project: pals-cpp
+:project: PALSParserCpp
 :content-only:
 :members:
 ```

@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/yaml_c_wrapper.h"
+#include "../src/PALSParserCpp.h"
 
 // ─── file helpers ───────────────────────────────────────────────────────────
 // The tests do not create lattice files. A lattice a test needs only in order to

@@ -256,6 +256,51 @@ TEST_CASE("the components of a BeamLine are all accepted",
     REQUIRE(count_with(ps, "unknown parameter") == 0);
 }
 
+TEST_CASE("`facility` is rejected as the name of anything",
+          "[check][problems]") {
+    // lattice-elements.md: `facility` where a branch name goes selects the
+    // definitions the facility node itself holds, so nothing else may answer to
+    // it. Reported wherever a construct is named -- a facility entry, a `line`
+    // entry, or a branch, the last of which carries no kind to be found by.
+    auto ps = problems_for("PALS:\n"
+                           "  facility:\n"
+                           "    - facility:\n"
+                           "        kind: Quadrupole\n"
+                           "        length: 1\n");
+    REQUIRE(count_with(ps, "reserved name") == 1);
+
+    ps = problems_for("PALS:\n"
+                      "  facility:\n"
+                      "    - main:\n"
+                      "        kind: BeamLine\n"
+                      "        line:\n"
+                      "          - facility:\n"
+                      "              kind: Marker\n");
+    REQUIRE(count_with(ps, "reserved name") == 1);
+
+    ps = problems_for("PALS:\n"
+                      "  facility:\n"
+                      "    - main:\n"
+                      "        kind: BeamLine\n"
+                      "        line:\n"
+                      "          - m1:\n"
+                      "              kind: Marker\n"
+                      "    - lat:\n"
+                      "        kind: Lattice\n"
+                      "        branches:\n"
+                      "          - facility:\n"
+                      "              inherit: main\n");
+    REQUIRE(count_with(ps, "reserved name") == 1);
+
+    // The `facility` list itself is not a construct named `facility`.
+    ps = problems_for("PALS:\n"
+                      "  facility:\n"
+                      "    - q1:\n"
+                      "        kind: Quadrupole\n"
+                      "        length: 1\n");
+    REQUIRE(count_with(ps, "reserved name") == 0);
+}
+
 TEST_CASE("groups with no fixed vocabulary are left alone",
           "[check][problems]") {
     // MetaP may hold arbitrary metadata beyond its six components (meta.md) and
