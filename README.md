@@ -43,7 +43,7 @@ To see the console output, in the build directory, run
 
 ## Extensions
 
-The [PALSJulia.jl](https://github.com/pals-project/PALSJulia.jl) package is an extension of `PALSParserCpp` to:
+The [PALSParserJ.jl](https://github.com/pals-project/PALSParserJ.jl) package is an extension of `PALSParserCpp` to:
 
 - Provide a Julia interface for `PALSParserCpp` C++ functions.
 - Provide a translator from `PALS` files to [`Bmad`](https://github.com/bmad-sim/bmad-ecosystem) lattice files.

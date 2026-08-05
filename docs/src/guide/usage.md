@@ -224,7 +224,7 @@ The `examples/` directory contains runnable programs:
 
 ## Extensions
 
-[PALSJulia](https://github.com/pals-project/PALSJulia) extends PALSParserCpp with a
+[PALSParserJ](https://github.com/pals-project/PALSParserJ.jl) extends PALSParserCpp with a
 Julia interface to the C API and translators from PALS to
 [Bmad](https://github.com/bmad-sim/bmad-ecosystem) and
 [SciBmad](https://github.com/bmad-sim/SciBmad.jl) lattice files.
