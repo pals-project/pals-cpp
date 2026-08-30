@@ -1489,10 +1489,12 @@ static size_t find_lattice(ryml::Tree& t, const std::string& name) {
 // avoids a stray collision between such a name and a constant (e.g. an element
 // literally named `pi`).
 //
-// `authors`, `notes` and `reminders` are free-form prose (fundamentals.md,
-// s:palsroot), so nothing in them is an expression. Prose that happens to carry
-// a `/` (a file path) or parentheses would otherwise be taken for arithmetic by
-// looks_like_expression and reported as a broken expression.
+// `notes` and `reminders` are free-form prose (fundamentals.md, s:palsroot), so
+// nothing in them is an expression. Prose that happens to carry a `/` (a file
+// path) or parentheses would otherwise be taken for arithmetic by
+// looks_like_expression and reported as a broken expression. `authors` is prose
+// too, but its entries are name/orcid/affiliation/email mappings, so
+// substitute_values prunes that subtree whole instead of listing its keys here.
 //
 // `destination_pointer` is here for a different reason: it is a node id, and a
 // node id is a number, so evaluating it "succeeds" and rewrites it through
@@ -1507,7 +1509,7 @@ static const std::set<std::string>& non_expr_keys() {
         "destination_element", "new_branch", "multipass",
         "propagate_reference", "name", "multipass_index",
         "element_index", "destination_pointer", "forked_to",
-        "authors",    "notes",       "reminders"};
+        "notes",      "reminders"};
     return keys;
 }
 
@@ -1789,6 +1791,11 @@ static void substitute_values(ryml::Tree& t, size_t node,
                               ProblemList& problems) {
     if (node == ryml::NONE || is_controller(t, node) || is_set_node(t, node))
         return;
+
+    // `authors` entries are name/orcid/affiliation/email mappings whose values
+    // are all prose (fundamentals.md, s:palsroot) -- an affiliation's
+    // parentheses would read as arithmetic -- so the subtree is skipped whole.
+    if (t.has_key(node) && t.key(node) == ryml::to_csubstr("authors")) return;
 
     if (t.has_val(node)) {
         bool skip = false;
